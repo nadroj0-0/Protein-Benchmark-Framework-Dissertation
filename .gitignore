@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environments
+.venv/
+env/
+micromamba/
+
+# Logs
+logs/
+
+# Downloaded repositories
+external/
+
+# Data
+data/
+datasets/
+
+# Large embeddings
+*.h5
+*.npz
+*.npy
+*.tar.gz
