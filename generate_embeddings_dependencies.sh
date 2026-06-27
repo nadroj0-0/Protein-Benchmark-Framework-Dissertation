@@ -90,26 +90,12 @@ fi
 
 STRING_H5="${EXT}/string/protein.network.embeddings.v12.0.h5"
 if [ ! -f "${STRING_H5}" ]; then
-  echo "==> Attempting STRING network embeddings .h5 ..."
-  if ! wget -c "https://stringdb-downloads.org/download/protein.network.embeddings.v12.0.h5" \
-            -O "${STRING_H5}.partial" 2>/dev/null; then
-    rm -f "${STRING_H5}.partial"
-    cat <<MSG
-
-  !! MANUAL STEP REQUIRED: protein.network.embeddings.v12.0.h5
-     Not available at a confirmed public STRING URL. Obtain from
-     https://string-db.org/cgi/download or from the authors, place at:
-       ${STRING_H5}
-     (ASK ZIJAN where this file came from — it may have no public URL.)
-
-MSG
-  else
-    mv "${STRING_H5}.partial" "${STRING_H5}"
-    echo "==> STRING network embeddings downloaded."
-  fi
+  echo "==> Downloading STRING network embeddings v12.0 (.h5) (~17.9 GB)"
+  wget -c "https://stringdb-downloads.org/download/protein.network.embeddings.v12.0.h5" -O "${STRING_H5}"
 else
   echo "==> STRING network embeddings already present, skipping"
 fi
+
 
 # --- 4. AlphaFold + UniProt are runtime API downloads, nothing to pre-fetch.
 echo "==> AlphaFold & UniProt are runtime API downloads (handled in modality scripts)."
