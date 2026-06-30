@@ -13,26 +13,34 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 # --- External database dependencies (writes external/dependency_env.sh) ---
-echo "==> [0/5] External dependencies"
+echo "==> [0/7] External dependencies"
 bash "${HERE}/generate_embeddings_dependencies.sh"
 source external/dependency_env.sh
 
-echo "==> [1/5] Data preparation (raw CSVs -> splits/labels/sequences)"
+echo "==> [1/7] Data preparation (raw CSVs -> splits/labels/sequences)"
 bash "${HERE}/generate_embeddings_prepare_data.sh"
 
-echo "==> [2/5] Sequence (ProtT5) embeddings"
+echo "[2/7] Verifying generated dataset splits..."
+python "${HERE}/verify_splits.py" \
+    --data-dir data \
+    --strict
+
+echo "==> [3/7] Sequence (ProtT5) embeddings"
 bash "${HERE}/generate_embeddings_sequence.sh"
 
-echo "==> [3/5] Text embeddings"
+echo "==> [4/7] Text embeddings"
 bash "${HERE}/generate_embeddings_text.sh"
 
-echo "==> [4/5] Structure embeddings"
+echo "==> [5/7] Structure embeddings"
 bash "${HERE}/generate_embeddings_structure.sh"
 
-echo "==> [5/5] PPI embeddings"
+echo "==> [6/7] PPI embeddings"
 bash "${HERE}/generate_embeddings_ppi.sh"
 
-echo "==> [6/6] Verify generated embeddings"
-python "${HERE}/verify_embeddings.py" --data-dir data --strict
+echo "[7/7] Verifying generated embeddings..."
+python "${HERE}/verify_embeddings.py" \
+    --data-dir data \
+    --config "${HERE}/configs/cafa3.json" \
+    --strict
 
 echo "==> Embedding generation complete. data/embedding_cache/ populated."

@@ -28,7 +28,8 @@ from typing import Any
 
 import numpy as np
 
-DEFAULT_CONFIG_PATH = "configs/cafa3.json"
+SCRIPT_DIR = Path(__file__).resolve().parent
+DEFAULT_CONFIG_PATH = SCRIPT_DIR / "configs" / "cafa3.json"
 
 
 def load_config(path: str) -> dict[str, Any]:
@@ -103,6 +104,23 @@ def main() -> None:
 
     cfg = load_config(args.config)
 
+    required_keys = {
+        "aspects",
+        "splits",
+        "cache_dir",
+        "modalities",
+        "sample_size",
+        "catastrophic_factor",
+    }
+
+    missing = required_keys - cfg.keys()
+    if missing:
+        print(
+            f"FAIL: configuration '{args.config}' is missing required keys: "
+            f"{', '.join(sorted(missing))}"
+        )
+        sys.exit(1)
+
     data_dir = Path(args.data_dir)
     cache = data_dir / cfg["cache_dir"]
     print(f"==> Verifying embeddings under {cache}  (config: {args.config})")
@@ -118,9 +136,27 @@ def main() -> None:
 
     hard_fail = False
     for mod, spec in cfg["modalities"].items():
+
+        required_modality_keys = {"dirs", "dim", "min_coverage"}
+
+        missing = required_modality_keys - spec.keys()
+        if missing:
+            print(
+                f"FAIL: modality '{mod}' is missing required keys: "
+                f"{', '.join(sorted(missing))}"
+            )
+            hard_fail = True
+            continue
+
         emb_dir = resolve_dir(cache, spec["dirs"])
         dim, min_cov = spec["dim"], spec["min_coverage"]
-        print(f"--- {mod}  [{emb_dir.name}/]  expect dim={dim}, coverage>={min_cov:.0%} ---")
+
+        print("-" * 60)
+        print(f"Modality : {mod}")
+        print(f"Cache    : {emb_dir.name}")
+        print(f"Dim      : {dim}")
+        print(f"Coverage : ≥{min_cov:.0%}")
+        print("-" * 60)
 
         if not emb_dir.exists():
             print("  FAIL: directory missing\n")
