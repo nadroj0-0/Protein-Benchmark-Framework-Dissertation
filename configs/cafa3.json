@@ -1,0 +1,13 @@
+{
+  "aspects": ["BPO", "CCO", "MFO"],
+  "splits": ["train", "valid", "test"],
+  "cache_dir": "embedding_cache",
+  "catastrophic_factor": 0.6,
+  "sample_size": 25,
+  "modalities": {
+    "sequence":  {"dirs": ["prott5"], "dim": 1024, "min_coverage": 0.99},
+    "text":      {"dirs": ["exp_text_embeddings", "exp_text_embeddings_temporal"], "dim": 768, "min_coverage": 0.95},
+    "structure": {"dirs": ["IF1"], "dim": 512, "min_coverage": 0.85},
+    "ppi":       {"dirs": ["ppi"], "dim": 512, "min_coverage": 0.80}
+  }
+}

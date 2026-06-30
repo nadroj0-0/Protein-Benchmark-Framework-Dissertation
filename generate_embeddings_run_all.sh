@@ -32,4 +32,7 @@ bash "${HERE}/generate_embeddings_structure.sh"
 echo "==> [5/5] PPI embeddings"
 bash "${HERE}/generate_embeddings_ppi.sh"
 
+echo "==> [6/6] Verify generated embeddings"
+python "${HERE}/verify_embeddings.py" --data-dir data --strict
+
 echo "==> Embedding generation complete. data/embedding_cache/ populated."
