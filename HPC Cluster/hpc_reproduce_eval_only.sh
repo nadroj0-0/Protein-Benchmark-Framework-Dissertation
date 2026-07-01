@@ -101,7 +101,7 @@ bash reproduce_eval_only.sh || exit 1
 #cp /scratch0/pfam_nw_${JOB_ID}/*.csv /home/dbuchan/pfam_nw/
 #cp /scratch0/pfam_nw_${JOB_ID}/*.err /home/dbuchan/pfam_nw/
 echo "Copying results to: $OUTDIR"
-cp -r "$WORK" "$OUTDIR"/
+cp -r "$WORK/PFP/results" "$OUTDIR"/
 
 echo "Finished at: $(date)"
 
