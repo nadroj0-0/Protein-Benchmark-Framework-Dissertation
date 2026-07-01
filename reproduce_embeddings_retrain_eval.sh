@@ -50,8 +50,9 @@ if [ ! -d "$ENV_DIR" ]; then
 
     python -m pip install --upgrade pip setuptools wheel
     pip install -r requirements.txt --prefer-binary
-    pip install requests fair-esm biopython
+    pip install requests fair-esm biopython protobuf sentencepiece
     pip install --only-binary=:all: h5py
+    pip install --only-binary=:all: tiktoken
 
     echo "==> Environment created."
 else
