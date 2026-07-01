@@ -22,13 +22,20 @@ cd PFP
 REPO="$(pwd)"
 
 # --- 1. Environment: micromamba, Python 3.11 --------------------------
-micromamba create -y -n mmfp python=3.11
-eval "$(micromamba shell hook --shell bash)"
-micromamba activate mmfp
+#micromamba create -y -n mmfp python=3.11
+#eval "$(micromamba shell hook --shell bash)"
+#micromamba activate mmfp
+eval "$(/share/apps/miniforge3_mamba/bin/conda shell.bash hook)"
+conda create -y -n mmfp python=3.11
+conda activate mmfp
 
 # --- 2. Dependencies (requirements.txt is incomplete: add requests/h5py/fair-esm) --
-pip install -r requirements.txt
-pip install requests h5py fair-esm
+#pip install -r requirements.txt
+#pip install requests h5py fair-esm
+python -m pip install --upgrade pip setuptools wheel
+pip install -r requirements.txt --prefer-binary
+pip install requests fair-esm
+pip install --only-binary=:all: h5py
 
 # --- 3. Generate ALL embeddings from scratch (sub-orchestrator; CWD = repo root) ---
 bash "${HERE}/generate_embeddings_run_all.sh"
