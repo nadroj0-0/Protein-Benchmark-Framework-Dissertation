@@ -18,7 +18,7 @@
 #$ -j y
 
 # give the array job a name
-#$ -N pfp_cafa3_retrain_eval
+#$ -N pfp_cafa3_embeddings_retrain_eval
 
 #pass your whole environment.
 #$ -V
@@ -49,8 +49,8 @@ trap cleanup SIGTERM
 trap cleanup EXIT
 trap cleanup ERR
 
-WORK=/scratch0/pfp_cafa3_retrain_eval_${JOB_ID}
-OUTDIR="$HOME/pfp_cafa3_retrain_eval_results"
+WORK=/scratch0/pfp_cafa3_embeddings_retrain_eval_${JOB_ID}
+OUTDIR="$HOME/pfp_cafa3_embeddings_retrain_eval_results"
 
 # print the location that task is running to stdout (handy for debugging)
 hostname
@@ -74,9 +74,9 @@ mkdir -p "$OUTDIR"
 cd "$WORK"
 
 # Copy any files the task needs locally to the tmp space
-echo "Copying reproduce_retrain_eval.sh to local scratch..."
+echo "Copying reproduce_embeddings_retrain_eval.sh to local scratch..."
 
-cp "$HOME/Protein-Benchmark-Framework-Dissertation/reproduce_retrain_eval.sh" "$WORK"/ || exit 1
+cp "$HOME/Protein-Benchmark-Framework-Dissertation/reproduce_embeddings_retrain_eval.sh" "$WORK"/ || exit 1
 
 cd "$WORK" || exit 1
 
@@ -90,12 +90,12 @@ cd "$WORK" || exit 1
 #echo "python /home/dbuchan/profile_drift_new/scripts/rep_distance_matrix/pfam_reps_nw.py /scratch0/pfam_nw_${TASK_ID}/random_pfam_reps.fa /scratch0/pfam_nw_${TASK_ID}/${TASK_ID}_pfam_random > /scratch0/cp /home/dbuchan/pfam_nw/random_pfam_reps.fa /scratch0/pfam_nw_${TASK_ID}/pfam_nw_${TASK_ID}/${TASK_ID}_hits.csv 2> /scratch0/pfam_nw_${TASK_ID}/${TASK_ID}_hits.err"
 #python /home/dbuchan/profile_drift_new/scripts/rep_distance_matrix/pfam_reps_nw.py /scratch0/pfam_nw_${TASK_ID}/random_pfam_reps.fa /scratch0/pfam_nw_${TASK_ID}/${TASK_ID}_pfam_random > /scratch0/pfam_nw_${TASK_ID}/${TASK_ID}_hits.csv 2> /scratch0/pfam_nw_${TASK_ID}/${TASK_ID}_hits.err
 echo
-echo "Running retrain and evaluation workflow"
+echo "Running embedding generation and retrain and evaluation workflow"
 echo "Command:"
-echo "bash reproduce_retrain_eval.sh"
+echo "bash reproduce_embeddings_retrain_eval.sh"
 echo
 # Run the workflow but don't immediately exit if it returns an error
-bash reproduce_retrain_eval.sh
+bash reproduce_embeddings_retrain_eval.sh
 STATUS=$?
 
 # Now I copy the results files I want to keep back to my home directory on
