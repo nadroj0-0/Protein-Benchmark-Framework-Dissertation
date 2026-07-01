@@ -17,13 +17,20 @@ git clone https://github.com/psipred/PFP.git
 cd PFP
 
 # --- 1. Environment: micromamba, Python 3.11 --------------------------
-micromamba create -y -n mmfp python=3.11
-eval "$(micromamba shell hook --shell bash)"
-micromamba activate mmfp
+#micromamba create -y -n mmfp python=3.11
+#eval "$(micromamba shell hook --shell bash)"
+#micromamba activate mmfp
+eval "$(/share/apps/miniforge3_mamba/bin/conda shell.bash hook)"
+conda create -y -n mmfp python=3.11
+conda activate mmfp
 
 # --- 2. Dependencies (same incomplete-requirements fix as eval-only) --
-pip install -r requirements.txt
-pip install requests h5py fair-esm
+#pip install -r requirements.txt
+#pip install requests h5py fair-esm
+python -m pip install --upgrade pip setuptools wheel
+pip install -r requirements.txt --prefer-binary
+pip install requests fair-esm
+pip install --only-binary=:all: h5py
 
 # --- 3. Data (same 5 tarballs, extract from repo root, no -C) ----------
 for f in mmfp_embeddings_struct_ppi mmfp_embeddings_prott5 \
