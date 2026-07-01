@@ -74,11 +74,11 @@ mkdir -p "$OUTDIR"
 cd "$WORK"
 
 # Copy any files the task needs locally to the tmp space
-echo "Copying reproduce_embeddings_retrain_eval.sh to local scratch..."
+echo "Cloning dissertation framework into local scratch..."
 
-cp "$HOME/Protein-Benchmark-Framework-Dissertation/reproduce_embeddings_retrain_eval.sh" "$WORK"/ || exit 1
+git clone https://github.com/nadroj0-0/Protein-Benchmark-Framework-Dissertation.git || exit 1
 
-cd "$WORK" || exit 1
+cd "$WORK/Protein-Benchmark-Framework-Dissertation" || exit 1
 
 #cp /home/dbuchan/pfp_eval/random_pfam_reps.fa /scratch0/pfp_eval_${TASK_ID}/
 #cp /home/dbuchan/pfp_eval/${TASK_ID}_pfam_random /scratch0/pfp_eval_${TASK_ID}/
@@ -104,8 +104,8 @@ STATUS=$?
 #cp /scratch0/pfam_nw_${JOB_ID}/*.err /home/dbuchan/pfam_nw/
 # Always attempt to copy results back
 echo "Copying results to: $OUTDIR"
-if [ -d "$WORK/PFP/results" ]; then
-    cp -r "$WORK/PFP/results" "$OUTDIR"/
+if [ -d "$WORK/Protein-Benchmark-Framework-Dissertation/PFP/results" ]; then
+    cp -r "$WORK/Protein-Benchmark-Framework-Dissertation/PFP/results" "$OUTDIR"/
     echo "Results copied successfully."
 else
     echo "WARNING: No results directory found!"
