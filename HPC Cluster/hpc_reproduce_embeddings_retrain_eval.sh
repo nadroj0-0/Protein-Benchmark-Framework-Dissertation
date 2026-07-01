@@ -83,7 +83,6 @@ cd "$WORK/Protein-Benchmark-Framework-Dissertation" || exit 1
 #cp /home/dbuchan/pfp_eval/random_pfam_reps.fa /scratch0/pfp_eval_${TASK_ID}/
 #cp /home/dbuchan/pfp_eval/${TASK_ID}_pfam_random /scratch0/pfp_eval_${TASK_ID}/
 
-
 ##### NOW DO STUFF
 # Send the command to STDOUT as a string (handy for debugging)
 # I'm only really doing one number crunching thing here but you might

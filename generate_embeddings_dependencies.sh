@@ -83,7 +83,7 @@ STRING_ALIAS="${EXT}/string/protein.aliases.v12.0.txt"
 if [ ! -f "${STRING_ALIAS}" ]; then
   echo "==> Downloading STRING aliases v12.0 (~3.2 GB)"
   wget -c "https://stringdb-downloads.org/download/protein.aliases.v12.0.txt.gz" -O "${STRING_ALIAS_GZ}"
-  gunzip -k "${STRING_ALIAS_GZ}"
+  gunzip "${STRING_ALIAS_GZ}"
 else
   echo "==> STRING aliases already present, skipping"
 fi
