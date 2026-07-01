@@ -26,8 +26,12 @@ conda activate mmfp
 # --- 2. Dependencies. requirements.txt is INCOMPLETE: the eval script
 #        imports extract_uniprot_text.py (needs `requests`); structure/PPI
 #        paths need h5py and fair-esm. Those three are the only missing ones.
+#pip install -r requirements.txt
+#pip install requests h5py fair-esm
+python -m pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt --prefer-binary
-pip install requests h5py fair-esm
+pip install requests fair-esm
+pip install --only-binary=:all: h5py
 
 # --- 3. Data. README's single bundle (mmfp_cafa3_data.tar.gz) 404s; it was
 #        split into 5 tarballs on Zenodo record 19498341. Each carries its own
