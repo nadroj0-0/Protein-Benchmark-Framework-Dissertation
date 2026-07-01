@@ -16,9 +16,12 @@ git clone https://github.com/psipred/PFP.git
 cd PFP
 
 # --- 1. Environment: micromamba, Python 3.11 --------------------------
-micromamba create -y -n mmfp python=3.11
-eval "$(micromamba shell hook --shell bash)"
-micromamba activate mmfp
+#micromamba create -y -n mmfp python=3.11
+#eval "$(micromamba shell hook --shell bash)"
+#micromamba activate mmfp
+eval "$(/share/apps/miniforge3_mamba/bin/conda shell.bash hook)"
+conda create -y -n mmfp python=3.11
+conda activate mmfp
 
 # --- 2. Dependencies. requirements.txt is INCOMPLETE: the eval script
 #        imports extract_uniprot_text.py (needs `requests`); structure/PPI

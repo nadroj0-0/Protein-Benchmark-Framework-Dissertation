@@ -1,6 +1,4 @@
-#!/bin/bash
-
-#$ -S /bin/bash
+# /bin/bash
 
 # ask for 1Gb of RAM with an upper bound of 2G if you exceed h_vmem the task will be cancelled without warning
 #$ -l tmem=16G
@@ -26,7 +24,7 @@
 #$ -V
 
 # setting a GPU and selection specfic hosts
-#$ -l hostname=(zeus1.local, zeus2.local)
+##$ -l hostname=(zeus1.local, zeus2.local)
 #$ -l gpu=true
 #$ -pe gpu 1
 
