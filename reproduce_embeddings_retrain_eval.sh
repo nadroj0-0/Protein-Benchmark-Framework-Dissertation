@@ -25,17 +25,36 @@ REPO="$(pwd)"
 #micromamba create -y -n mmfp python=3.11
 #eval "$(micromamba shell hook --shell bash)"
 #micromamba activate mmfp
-eval "$(/share/apps/miniforge3_mamba/bin/conda shell.bash hook)"
-conda create -y -n mmfp python=3.11
-conda activate mmfp
 
-# --- 2. Dependencies (requirements.txt is incomplete: add requests/h5py/fair-esm) --
-#pip install -r requirements.txt
-#pip install requests h5py fair-esm
-python -m pip install --upgrade pip setuptools wheel
-pip install -r requirements.txt --prefer-binary
-pip install requests fair-esm
-pip install --only-binary=:all: h5py
+#eval "$(/share/apps/miniforge3_mamba/bin/conda shell.bash hook)"
+#conda create -y -n mmfp python=3.11
+#conda activate mmfp
+#
+## --- 2. Dependencies (requirements.txt is incomplete: add requests/h5py/fair-esm) --
+##pip install -r requirements.txt
+##pip install requests h5py fair-esm
+#python -m pip install --upgrade pip setuptools wheel
+#pip install -r requirements.txt --prefer-binary
+#pip install requests fair-esm
+#pip install --only-binary=:all: h5py
+
+eval "$(/share/apps/miniforge3_mamba/bin/conda shell.bash hook)"
+
+ENV_DIR="$HOME/.conda/envs/mmfp"
+
+if [ ! -d "$ENV_DIR" ]; then
+    echo "Creating Conda environment..."
+
+    conda create -y -n mmfp python=3.11
+    conda activate /home/jsydneyd/.conda/envs/mmfp
+
+    python -m pip install --upgrade pip setuptools wheel
+    pip install -r requirements.txt --prefer-binary
+    pip install requests fair-esm
+    pip install --only-binary=:all: h5py
+fi
+
+conda activate /home/jsydneyd/.conda/envs/mmfp
 
 # --- 3. Generate ALL embeddings from scratch (sub-orchestrator; CWD = repo root) ---
 bash "${HERE}/generate_embeddings_run_all.sh"
