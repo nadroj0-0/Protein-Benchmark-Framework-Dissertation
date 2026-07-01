@@ -38,7 +38,7 @@ eval "$(/share/apps/miniforge3_mamba/bin/conda shell.bash hook)"
 ENV_DIR="$HOME/.conda/envs/mmfp"
 
 if [ ! -d "$ENV_DIR" ]; then
-    echo "Creating Conda environment..."
+    echo "==> Creating Conda environment: mmfp"
 
     conda create -y -n mmfp python=3.11
     conda activate /home/jsydneyd/.conda/envs/mmfp
@@ -47,6 +47,10 @@ if [ ! -d "$ENV_DIR" ]; then
     pip install -r requirements.txt --prefer-binary
     pip install requests fair-esm
     pip install --only-binary=:all: h5py
+
+    echo "==> Environment created."
+else
+    echo "==> Using existing Conda environment."
 fi
 
 conda activate /home/jsydneyd/.conda/envs/mmfp
