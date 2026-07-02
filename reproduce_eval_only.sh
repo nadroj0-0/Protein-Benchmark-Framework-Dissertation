@@ -45,7 +45,8 @@ if [ ! -d "$ENV_DIR" ]; then
 
     python -m pip install --upgrade pip setuptools wheel
     pip install -r requirements.txt --prefer-binary
-    pip install requests fair-esm biopython protobuf sentencepiece torch-geometric
+    pip install requests fair-esm biopython protobuf sentencepiece torch-geometric "biotite==0.41.2"
+    pip install torch-scatter torch-sparse -f https://data.pyg.org/whl/torch-2.6.0+cu124.html
     pip install --only-binary=:all: h5py
     pip install --only-binary=:all: tiktoken
 
