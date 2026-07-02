@@ -107,6 +107,9 @@ echo "Copying results to: $OUTDIR"
 if [ -d "$WORK/Protein-Benchmark-Framework-Dissertation/PFP/results" ]; then
     cp "$WORK/Protein-Benchmark-Framework-Dissertation/PFP/results/embedding_comparison.csv" "$OUTDIR"/ 2>/dev/null || true
     cp "$WORK/Protein-Benchmark-Framework-Dissertation/PFP/results/embedding_comparison_summary.json" "$OUTDIR"/ 2>/dev/null || true
+    find "$WORK/Protein-Benchmark-Framework-Dissertation/PFP" \
+        -name "embeddings_verify*.log" \
+        -exec cp {} "$OUTDIR"/ \;
     echo "Results copied successfully."
 else
     echo "WARNING: No results directory found!"

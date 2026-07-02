@@ -64,6 +64,20 @@ conda activate /home/jsydneyd/.conda/envs/mmfp
 
 # --- 3. Generate ALL embeddings from scratch (sub-orchestrator; CWD = repo root) ---
 bash "${HERE}/generate_embeddings_run_all.sh"
+
+echo
+echo "Checking generated embeddings..."
+
+for d in \
+    data/embedding_cache/prott5 \
+    data/embedding_cache/IF1 \
+    data/embedding_cache/ppi \
+    data/embedding_cache/exp_text_embeddings
+do
+    echo "$d"
+    find "$d" -name "*.npy" | wc -l
+done
+
 mkdir -p published
 cd published
 
