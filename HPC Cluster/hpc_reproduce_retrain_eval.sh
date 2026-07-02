@@ -46,8 +46,8 @@ cleanup() {
 # now register which signals will cause cleanup() to be invoked
 trap cleanup SIGINT
 trap cleanup SIGTERM
-trap cleanup EXIT
-trap cleanup ERR
+#trap cleanup EXIT
+#trap cleanup ERR
 
 WORK=/scratch0/pfp_cafa3_retrain_eval_${JOB_ID}
 OUTDIR="$HOME/pfp_cafa3_retrain_eval_results"
@@ -113,12 +113,12 @@ fi
 
 echo "Finished at: $(date)"
 
-# Return the original exit status so qsub still reports success/failure correctly
-exit $STATUS
-
 # Now clean up your tmp dir so that you play nice with other users
 # and don't fill up the node's filesystems. We could infact just call
 # a variant of the cleanup() function that was defined earlier withouy
 # a "I've been killed" alert
 cd ~/
 rm -rf "$WORK"
+
+# Return the original exit status so qsub still reports success/failure correctly
+exit $STATUS
