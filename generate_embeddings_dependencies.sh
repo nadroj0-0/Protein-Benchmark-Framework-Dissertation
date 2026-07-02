@@ -16,6 +16,16 @@ if [ ! -d "${EXT}/CAFA_assessment_tool" ]; then
 else
   echo "==> CAFA_assessment_tool already present, skipping"
 fi
+# --- 1b. Stage the CAFA3-era GO ontology expected at data/go.obo -------
+# reproduce_embeddings_retrain_eval.sh checks `data/go.obo`, and train.py/eval
+# parse it for GO DAG propagation. It ships in the CAFA tool cloned above as
+# precrec/go_cafa3.obo (GO release 2016-05-31 — the correct ontology for CAFA3;
+# do NOT substitute a current .obo or you contaminate the benchmark).
+mkdir -p data
+if [ ! -f data/go.obo ]; then
+  cp "${EXT}/CAFA_assessment_tool/precrec/go_cafa3.obo" data/go.obo
+  echo "==> Staged data/go.obo from CAFA_assessment_tool (go_cafa3.obo, 2016-05-31)"
+fi
 
 # --- 2. Raw CAFA3 CSVs — Zenodo 7409660 (verified bit-for-bit vs Zijan's splits).
 #        Download 9 split CSVs, authenticate PRISTINE files against Zenodo md5s,

@@ -43,7 +43,8 @@ python "${HERE}/generate_embeddings_fasta.py" --data-dir data --config "${HERE}/
 # --- [4-7/8] Parallel modality embeddings ---------------------------------
 # prott5 / text / structure -> one GPU each;  ppi -> CPU, concurrent.
 
-mkdir -p logs
+LOGDIR="results/embedding_logs"
+mkdir -p "$LOGDIR"
 
 # SGE's gpu PE exposes the allocated devices via CUDA_VISIBLE_DEVICES.
 # Split them; fall back to 0,1,2 for interactive testing.
@@ -52,16 +53,16 @@ gpu() { echo "${GPUS[$1]:-${GPUS[0]}}"; }
 echo "==> Parallel embeddings on GPUs: ${GPUS[*]} (ppi on CPU)"
 
 CUDA_VISIBLE_DEVICES="$(gpu 0)" DEVICE=cuda \
-    bash "${HERE}/generate_embeddings_sequence.sh"  > logs/seq.log    2>&1 &
+    bash "${HERE}/generate_embeddings_sequence.sh"  > "$LOGDIR/seq.log"    2>&1 &
 PID_SEQ=$!
 CUDA_VISIBLE_DEVICES="$(gpu 1)" \
-    bash "${HERE}/generate_embeddings_text.sh"      > logs/text.log   2>&1 &
+    bash "${HERE}/generate_embeddings_text.sh"      > "$LOGDIR/text.log"   2>&1 &
 PID_TXT=$!
 CUDA_VISIBLE_DEVICES="$(gpu 2)" DEVICE=cuda \
-    bash "${HERE}/generate_embeddings_structure.sh" > logs/struct.log 2>&1 &
+    bash "${HERE}/generate_embeddings_structure.sh" > "$LOGDIR/struct.log" 2>&1 &
 PID_STR=$!
 CUDA_VISIBLE_DEVICES="" \
-    bash "${HERE}/generate_embeddings_ppi.sh"       > logs/ppi.log    2>&1 &
+    bash "${HERE}/generate_embeddings_ppi.sh"       > "$LOGDIR/ppi.log"    2>&1 &
 PID_PPI=$!
 
 # Join, collecting each exit status. Using `wait` as an `if` condition
