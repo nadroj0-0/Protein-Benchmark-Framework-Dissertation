@@ -20,16 +20,14 @@ contracts before expensive training is launched.
 
 ``` text
 .
-├── verify_embeddings.py                   # Embedding completeness/correctness gate
-├── verify_splits.py                       # Split-contract verification gate
 ├── benchmark_builders/
 │   └── contemporary_cafa/                 # 2025→2026 CAFA-style benchmark builder
 ├── scripts/
 │   ├── reproduction/                      # Main PFP reproduction entrypoints
-│   ├── embeddings/                        # Embedding-generation wrappers
-│   ├── verification/                      # Shell verification utilities
+│   ├── embeddings/                        # Embedding wrappers and FASTA builder
+│   ├── verification/                      # Shell and Python verification gates
 │   ├── data_acquisition/                  # HPC/raw database download and inspection helpers
-│   └── diagnostics/                       # Environment probes and diagnostics
+│   └── diagnostics/                       # Environment probes and comparison diagnostics
 ├── hpc_jobs/
 │   ├── active/                            # qsub wrappers for current cluster workflows
 │   ├── examples/                          # Scheduler examples/templates
@@ -115,14 +113,15 @@ wrappers should remain thin scheduler-facing launchers.
 Pipeline stages:
 
 ``` text
-[0/7] External dependencies
-[1/7] Data preparation
-[2/7] Verify split contract
-[3/7] Sequence embeddings
-[4/7] Text embeddings
-[5/7] Structure embeddings
-[6/7] PPI embeddings
-[7/7] Verify generated embeddings
+[0/8] External dependencies
+[1/8] Data preparation
+[2/8] Verify split contract
+[3/8] Build proteins.fasta
+[4/8] Sequence embeddings
+[5/8] Text embeddings
+[6/8] Structure embeddings
+[7/8] PPI embeddings
+[8/8] Verify generated embeddings
 ```
 
 Both verification scripts are executed in **strict mode** as part of the
@@ -132,9 +131,9 @@ before expensive downstream computation is launched.
 The embedding verifier is called with an explicit configuration path:
 
 ``` bash
-python "${HERE}/verify_embeddings.py" \
+python "${REPO_ROOT}/scripts/verification/verify_embeddings.py" \
   --data-dir data \
-  --config "${HERE}/configs/cafa3.json" \
+  --config "${REPO_ROOT}/configs/cafa3.json" \
   --strict
 ```
 
@@ -161,13 +160,13 @@ For each configured aspect/split it checks:
 Usage:
 
 ``` bash
-python verify_splits.py --data-dir data --strict
+python scripts/verification/verify_splits.py --data-dir data --strict
 ```
 
 For alternative aspect or split names:
 
 ``` bash
-python verify_splits.py \
+python scripts/verification/verify_splits.py \
   --data-dir data \
   --aspects BPO CCO MFO \
   --splits train valid test \
@@ -189,7 +188,7 @@ For every protein ID in the configured dataset it verifies:
 Usage:
 
 ``` bash
-python verify_embeddings.py \
+python scripts/verification/verify_embeddings.py \
   --data-dir data \
   --config configs/cafa3.json \
   --strict
@@ -233,28 +232,17 @@ DEVICE=cpu bash scripts/embeddings/generate_embeddings_structure.sh
 
 CPU execution may be very slow for model-heavy stages such as ESM-IF1.
 
-## Current known gap
-
-The sequence embedding stage expects:
-
-``` text
-data/proteins.fasta
-```
-
-The wrapper does not yet guarantee generation of this FASTA before the
-ProtT5 stage. This has intentionally been left unresolved until the full
-pipeline has been exercised and the exact failure mode confirmed.
-
 ## Suggested development order
 
 Before launching expensive cluster runs:
 
 1.  Run the data-preparation stage.
-2.  Run `verify_splits.py` in strict mode.
-3.  Generate embeddings.
-4.  Run `verify_embeddings.py` in strict mode with an explicit
+2.  Run `scripts/verification/verify_splits.py` in strict mode.
+3.  Build `data/proteins.fasta` with `scripts/embeddings/generate_embeddings_fasta.py`.
+4.  Generate embeddings.
+5.  Run `scripts/verification/verify_embeddings.py` in strict mode with an explicit
     configuration path.
-5.  Start retraining and evaluation.
+6.  Start retraining and evaluation.
 
 This verification layer is designed to catch malformed datasets,
 incomplete embedding caches, incorrect embedding dimensions and

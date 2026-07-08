@@ -14,8 +14,8 @@ sampling parameters) live in a JSON config file. The config fully specifies the
 run; adapting to a new benchmark means writing a new config, not editing code.
 
 Usage:
-    python verify_embeddings.py --data-dir data
-    python verify_embeddings.py --data-dir data --config configs/cafa3.json --strict
+    python scripts/verification/verify_embeddings.py --data-dir data
+    python scripts/verification/verify_embeddings.py --data-dir data --config configs/cafa3.json --strict
 
 Exit code 0 if all checks pass (or only expected-coverage shortfalls within
 configured tolerance); 1 if --strict and any check fails.
@@ -28,8 +28,8 @@ from typing import Any
 
 import numpy as np
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_CONFIG_PATH = SCRIPT_DIR / "configs" / "cafa3.json"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_CONFIG_PATH = REPO_ROOT / "configs" / "cafa3.json"
 
 
 def load_config(path: str) -> dict[str, Any]:

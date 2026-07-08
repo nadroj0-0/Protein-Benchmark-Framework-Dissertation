@@ -7,7 +7,7 @@
 # embeddings rather than downloading the precomputed Zenodo tarballs.
 #
 # NOTE: training + embedding generation are heavy GPU jobs; impractical on a Mac (CPU).
-# KNOWN GAP: the ProtT5 step needs data/proteins.fasta, not yet produced by any step.
+# The embedding sub-orchestrator builds data/proteins.fasta before the ProtT5 step.
 
 set -euo pipefail
 LOGFILE="embeddings_verify_$(date +%Y%m%d_%H%M%S).log"
@@ -73,7 +73,7 @@ done
 cd "$REPO"
 
 echo "==> Comparing generated embeddings against published embeddings..."
-python "${REPO_ROOT}/compare_embeddings.py" \
+python "${REPO_ROOT}/scripts/diagnostics/compare_embeddings.py" \
   --root "$REPO" \
   --out-csv results/embedding_comparison.csv \
   --out-json results/embedding_comparison_summary.json

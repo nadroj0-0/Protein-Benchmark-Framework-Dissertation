@@ -7,7 +7,7 @@
 # embeddings rather than downloading the precomputed Zenodo tarballs.
 #
 # NOTE: training + embedding generation are heavy GPU jobs; impractical on a Mac (CPU).
-# KNOWN GAP: the ProtT5 step needs data/proteins.fasta, not yet produced by any step.
+# The embedding sub-orchestrator builds data/proteins.fasta before the ProtT5 step.
 
 set -euo pipefail
 LOGFILE="reproduce_embeddings_retrain_eval_$(date +%Y%m%d_%H%M%S).log"

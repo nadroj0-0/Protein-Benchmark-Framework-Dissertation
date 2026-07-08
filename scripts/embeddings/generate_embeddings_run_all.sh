@@ -6,8 +6,7 @@
 # modality embeddings in serial. (Modalities are separate scripts so they can be
 # parallelised later.)
 #
-# KNOWN GAP: the sequence (ProtT5) step needs data/proteins.fasta, which no current
-# step produces. That stage will fail until a FASTA-generation step is added.
+# Builds data/proteins.fasta before the ProtT5 stage so FASTA IDs match split IDs.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -30,12 +29,12 @@ echo "==> [1/8] Data preparation (raw CSVs -> splits/labels/sequences)"
 bash "${HERE}/generate_embeddings_prepare_data.sh"
 
 echo "[2/8] Verifying generated dataset splits..."
-python "${REPO_ROOT}/verify_splits.py" \
+python "${REPO_ROOT}/scripts/verification/verify_splits.py" \
     --data-dir data \
     --strict
 
 echo "==> [3/8] Building proteins.fasta from split sequences"
-python "${REPO_ROOT}/generate_embeddings_fasta.py" --data-dir data --config "${REPO_ROOT}/configs/cafa3.json"
+python "${REPO_ROOT}/scripts/embeddings/generate_embeddings_fasta.py" --data-dir data --config "${REPO_ROOT}/configs/cafa3.json"
 
 #echo "==> [4/8] Sequence (ProtT5) embeddings"
 #bash "${HERE}/generate_embeddings_sequence.sh"
@@ -86,7 +85,7 @@ done
 
 
 echo "[8/8] Verifying generated embeddings..."
-python "${REPO_ROOT}/verify_embeddings.py" \
+python "${REPO_ROOT}/scripts/verification/verify_embeddings.py" \
     --data-dir data \
     --config "${REPO_ROOT}/configs/cafa3.json" \
     --strict

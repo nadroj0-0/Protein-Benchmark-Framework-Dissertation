@@ -18,8 +18,8 @@ Per aspect, across splits:
   - go_terms.json present and non-empty
 
 Usage:
-    python verify_splits.py --data-dir data
-    python verify_splits.py --data-dir data --strict   # exit 1 on any FAIL
+    python scripts/verification/verify_splits.py --data-dir data
+    python scripts/verification/verify_splits.py --data-dir data --strict   # exit 1 on any FAIL
 """
 import argparse, json, sys
 from pathlib import Path

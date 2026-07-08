@@ -13,8 +13,8 @@ that a repeated protein has an identical sequence everywhere (a data-integrity
 check, not an assumption).
 
 Usage:
-    python generate_embeddings_fasta.py --data-dir data
-    python generate_embeddings_fasta.py --data-dir data --config configs/cafa3.json
+    python scripts/embeddings/generate_embeddings_fasta.py --data-dir data
+    python scripts/embeddings/generate_embeddings_fasta.py --data-dir data --config configs/cafa3.json
 """
 import argparse
 import json
