@@ -36,17 +36,17 @@ python "${REPO_ROOT}/scripts/verification/verify_splits.py" \
 echo "==> [3/8] Building proteins.fasta from split sequences"
 python "${REPO_ROOT}/scripts/embeddings/generate_embeddings_fasta.py" --data-dir data --config "${REPO_ROOT}/configs/cafa3.json"
 
-#echo "==> [4/8] Sequence (ProtT5) embeddings"
-#bash "${HERE}/generate_embeddings_sequence.sh"
+echo "==> [4/8] Sequence (ProtT5) embeddings"
+bash "${HERE}/generate_embeddings_sequence.sh"
 
-#echo "==> [5/8] Text embeddings"
-#bash "${HERE}/generate_embeddings_text.sh"
+echo "==> [5/8] Text embeddings"
+bash "${HERE}/generate_embeddings_text.sh"
 
 echo "==> [6/8] Structure embeddings"
 bash "${HERE}/generate_embeddings_structure.sh"
 
-#echo "==> [7/8] PPI embeddings"
-#bash "${HERE}/generate_embeddings_ppi.sh"
+echo "==> [7/8] PPI embeddings"
+bash "${HERE}/generate_embeddings_ppi.sh"
 
 ## --- [4-7/8] Parallel modality embeddings ---------------------------------
 ## prott5 / text / structure -> one GPU each;  ppi -> CPU, concurrent.
