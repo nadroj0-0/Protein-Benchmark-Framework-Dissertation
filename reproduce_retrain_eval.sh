@@ -12,9 +12,12 @@ LOGFILE="reproduce_retrain_eval_$(date +%Y%m%d_%H%M%S).log"
 exec > >(tee -a "$LOGFILE")
 exec 2>&1
 
+HERE="$(cd "$(dirname "$0")" && pwd)"
+source "${HERE}/scripts/reproduction_common.sh"
+load_framework_paths "${HERE}"
+
 # --- 0. Clone (code at repo ROOT; README's `cd PFP/MMFP` is wrong). ----
-git clone https://github.com/psipred/PFP.git
-cd PFP
+clone_or_reuse_pfp
 
 # --- 1. Environment: micromamba, Python 3.11 --------------------------
 #micromamba create -y -n mmfp python=3.11
@@ -32,29 +35,7 @@ cd PFP
 #pip install requests fair-esm
 #pip install --only-binary=:all: h5py
 
-eval "$(/share/apps/miniforge3_mamba/bin/conda shell.bash hook)"
-
-ENV_DIR="$HOME/.conda/envs/mmfp"
-
-if [ ! -d "$ENV_DIR" ]; then
-    echo "==> Creating Conda environment: mmfp"
-
-    conda create -y -n mmfp python=3.11
-    conda activate /home/jsydneyd/.conda/envs/mmfp
-
-    python -m pip install --upgrade pip setuptools wheel
-    pip install -r requirements.txt --prefer-binary
-    pip install requests fair-esm biopython protobuf sentencepiece torch-geometric "biotite==0.41.2"
-    pip install torch-scatter torch-sparse -f https://data.pyg.org/whl/torch-2.6.0+cu124.html
-    pip install --only-binary=:all: h5py
-    pip install --only-binary=:all: tiktoken
-
-    echo "==> Environment created."
-else
-    echo "==> Using existing Conda environment."
-fi
-
-conda activate /home/jsydneyd/.conda/envs/mmfp
+activate_or_create_mmfp_env
 
 # --- 3. Data (same 5 tarballs, extract from repo root, no -C) ----------
 for f in mmfp_embeddings_struct_ppi mmfp_embeddings_prott5 \

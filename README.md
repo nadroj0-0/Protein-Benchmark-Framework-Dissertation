@@ -60,7 +60,8 @@ cp configs/paths.example.sh configs/paths.local.sh
 Then edit `configs/paths.local.sh` for the current machine. Typical
 variables include `PFP_DIR`, `CAFA_ASSESSMENT_DIR`, `CAFA3_RAW_DIR`,
 `PROTEIN_DATABASES_DIR`, `STRING_H5_FILE`, `STRING_ALIAS_FILE`,
-`MMFP_ENV`, and `VERIFY_CSV_WORKDIR`.
+`CONDA_EXE`, `MMFP_ENV`, `MMFP_ENV_DIR`, `PFP_GIT_URL`,
+`PFP_CLONE_DIR`, and `VERIFY_CSV_WORKDIR`.
 
 ## Contemporary benchmark builder
 
