@@ -1,4 +1,4 @@
-# /bin/bash
+#!/bin/bash
 
 # ask for 1Gb of RAM with an upper bound of 2G if you exceed h_vmem the task will be cancelled without warning
 #$ -l tmem=4G

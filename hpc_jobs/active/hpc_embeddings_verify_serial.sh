@@ -1,24 +1,24 @@
-# /bin/bash
+#!/bin/bash
 
 # ask for 1Gb of RAM with an upper bound of 2G if you exceed h_vmem the task will be cancelled without warning
-#$ -l tmem=16G
+#$ -l tmem=24G
 
 
 # ask for 1G of tmp/scratch space
-#$ -l tscratch=10G
+#$ -l tscratch=100G
 
 # force it to only schedule a task on machines that actually have 1Gb of tmp  free at runtime
-#$ -l scratch0free=10G
+#$ -l scratch0free=100G
 
 # set max runtime for each task
 #$ -l h_rt=48:0:0
 
 # Merge stdout and stderr to a single output file
-# you can send them to separate files and 
+# you can send them to separate files and
 #$ -j y
 
 # give the array job a name
-#$ -N pfp_eval
+#$ -N embeddings_verify
 
 #pass your whole environment.
 #$ -V
@@ -40,17 +40,19 @@ cleanup() {
     # now delete the tmp dir contents that the task was using
     cd ~/
     rm -rf "$WORK"
-    
+
     exit 0
 }
 # now register which signals will cause cleanup() to be invoked
 trap cleanup SIGINT
 trap cleanup SIGTERM
-trap cleanup EXIT
-trap cleanup ERR
+#trap cleanup EXIT
+#trap cleanup ERR
 
-WORK=/scratch0/pfp_cafa3_eval_${JOB_ID}
-OUTDIR="$HOME/pfp_cafa3_eval_results"
+WORK=/scratch0/pfp_cafa3_embeddings_retrain_eval_${JOB_ID}
+OUTDIR="$HOME/embeddings_verify_serial"
+FRAMEWORK_REPO_URL="${FRAMEWORK_REPO_URL:-https://github.com/nadroj0-0/Protein-Benchmark-Framework-Dissertation.git}"
+FRAMEWORK_DIR="$WORK/Protein-Benchmark-Framework-Dissertation"
 
 # print the location that task is running to stdout (handy for debugging)
 hostname
@@ -74,11 +76,10 @@ mkdir -p "$OUTDIR"
 cd "$WORK"
 
 # Copy any files the task needs locally to the tmp space
-echo "Copying reproduce_eval_only.sh to local scratch..."
+echo "Cloning dissertation framework into local scratch..."
+git clone "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR" || exit 1
 
-cp "$HOME/Protein-Benchmark-Framework-Dissertation/reproduce_eval_only.sh" "$WORK"/ || exit 1
-
-cd "$WORK" || exit 1
+cd "$FRAMEWORK_DIR" || exit 1
 
 #cp /home/dbuchan/pfp_eval/random_pfam_reps.fa /scratch0/pfp_eval_${TASK_ID}/
 #cp /home/dbuchan/pfp_eval/${TASK_ID}_pfam_random /scratch0/pfp_eval_${TASK_ID}/
@@ -90,18 +91,27 @@ cd "$WORK" || exit 1
 #echo "python /home/dbuchan/profile_drift_new/scripts/rep_distance_matrix/pfam_reps_nw.py /scratch0/pfam_nw_${TASK_ID}/random_pfam_reps.fa /scratch0/pfam_nw_${TASK_ID}/${TASK_ID}_pfam_random > /scratch0/cp /home/dbuchan/pfam_nw/random_pfam_reps.fa /scratch0/pfam_nw_${TASK_ID}/pfam_nw_${TASK_ID}/${TASK_ID}_hits.csv 2> /scratch0/pfam_nw_${TASK_ID}/${TASK_ID}_hits.err"
 #python /home/dbuchan/profile_drift_new/scripts/rep_distance_matrix/pfam_reps_nw.py /scratch0/pfam_nw_${TASK_ID}/random_pfam_reps.fa /scratch0/pfam_nw_${TASK_ID}/${TASK_ID}_pfam_random > /scratch0/pfam_nw_${TASK_ID}/${TASK_ID}_hits.csv 2> /scratch0/pfam_nw_${TASK_ID}/${TASK_ID}_hits.err
 echo
-echo "Running evaluation-only workflow"
+echo "Running serial embedding generation comparison workflow"
 echo "Command:"
-echo "bash reproduce_eval_only.sh"
+echo "bash scripts/reproduction/embeddings_verify_serial.sh"
 echo
-bash reproduce_eval_only.sh || exit 1
+# Run the workflow but don't immediately exit if it returns an error
+bash scripts/reproduction/embeddings_verify_serial.sh
+STATUS=$?
 
 # Now I copy the results files I want to keep back to my home directory on
 # morecambe
 #cp /scratch0/pfam_nw_${JOB_ID}/*.csv /home/dbuchan/pfam_nw/
 #cp /scratch0/pfam_nw_${JOB_ID}/*.err /home/dbuchan/pfam_nw/
+# Always attempt to copy results back
 echo "Copying results to: $OUTDIR"
-cp -r "$WORK/PFP/results" "$OUTDIR"/
+if [ -d "$FRAMEWORK_DIR/PFP/results" ]; then
+    cp "$FRAMEWORK_DIR/PFP/results/embedding_comparison.csv" "$OUTDIR"/ 2>/dev/null || true
+    cp "$FRAMEWORK_DIR/PFP/results/embedding_comparison_summary.json" "$OUTDIR"/ 2>/dev/null || true
+    echo "Results copied successfully."
+else
+    echo "WARNING: No results directory found!"
+fi
 
 echo "Finished at: $(date)"
 
@@ -111,3 +121,6 @@ echo "Finished at: $(date)"
 # a "I've been killed" alert
 cd ~/
 rm -rf "$WORK"
+
+# Return the original exit status so qsub still reports success/failure correctly
+exit $STATUS

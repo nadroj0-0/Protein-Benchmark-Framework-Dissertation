@@ -1,14 +1,14 @@
-# /bin/bash
+#!/bin/bash
 
 # ask for 1Gb of RAM with an upper bound of 2G if you exceed h_vmem the task will be cancelled without warning
-#$ -l tmem=24G
+#$ -l tmem=16G
 
 
 # ask for 1G of tmp/scratch space
-#$ -l tscratch=100G
+#$ -l tscratch=10G
 
 # force it to only schedule a task on machines that actually have 1Gb of tmp  free at runtime
-#$ -l scratch0free=100G
+#$ -l scratch0free=10G
 
 # set max runtime for each task
 #$ -l h_rt=48:0:0
@@ -18,7 +18,7 @@
 #$ -j y
 
 # give the array job a name
-#$ -N pfp_cafa3_embeddings_retrain_eval
+#$ -N pfp_cafa3_retrain_eval
 
 #pass your whole environment.
 #$ -V
@@ -26,7 +26,7 @@
 # setting a GPU and selection specfic hosts
 ##$ -l hostname=(zeus1.local, zeus2.local)
 #$ -l gpu=true
-#$ -pe gpu 3
+#$ -pe gpu 1
 
 #### Run the application.
 
@@ -49,8 +49,10 @@ trap cleanup SIGTERM
 #trap cleanup EXIT
 #trap cleanup ERR
 
-WORK=/scratch0/pfp_cafa3_embeddings_retrain_eval_${JOB_ID}
-OUTDIR="$HOME/pfp_cafa3_embeddings_retrain_eval_results"
+WORK=/scratch0/pfp_cafa3_retrain_eval_${JOB_ID}
+OUTDIR="$HOME/pfp_cafa3_retrain_eval_results"
+FRAMEWORK_REPO_URL="${FRAMEWORK_REPO_URL:-https://github.com/nadroj0-0/Protein-Benchmark-Framework-Dissertation.git}"
+FRAMEWORK_DIR="$WORK/Protein-Benchmark-Framework-Dissertation"
 
 # print the location that task is running to stdout (handy for debugging)
 hostname
@@ -73,12 +75,12 @@ mkdir -p "$OUTDIR"
 
 cd "$WORK"
 
-# Copy any files the task needs locally to the tmp space
+# Copy the full framework checkout into local scratch. The reproduction
+# entrypoints depend on shared helpers, configs, and nested scripts.
 echo "Cloning dissertation framework into local scratch..."
+git clone "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR" || exit 1
 
-git clone https://github.com/nadroj0-0/Protein-Benchmark-Framework-Dissertation.git || exit 1
-
-cd "$WORK/Protein-Benchmark-Framework-Dissertation" || exit 1
+cd "$FRAMEWORK_DIR" || exit 1
 
 #cp /home/dbuchan/pfp_eval/random_pfam_reps.fa /scratch0/pfp_eval_${TASK_ID}/
 #cp /home/dbuchan/pfp_eval/${TASK_ID}_pfam_random /scratch0/pfp_eval_${TASK_ID}/
@@ -90,12 +92,12 @@ cd "$WORK/Protein-Benchmark-Framework-Dissertation" || exit 1
 #echo "python /home/dbuchan/profile_drift_new/scripts/rep_distance_matrix/pfam_reps_nw.py /scratch0/pfam_nw_${TASK_ID}/random_pfam_reps.fa /scratch0/pfam_nw_${TASK_ID}/${TASK_ID}_pfam_random > /scratch0/cp /home/dbuchan/pfam_nw/random_pfam_reps.fa /scratch0/pfam_nw_${TASK_ID}/pfam_nw_${TASK_ID}/${TASK_ID}_hits.csv 2> /scratch0/pfam_nw_${TASK_ID}/${TASK_ID}_hits.err"
 #python /home/dbuchan/profile_drift_new/scripts/rep_distance_matrix/pfam_reps_nw.py /scratch0/pfam_nw_${TASK_ID}/random_pfam_reps.fa /scratch0/pfam_nw_${TASK_ID}/${TASK_ID}_pfam_random > /scratch0/pfam_nw_${TASK_ID}/${TASK_ID}_hits.csv 2> /scratch0/pfam_nw_${TASK_ID}/${TASK_ID}_hits.err
 echo
-echo "Running embedding generation and retrain and evaluation workflow"
+echo "Running retrain and evaluation workflow"
 echo "Command:"
-echo "bash reproduce_embeddings_retrain_eval.sh"
+echo "bash scripts/reproduction/reproduce_retrain_eval.sh"
 echo
 # Run the workflow but don't immediately exit if it returns an error
-bash reproduce_embeddings_retrain_eval.sh
+bash scripts/reproduction/reproduce_retrain_eval.sh
 STATUS=$?
 
 # Now I copy the results files I want to keep back to my home directory on
@@ -104,8 +106,8 @@ STATUS=$?
 #cp /scratch0/pfam_nw_${JOB_ID}/*.err /home/dbuchan/pfam_nw/
 # Always attempt to copy results back
 echo "Copying results to: $OUTDIR"
-if [ -d "$WORK/Protein-Benchmark-Framework-Dissertation/PFP/results" ]; then
-    cp -r "$WORK/Protein-Benchmark-Framework-Dissertation/PFP/results" "$OUTDIR"/
+if [ -d "$FRAMEWORK_DIR/PFP/results" ]; then
+    cp -r "$FRAMEWORK_DIR/PFP/results" "$OUTDIR"/
     echo "Results copied successfully."
 else
     echo "WARNING: No results directory found!"

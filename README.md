@@ -29,11 +29,14 @@ contracts before expensive training is launched.
 │   ├── embeddings/                        # Embedding-generation wrappers
 │   ├── verification/                      # Shell verification utilities
 │   ├── data_acquisition/                  # HPC/raw database download and inspection helpers
-│   └── hpc/                               # Cluster environment probes and utilities
+│   └── diagnostics/                       # Environment probes and diagnostics
+├── hpc_jobs/
+│   ├── active/                            # qsub wrappers for current cluster workflows
+│   ├── examples/                          # Scheduler examples/templates
+│   └── archive/                           # Historical reproduction attempts
 ├── configs/
 │   ├── cafa3.json                         # Default CAFA3 verification config
 │   └── paths.example.sh                   # Example local/HPC path configuration
-└── HPC Cluster/                           # Example cluster submission scripts/notes
 ```
 
 Generated data, model checkpoints, cloned upstream repositories, and
@@ -90,6 +93,16 @@ bash scripts/reproduction/reproduce_embeddings_retrain_eval.sh
 
 The final route clones/builds the upstream PFP environment before
 invoking `scripts/embeddings/generate_embeddings_run_all.sh`.
+
+## HPC jobs
+
+Cluster submission wrappers live in `hpc_jobs/active/` and are intended
+to be submitted with `qsub`. They contain Sun Grid Engine resource
+directives, scratch-space setup, result-copy logic, and then invoke the
+normal framework entrypoints under `scripts/reproduction/`.
+
+Reusable implementation scripts stay under `scripts/`; the HPC job
+wrappers should remain thin scheduler-facing launchers.
 
 ## Embedding-generation workflow
 
