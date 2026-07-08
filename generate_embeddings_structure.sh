@@ -7,7 +7,19 @@
 # DEVICE overridable for local testing.
 set -euo pipefail
 
+HERE="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "${HERE}/configs/paths.local.sh" ]; then
+  # Machine-specific paths are intentionally not committed.
+  # shellcheck disable=SC1091
+  source "${HERE}/configs/paths.local.sh"
+fi
+
 export CAFA_ASSESSMENT_DIR="${CAFA_ASSESSMENT_DIR:-external/CAFA_assessment_tool}"
+if [ ! -d "${CAFA_ASSESSMENT_DIR}" ]; then
+  echo "Missing CAFA assessment tool directory: ${CAFA_ASSESSMENT_DIR}" >&2
+  echo "Set CAFA_ASSESSMENT_DIR in configs/paths.local.sh or the environment." >&2
+  exit 1
+fi
 DEVICE="${DEVICE:-cuda}"
 
 python scripts/check_alphafold_coverage.py \

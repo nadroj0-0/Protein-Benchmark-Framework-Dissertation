@@ -17,6 +17,10 @@ export CAFA3_RAW_DIR="${CAFA3_RAW_DIR:-$HOME/cafa3_csv/cafa3_raw}"
 # Contemporary raw database archive, usually on HPC/SAN rather than in git.
 export PROTEIN_DATABASES_DIR="${PROTEIN_DATABASES_DIR:-$HOME/protein_databases}"
 
+# STRING inputs for PPI embedding extraction.
+export STRING_H5_FILE="${STRING_H5_FILE:-$HOME/protein_databases/string/protein.network.embeddings.v12.0.h5}"
+export STRING_ALIAS_FILE="${STRING_ALIAS_FILE:-$HOME/protein_databases/string/protein.aliases.v12.0.txt}"
+
 # PFP/MMFP Python environment. Use a path or environment name appropriate for
 # the active machine; cluster scripts may override this.
 export MMFP_ENV="${MMFP_ENV:-mmfp}"
