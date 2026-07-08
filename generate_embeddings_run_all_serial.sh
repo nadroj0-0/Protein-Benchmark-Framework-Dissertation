@@ -11,11 +11,19 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
+DEPENDENCY_ENV="${DEPENDENCY_ENV:-external/dependency_env.sh}"
 
 # --- External database dependencies (writes external/dependency_env.sh) ---
 echo "==> [0/8] External dependencies"
 bash "${HERE}/generate_embeddings_dependencies.sh"
-source external/dependency_env.sh
+if [ ! -f "${DEPENDENCY_ENV}" ]; then
+    echo "Missing dependency environment file: ${DEPENDENCY_ENV}" >&2
+    echo "Expected generate_embeddings_dependencies.sh to create it from the PFP repo root." >&2
+    exit 1
+fi
+# shellcheck disable=SC1090
+source "${DEPENDENCY_ENV}"
+echo "==> Loaded dependency environment: ${DEPENDENCY_ENV}"
 
 echo "==> [1/8] Data preparation (raw CSVs -> splits/labels/sequences)"
 bash "${HERE}/generate_embeddings_prepare_data.sh"
