@@ -21,6 +21,14 @@ export PROTEIN_DATABASES_DIR="${PROTEIN_DATABASES_DIR:-$HOME/protein_databases}"
 export STRING_H5_FILE="${STRING_H5_FILE:-$HOME/protein_databases/string/protein.network.embeddings.v12.0.h5}"
 export STRING_ALIAS_FILE="${STRING_ALIAS_FILE:-$HOME/protein_databases/string/protein.aliases.v12.0.txt}"
 
+# Optional overrides for generate_embeddings_dependencies.sh. Leave unset to
+# use the current PFP checkout's external/ and data/ directories.
+# export PFP_EXTERNAL_DIR="/path/to/PFP/external"
+# export PFP_DATA_DIR="/path/to/PFP/data"
+# export PFP_CAFA3_RAW_DIR="/path/to/PFP/external/cafa3_raw"
+# export PFP_STRING_DIR="/path/to/PFP/external/string"
+# export DEPENDENCY_ENV="/path/to/PFP/external/dependency_env.sh"
+
 # PFP/MMFP Python environment. Use a path or environment name appropriate for
 # the active machine; cluster scripts may override this.
 export MMFP_ENV="${MMFP_ENV:-mmfp}"

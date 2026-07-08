@@ -5,14 +5,33 @@
 # Run from the PFP repo root.
 set -euo pipefail
 
-EXT="$(pwd)/external"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "${HERE}/configs/paths.local.sh" ]; then
+  # Machine-specific paths are intentionally not committed.
+  # shellcheck disable=SC1091
+  source "${HERE}/configs/paths.local.sh"
+fi
+
+PFP_ROOT="${PFP_ROOT:-$(pwd)}"
+EXT="${PFP_EXTERNAL_DIR:-${PFP_ROOT}/external}"
+DATA_DIR="${PFP_DATA_DIR:-${PFP_ROOT}/data}"
+DEPENDENCY_ENV="${DEPENDENCY_ENV:-${EXT}/dependency_env.sh}"
+CAFA_ASSESSMENT_REPO_URL="${CAFA_ASSESSMENT_REPO_URL:-https://github.com/ashleyzhou972/CAFA_assessment_tool.git}"
+CAFA_ASSESSMENT_DIR="${CAFA_ASSESSMENT_DIR:-${EXT}/CAFA_assessment_tool}"
+PFP_CAFA3_RAW_DIR="${PFP_CAFA3_RAW_DIR:-${EXT}/cafa3_raw}"
+PFP_STRING_DIR="${PFP_STRING_DIR:-${EXT}/string}"
+CAFA3_BASE="${CAFA3_BASE:-https://zenodo.org/records/7409660/files}"
+STRING_DOWNLOAD_BASE="${STRING_DOWNLOAD_BASE:-https://stringdb-downloads.org/download}"
+
 mkdir -p "${EXT}"
 echo "==> External dependencies will live in: ${EXT}"
+echo "==> PFP data directory: ${DATA_DIR}"
 
 # --- 1. CAFA Assessment Tool (PPI, Text, Structure ID mapping) ---------
-if [ ! -d "${EXT}/CAFA_assessment_tool" ]; then
+if [ ! -d "${CAFA_ASSESSMENT_DIR}" ]; then
   echo "==> Cloning CAFA_assessment_tool"
-  git clone https://github.com/ashleyzhou972/CAFA_assessment_tool.git "${EXT}/CAFA_assessment_tool"
+  mkdir -p "$(dirname "${CAFA_ASSESSMENT_DIR}")"
+  git clone "${CAFA_ASSESSMENT_REPO_URL}" "${CAFA_ASSESSMENT_DIR}"
 else
   echo "==> CAFA_assessment_tool already present, skipping"
 fi
@@ -21,18 +40,17 @@ fi
 # parse it for GO DAG propagation. It ships in the CAFA tool cloned above as
 # precrec/go_cafa3.obo (GO release 2016-05-31 — the correct ontology for CAFA3;
 # do NOT substitute a current .obo or you contaminate the benchmark).
-mkdir -p data
-if [ ! -f data/go.obo ]; then
-  cp "${EXT}/CAFA_assessment_tool/precrec/go_cafa3.obo" data/go.obo
+mkdir -p "${DATA_DIR}"
+if [ ! -f "${DATA_DIR}/go.obo" ]; then
+  cp "${CAFA_ASSESSMENT_DIR}/precrec/go_cafa3.obo" "${DATA_DIR}/go.obo"
   echo "==> Staged data/go.obo from CAFA_assessment_tool (go_cafa3.obo, 2016-05-31)"
 fi
 
 # --- 2. Raw CAFA3 CSVs — Zenodo 7409660 (verified bit-for-bit vs Zijan's splits).
 #        Download 9 split CSVs, authenticate PRISTINE files against Zenodo md5s,
 #        THEN normalise MF column 'protein' -> 'proteins' so prepare runs unmodified.
-RAW="${EXT}/cafa3_raw"
+RAW="${PFP_CAFA3_RAW_DIR}"
 mkdir -p "${RAW}"
-CAFA3_BASE="https://zenodo.org/records/7409660/files"
 
 cat > "${RAW}/.zenodo_md5.txt" <<'EOF'
 e9a4b239cd47a7ac80975f63e259581e  bp-test.csv
@@ -87,21 +105,21 @@ else
 fi
 
 # --- 3. STRING files (PPI): alias (confirmed URL) + network embeddings .h5 (manual)
-mkdir -p "${EXT}/string"
-STRING_ALIAS_GZ="${EXT}/string/protein.aliases.v12.0.txt.gz"
-STRING_ALIAS="${EXT}/string/protein.aliases.v12.0.txt"
+mkdir -p "${PFP_STRING_DIR}"
+STRING_ALIAS="${STRING_ALIAS_FILE:-${PFP_STRING_DIR}/protein.aliases.v12.0.txt}"
+STRING_ALIAS_GZ="${STRING_ALIAS}.gz"
 if [ ! -f "${STRING_ALIAS}" ]; then
   echo "==> Downloading STRING aliases v12.0 (~3.2 GB)"
-  wget -c "https://stringdb-downloads.org/download/protein.aliases.v12.0.txt.gz" -O "${STRING_ALIAS_GZ}"
+  wget -c "${STRING_DOWNLOAD_BASE}/protein.aliases.v12.0.txt.gz" -O "${STRING_ALIAS_GZ}"
   gunzip "${STRING_ALIAS_GZ}"
 else
   echo "==> STRING aliases already present, skipping"
 fi
 
-STRING_H5="${EXT}/string/protein.network.embeddings.v12.0.h5"
+STRING_H5="${STRING_H5_FILE:-${PFP_STRING_DIR}/protein.network.embeddings.v12.0.h5}"
 if [ ! -f "${STRING_H5}" ]; then
   echo "==> Downloading STRING network embeddings v12.0 (.h5) (~17.9 GB)"
-  wget -c "https://stringdb-downloads.org/download/protein.network.embeddings.v12.0.h5" -O "${STRING_H5}"
+  wget -c "${STRING_DOWNLOAD_BASE}/protein.network.embeddings.v12.0.h5" -O "${STRING_H5}"
 else
   echo "==> STRING network embeddings already present, skipping"
 fi
@@ -111,13 +129,14 @@ fi
 echo "==> AlphaFold & UniProt are runtime API downloads (handled in modality scripts)."
 
 # --- 5. Emit env-var exports.
-cat > "${EXT}/dependency_env.sh" <<EOF
-# Source before running modality scripts:  source external/dependency_env.sh
-export CAFA_ASSESSMENT_DIR="${EXT}/CAFA_assessment_tool"
+mkdir -p "$(dirname "${DEPENDENCY_ENV}")"
+cat > "${DEPENDENCY_ENV}" <<EOF
+# Source before running modality scripts:  source ${DEPENDENCY_ENV}
+export CAFA_ASSESSMENT_DIR="${CAFA_ASSESSMENT_DIR}"
 export CAFA3_RAW_DIR="${RAW}"
 export STRING_H5_FILE="${STRING_H5}"
 export STRING_ALIAS_FILE="${STRING_ALIAS}"
 EOF
 
 echo ""
-echo "==> Wrote env exports to ${EXT}/dependency_env.sh"
+echo "==> Wrote env exports to ${DEPENDENCY_ENV}"
