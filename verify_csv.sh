@@ -1,21 +1,31 @@
 #!/bin/bash
 # verify_cafa3_csvs.sh — MAXIMALLY thorough provenance check:
 # does Zijan's mmfp_data_splits regenerate EXACTLY from Zenodo record 7409660?
-# Fully isolated in ~/mmfp_csv_verify. PFP is only READ, never written.
+# Fully isolated in VERIFY_CSV_WORKDIR. PFP is only READ, never written.
 set -euo pipefail
 
-VDIR=~/mmfp_csv_verify
+HERE="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "${HERE}/configs/paths.local.sh" ]; then
+  # Machine-specific paths are intentionally not committed.
+  # shellcheck disable=SC1091
+  source "${HERE}/configs/paths.local.sh"
+fi
+
+VDIR="${VERIFY_CSV_WORKDIR:-${HOME}/mmfp_csv_verify}"
 RAW="${VDIR}/cafa3_raw"
 GEN="${VDIR}/generated_splits"
-PFP=~/PFP
+PFP="${PFP_DIR:-${HOME}/PFP}"
+MMFP_ENV="${MMFP_ENV:-mmfp}"
 
 # --- Activate the env FIRST, before any python call ---
 eval "$(micromamba shell hook --shell bash)"
-micromamba activate mmfp
+micromamba activate "${MMFP_ENV}"
 python --version   # sanity: should print the mmfp env's Python, not pyenv
 
 mkdir -p "${RAW}" "${GEN}"
 echo "==> Verification sandbox: ${VDIR}  (PFP is read-only here)"
+echo "==> PFP reference path: ${PFP}"
+echo "==> MMFP environment: ${MMFP_ENV}"
 
 # --- 1. Download the 9 required CSVs (skip augmented; not used by the script) ---
 cd "${RAW}"
@@ -50,6 +60,11 @@ echo "==> All 9 CSVs authenticated."
 # --- 2. Copy the prep script into the sandbox AND patch the column-name quirk ---
 #     The MF CSVs use 'protein' (singular); BP/CC use 'proteins'. The published
 #     script hard-codes 'proteins' and crashes on MF. Normalise after read_csv.
+if [ ! -f "${PFP}/scripts/prepare_cafa3_data.py" ]; then
+  echo "Missing PFP prepare script: ${PFP}/scripts/prepare_cafa3_data.py" >&2
+  echo "Set PFP_DIR in configs/paths.local.sh or the environment." >&2
+  exit 1
+fi
 cp "${PFP}/scripts/prepare_cafa3_data.py" "${VDIR}/prepare_cafa3_data.py"
 python - "${VDIR}/prepare_cafa3_data.py" <<'PY'
 import sys

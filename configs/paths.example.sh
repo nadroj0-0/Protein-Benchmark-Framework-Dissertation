@@ -20,3 +20,7 @@ export PROTEIN_DATABASES_DIR="${PROTEIN_DATABASES_DIR:-$HOME/protein_databases}"
 # PFP/MMFP Python environment. Use a path or environment name appropriate for
 # the active machine; cluster scripts may override this.
 export MMFP_ENV="${MMFP_ENV:-mmfp}"
+
+# Scratch directory for verify_csv.sh. The script writes downloaded Zenodo CSVs,
+# generated split artefacts, and a patched temporary prepare_cafa3_data.py here.
+export VERIFY_CSV_WORKDIR="${VERIFY_CSV_WORKDIR:-$HOME/mmfp_csv_verify}"
