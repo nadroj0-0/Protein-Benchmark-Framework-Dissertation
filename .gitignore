@@ -1,11 +1,18 @@
 # Python
 __pycache__/
 *.pyc
+.pytest_cache/
 
 # Virtual environments
 .venv/
 env/
 micromamba/
+
+# macOS
+.DS_Store
+
+# Machine-local configuration
+configs/paths.local.sh
 
 # Logs
 logs/
@@ -16,11 +23,20 @@ external/
 # Data
 data/
 datasets/
+temporal_benchmark/data/
+temporal_benchmark/outputs/
 
-# Large embeddings
+# Generated outputs and large artefacts
+results/
 *.h5
 *.npz
 *.npy
+*.pkl
+*.zip
+*.tgz
+*.tar
 *.tar.gz
+*.o[0-9]*
+*.e[0-9]*
 
 .idea

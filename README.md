@@ -33,14 +33,45 @@ contracts before expensive training is launched.
 ├── verify_embeddings.py                   # Embedding completeness/correctness gate
 ├── verify_splits.py                       # Split-contract verification gate
 ├── verify_csv.sh                          # CSV sanity checks
+├── benchmark_builders/
+│   └── contemporary_cafa/                 # 2025→2026 CAFA-style benchmark builder
+├── scripts/
+│   ├── data_acquisition/                  # HPC/raw database download and inspection helpers
+│   └── hpc/                               # Cluster environment probes and utilities
 ├── configs/
-│   └── cafa3.json                         # Default CAFA3 verification config
+│   ├── cafa3.json                         # Default CAFA3 verification config
+│   └── paths.example.sh                   # Example local/HPC path configuration
 └── HPC Cluster/                           # Example cluster submission scripts/notes
 ```
 
 Generated data, model checkpoints, cloned upstream repositories, and
 embedding caches are intentionally not committed. See `.gitignore` for
 the excluded paths.
+
+## Local path configuration
+
+Machine-specific paths should live outside committed scripts. Use
+`configs/paths.example.sh` as a template:
+
+``` bash
+cp configs/paths.example.sh configs/paths.local.sh
+```
+
+Then edit `configs/paths.local.sh` for the current machine. Typical
+variables include `PFP_DIR`, `CAFA_ASSESSMENT_DIR`, `CAFA3_RAW_DIR`,
+`PROTEIN_DATABASES_DIR`, and `MMFP_ENV`.
+
+## Contemporary benchmark builder
+
+The 2025→2026 CAFA-style temporal benchmark builder lives in:
+
+``` text
+benchmark_builders/contemporary_cafa/
+```
+
+It is kept as a self-contained subproject so that the immutable PFP
+reproduction wrappers and the new benchmark-generation code remain
+separate.
 
 ## Quick start
 

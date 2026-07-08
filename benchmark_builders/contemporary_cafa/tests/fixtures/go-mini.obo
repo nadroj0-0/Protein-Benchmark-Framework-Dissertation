@@ -1,0 +1,38 @@
+format-version: 1.2
+
+[Term]
+id: GO:0008150
+name: biological_process
+namespace: biological_process
+
+[Term]
+id: GO:0009987
+name: cellular process
+namespace: biological_process
+is_a: GO:0008150 ! biological_process
+
+[Term]
+id: GO:0003674
+name: molecular_function
+namespace: molecular_function
+
+[Term]
+id: GO:0005488
+name: binding
+namespace: molecular_function
+is_a: GO:0003674 ! molecular_function
+
+[Term]
+id: GO:0005575
+name: cellular_component
+namespace: cellular_component
+
+[Term]
+id: GO:0005886
+name: plasma membrane
+namespace: cellular_component
+is_a: GO:0005575 ! cellular_component
+
+[Typedef]
+id: part_of
+name: part of

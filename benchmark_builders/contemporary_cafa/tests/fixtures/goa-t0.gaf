@@ -1,0 +1,5 @@
+!gaf-version: 2.2
+UniProtKB	P00001	P1		GO:0009987	PMID:1	IDA		P	Protein one		protein	taxon:9606	20250101	UniProt		
+UniProtKB	P00002	P2		GO:0005488	PMID:2	TAS		F	Protein two		protein	taxon:9606	20250101	UniProt		
+UniProtKB	P00003	P3		GO:0005886	PMID:3	IC		C	Protein three		protein	taxon:9606	20250101	UniProt		
+UniProtKB	P00004	P4	NOT	GO:0009987	PMID:4	IDA		P	Protein four		protein	taxon:9606	20250101	UniProt		
