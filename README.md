@@ -20,22 +20,14 @@ contracts before expensive training is launched.
 
 ``` text
 .
-├── reproduce_eval_only.sh                 # Download artefacts and reproduce evaluation only
-├── reproduce_retrain_eval.sh              # Download artefacts, retrain, then evaluate
-├── reproduce_embeddings_retrain_eval.sh   # Full pipeline entry point: embeddings -> retrain -> eval
-├── generate_embeddings_run_all.sh         # Sub-orchestrator for all embedding-generation stages
-├── generate_embeddings_dependencies.sh    # External dependency setup
-├── generate_embeddings_prepare_data.sh    # Raw CSVs -> splits, labels, sequences
-├── generate_embeddings_sequence.sh        # ProtT5 sequence embeddings
-├── generate_embeddings_text.sh            # PubMedBERT / UniProt text embeddings
-├── generate_embeddings_structure.sh       # ESM-IF1 structure embeddings
-├── generate_embeddings_ppi.sh             # STRING/SPACE PPI embeddings
 ├── verify_embeddings.py                   # Embedding completeness/correctness gate
 ├── verify_splits.py                       # Split-contract verification gate
-├── verify_csv.sh                          # CSV sanity checks
 ├── benchmark_builders/
 │   └── contemporary_cafa/                 # 2025→2026 CAFA-style benchmark builder
 ├── scripts/
+│   ├── reproduction/                      # Main PFP reproduction entrypoints
+│   ├── embeddings/                        # Embedding-generation wrappers
+│   ├── verification/                      # Shell verification utilities
 │   ├── data_acquisition/                  # HPC/raw database download and inspection helpers
 │   └── hpc/                               # Cluster environment probes and utilities
 ├── configs/
@@ -81,27 +73,27 @@ separate.
 Run the lightest reproduction path first:
 
 ``` bash
-bash reproduce_eval_only.sh
+bash scripts/reproduction/reproduce_eval_only.sh
 ```
 
 Retrain using downloaded artefacts:
 
 ``` bash
-bash reproduce_retrain_eval.sh
+bash scripts/reproduction/reproduce_retrain_eval.sh
 ```
 
 Run the full embedding-generation workflow:
 
 ``` bash
-bash reproduce_embeddings_retrain_eval.sh
+bash scripts/reproduction/reproduce_embeddings_retrain_eval.sh
 ```
 
 The final route clones/builds the upstream PFP environment before
-invoking `generate_embeddings_run_all.sh`.
+invoking `scripts/embeddings/generate_embeddings_run_all.sh`.
 
 ## Embedding-generation workflow
 
-`generate_embeddings_run_all.sh` is a sub-orchestrator. It assumes:
+`scripts/embeddings/generate_embeddings_run_all.sh` is a sub-orchestrator. It assumes:
 
 -   the upstream `PFP` repository has already been cloned;
 -   the required Python environment is active;
@@ -222,8 +214,8 @@ DEVICE=cuda
 For local CPU testing:
 
 ``` bash
-DEVICE=cpu bash generate_embeddings_sequence.sh
-DEVICE=cpu bash generate_embeddings_structure.sh
+DEVICE=cpu bash scripts/embeddings/generate_embeddings_sequence.sh
+DEVICE=cpu bash scripts/embeddings/generate_embeddings_structure.sh
 ```
 
 CPU execution may be very slow for model-heavy stages such as ESM-IF1.

@@ -7,10 +7,11 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-if [ -f "${HERE}/configs/paths.local.sh" ]; then
+REPO_ROOT="$(cd "${HERE}/../.." && pwd)"
+if [ -f "${REPO_ROOT}/configs/paths.local.sh" ]; then
   # Machine-specific paths are intentionally not committed.
   # shellcheck disable=SC1091
-  source "${HERE}/configs/paths.local.sh"
+  source "${REPO_ROOT}/configs/paths.local.sh"
 fi
 
 export STRING_H5_FILE="${STRING_H5_FILE:-external/string/protein.network.embeddings.v12.0.h5}"

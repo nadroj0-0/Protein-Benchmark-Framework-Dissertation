@@ -6,10 +6,11 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-if [ -f "${HERE}/configs/paths.local.sh" ]; then
+REPO_ROOT="$(cd "${HERE}/../.." && pwd)"
+if [ -f "${REPO_ROOT}/configs/paths.local.sh" ]; then
   # Machine-specific paths are intentionally not committed.
   # shellcheck disable=SC1091
-  source "${HERE}/configs/paths.local.sh"
+  source "${REPO_ROOT}/configs/paths.local.sh"
 fi
 
 PFP_ROOT="${PFP_ROOT:-$(pwd)}"

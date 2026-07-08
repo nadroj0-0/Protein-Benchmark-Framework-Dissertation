@@ -10,13 +10,15 @@
 # KNOWN GAP: the ProtT5 step needs data/proteins.fasta, not yet produced by any step.
 
 set -euo pipefail
-LOGFILE="embeddings_verify_$(date +%Y%m%d_%H%M%S).log"
+LOGFILE="embeddings_verify_serial_$(date +%Y%m%d_%H%M%S).log"
 exec > >(tee -a "$LOGFILE")
 exec 2>&1
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-source "${HERE}/scripts/reproduction_common.sh"
-load_framework_paths "${HERE}"
+REPO_ROOT="$(cd "${HERE}/../.." && pwd)"
+source "${REPO_ROOT}/scripts/reproduction_common.sh"
+load_framework_paths "${REPO_ROOT}"
+cd "${REPO_ROOT}"
 
 # --- 0. Clone (code at repo ROOT; README's `cd PFP/MMFP` is wrong). ----
 clone_or_reuse_pfp
@@ -42,7 +44,7 @@ REPO="$(pwd)"
 activate_or_create_mmfp_env
 
 # --- 3. Generate ALL embeddings from scratch (sub-orchestrator; CWD = repo root) ---
-bash "${HERE}/generate_embeddings_run_all.sh" || \
+bash "${REPO_ROOT}/scripts/embeddings/generate_embeddings_run_all_serial.sh" || \
 echo "==> run_all non-zero (expected: strict verify flags text shape); continuing to comparison."
 
 echo
@@ -71,7 +73,7 @@ done
 cd "$REPO"
 
 echo "==> Comparing generated embeddings against published embeddings..."
-python "${HERE}/compare_embeddings.py" \
+python "${REPO_ROOT}/compare_embeddings.py" \
   --root "$REPO" \
   --out-csv results/embedding_comparison.csv \
   --out-json results/embedding_comparison_summary.json

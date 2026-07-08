@@ -11,8 +11,10 @@ exec > >(tee -a "$LOGFILE")
 exec 2>&1
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-source "${HERE}/scripts/reproduction_common.sh"
-load_framework_paths "${HERE}"
+REPO_ROOT="$(cd "${HERE}/../.." && pwd)"
+source "${REPO_ROOT}/scripts/reproduction_common.sh"
+load_framework_paths "${REPO_ROOT}"
+cd "${REPO_ROOT}"
 
 # --- 0. Clone (code is at the repo ROOT; README's `cd PFP/MMFP` is wrong:
 #        no MMFP subdir exists, and that path errors on Linux). ----------
