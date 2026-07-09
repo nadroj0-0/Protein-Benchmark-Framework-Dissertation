@@ -11,7 +11,7 @@ import pandas as pd
 from .config import BuildConfig, NAMESPACE_TO_PREFIX, PREFIX_TO_NAMESPACE
 from .goa import load_annotation_map
 from .ontology import Ontology
-from .parsers import iter_uniprot
+from .parsers import iter_fasta, iter_uniprot
 
 LOGGER = logging.getLogger(__name__)
 
@@ -150,6 +150,80 @@ def make_terms_dataframe(cnt: Counter, min_count: int) -> pd.DataFrame:
         if val >= min_count:
             terms.append(key)
     return pd.DataFrame({"terms": terms})
+
+
+def make_deepgoplus_terms_dataframe(cnt: Counter, min_count: int) -> pd.DataFrame:
+    """Mirror DeepGOPlus cafa3_data.py term filtering/order.
+
+    The original groups by the prefix before ":" even though all GO terms share
+    the same "GO" prefix. Keeping the shape here makes the historical pickle
+    generation path easier to compare directly against cafa3_data.py.
+    """
+    res: dict[str, list[str]] = {}
+    for key, val in cnt.items():
+        if val >= min_count:
+            ont = key.split(":")[0]
+            if ont not in res:
+                res[ont] = []
+            res[ont].append(key)
+
+    terms = []
+    for _, val in res.items():
+        terms += val
+    return pd.DataFrame({"terms": terms})
+
+
+def load_deepgoplus_annotation_file(path: Path) -> dict[str, set[str]]:
+    """Read DeepGOPlus/CAFA two-column tab annotation files."""
+    annots: dict[str, set[str]] = {}
+    with open(path, "r") as handle:
+        for line in handle:
+            it = line.strip().split("\t")
+            if len(it) < 2:
+                continue
+            prot_id = it[0]
+            if prot_id not in annots:
+                annots[prot_id] = set()
+            go_id = it[1]
+            annots[prot_id].add(go_id)
+    return annots
+
+
+def build_deepgoplus_dataframe_from_fasta(
+    go: Ontology,
+    sequences_file: Path,
+    annots: dict[str, set[str]],
+    count_terms: bool,
+) -> tuple[pd.DataFrame, Counter]:
+    """Mirror the dataframe construction in DeepGOPlus cafa3_data.py."""
+    proteins = []
+    sequences = []
+    annotations = []
+    cnt = Counter()
+
+    for prot_info, sequence in iter_fasta(sequences_file):
+        prot_id = prot_info.split()[0]
+        if prot_id in annots:
+            proteins.append(prot_id)
+            sequences.append(sequence)
+            annotations.append(annots[prot_id])
+
+    prop_annotations = []
+    for direct_annots in annotations:
+        annots_set = set()
+        for go_id in direct_annots:
+            annots_set |= go.get_anchestors(go_id)
+        prop_annotations.append(annots_set)
+        if count_terms:
+            for go_id in annots_set:
+                cnt[go_id] += 1
+
+    df = pd.DataFrame({
+        "proteins": proteins,
+        "sequences": sequences,
+        "annotations": prop_annotations,
+    })
+    return df, cnt
 
 
 def split_train_valid(df: pd.DataFrame, split: float = 0.9, seed: int = 0) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -300,6 +374,70 @@ def export_from_deepgoplus_pickles(
 
     csv_paths = export_pfp_csvs(go, train_df, valid_df.iloc[:, :3], test_df, terms_df, output_dir)
     written.update(csv_paths)
+    return written
+
+
+def generate_deepgoplus_pickles_from_cafa_files(
+    go_obo: Path,
+    train_sequences_file: Path,
+    train_annotations_file: Path,
+    test_sequences_file: Path,
+    test_annotations_file: Path,
+    output_dir: Path,
+    min_count: int = 50,
+    include_rels: bool = True,
+) -> dict[str, Path]:
+    """Generate DeepGOPlus CAFA pickles from official CAFA-style files.
+
+    This mirrors DeepGOPlus cafa3_data.py. It is intentionally narrower than
+    the contemporary snapshot builder: it starts from the already-curated CAFA
+    training/target/ground-truth files and writes only train_data.pkl,
+    test_data.pkl and terms.pkl.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+
+    LOGGER.info("Loading GO from %s", go_obo)
+    go = Ontology(go_obo, with_rels=include_rels)
+
+    LOGGER.info("Loading training annotations from %s", train_annotations_file)
+    train_annots = load_deepgoplus_annotation_file(train_annotations_file)
+
+    LOGGER.info("Loading training sequences from %s", train_sequences_file)
+    train_df, cnt = build_deepgoplus_dataframe_from_fasta(
+        go=go,
+        sequences_file=train_sequences_file,
+        annots=train_annots,
+        count_terms=True,
+    )
+    LOGGER.info("Train proteins: %d", len(train_df))
+
+    terms_df = make_deepgoplus_terms_dataframe(cnt, min_count)
+    LOGGER.info("Number of terms %d", len(terms_df))
+
+    LOGGER.info("Loading testing annotations from %s", test_annotations_file)
+    test_annots = load_deepgoplus_annotation_file(test_annotations_file)
+
+    LOGGER.info("Loading testing sequences from %s", test_sequences_file)
+    test_df, _ = build_deepgoplus_dataframe_from_fasta(
+        go=go,
+        sequences_file=test_sequences_file,
+        annots=test_annots,
+        count_terms=False,
+    )
+    LOGGER.info("Test proteins: %d", len(test_df))
+
+    written = {
+        "train_data": output_dir / "train_data.pkl",
+        "test_data": output_dir / "test_data.pkl",
+        "terms": output_dir / "terms.pkl",
+    }
+    LOGGER.info("Saving training data to %s", written["train_data"])
+    train_df.to_pickle(written["train_data"])
+    LOGGER.info("Saving terms to %s", written["terms"])
+    terms_df.to_pickle(written["terms"])
+    LOGGER.info("Saving testing data to %s", written["test_data"])
+    test_df.to_pickle(written["test_data"])
     return written
 
 

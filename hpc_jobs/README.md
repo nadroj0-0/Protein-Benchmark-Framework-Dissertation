@@ -25,6 +25,7 @@ full path:
 qsub hpc_jobs/active/hpc_reproduce_eval_only.sh
 qsub hpc_jobs/active/hpc_reproduce_retrain_eval.sh
 qsub hpc_jobs/active/hpc_reproduce_embeddings_retrain_eval.sh
+qsub hpc_jobs/active/hpc_cafa3_deepgoplus_pickle_generation_validation.sh
 qsub hpc_jobs/active/hpc_cafa3_deepgoplus_validation.sh
 qsub hpc_jobs/active/hpc_cafa3_historical_validation.sh
 ```
@@ -34,6 +35,8 @@ then call the normal entrypoints under `scripts/`.
 
 For benchmark validation:
 
+- `hpc_cafa3_deepgoplus_pickle_generation_validation.sh` validates the
+  official CAFA3/DeepGOPlus file-to-pickle layer.
 - `hpc_cafa3_deepgoplus_validation.sh` validates the released DeepGOPlus/TEMPROT
   intermediate path and is the preferred lightweight historical validation.
 - `hpc_cafa3_historical_validation.sh` runs the heavier raw-snapshot audit.

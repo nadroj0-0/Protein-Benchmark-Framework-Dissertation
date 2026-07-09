@@ -117,7 +117,34 @@ files.
 
 ## Example Command
 
-The builder has two source modes.
+The builder has three source modes.
+
+### Historical CAFA3 File-to-Pickle Validation Mode
+
+Use this mode to validate the recovered DeepGOPlus `cafa3_data.py` layer:
+
+```bash
+python3 -m cafa_benchmark_builder \
+  --source-mode cafa3-files \
+  --go-obo "/Users/jordansydney-darlin/CAFA3 Supplementary material/external_repos/TEMPROT/data-cafa/go.obo" \
+  --train-sequences-file "/Users/jordansydney-darlin/CAFA3 Supplementary material/external_repos/TEMPROT/data-cafa/CAFA3_training_data/uniprot_sprot_exp.fasta" \
+  --train-annotations-file "/Users/jordansydney-darlin/CAFA3 Supplementary material/external_repos/TEMPROT/data-cafa/CAFA3_training_data/uniprot_sprot_exp.txt" \
+  --test-sequences-file "/Users/jordansydney-darlin/CAFA3 Supplementary material/external_repos/TEMPROT/data-cafa/CAFA3_targets/targets_all.fasta" \
+  --test-annotations-file "/Users/jordansydney-darlin/CAFA3 Supplementary material/external_repos/TEMPROT/data-cafa/benchmark20171115/groundtruth/leafonly_all.txt" \
+  --output-dir /tmp/cafa3_deepgoplus_pickles \
+  --min-count 50
+```
+
+This writes:
+
+```text
+train_data.pkl
+test_data.pkl
+terms.pkl
+```
+
+It does not create the 90/10 train/validation split or the nine PFP CSVs. Those
+belong to the next historical layer.
 
 ### Historical DeepGOPlus Validation Mode
 

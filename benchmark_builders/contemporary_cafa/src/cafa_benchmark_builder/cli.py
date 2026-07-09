@@ -4,7 +4,11 @@ import argparse
 from importlib import resources
 from pathlib import Path
 
-from .builder import build_benchmark, export_from_deepgoplus_pickles
+from .builder import (
+    build_benchmark,
+    export_from_deepgoplus_pickles,
+    generate_deepgoplus_pickles_from_cafa_files,
+)
 from .config import BuildConfig, EVIDENCE_POLICIES, normalise_taxa
 
 
@@ -42,10 +46,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Build 2025->2026 CAFA-style PFP-compatible benchmark CSVs."
     )
-    parser.add_argument("--source-mode", choices=("snapshots", "deepgoplus"), default="snapshots",
-                        help="Input mode. snapshots parses UniProt/GOA/GO; deepgoplus exports from released pickles.")
+    parser.add_argument("--source-mode", choices=("snapshots", "deepgoplus", "cafa3-files"), default="snapshots",
+                        help=("Input mode. snapshots parses UniProt/GOA/GO; deepgoplus exports from released "
+                              "pickles; cafa3-files regenerates train_data.pkl/test_data.pkl/terms.pkl from "
+                              "official CAFA3/DeepGOPlus files."))
     parser.add_argument("--deepgoplus-dir", type=Path,
                         help="Directory containing train_data_train.pkl, train_data_valid.pkl, test_data.pkl, terms.pkl.")
+    parser.add_argument("--train-sequences-file", type=Path,
+                        help="CAFA/DeepGOPlus training FASTA for --source-mode cafa3-files.")
+    parser.add_argument("--train-annotations-file", type=Path,
+                        help="CAFA/DeepGOPlus training annotation TSV for --source-mode cafa3-files.")
+    parser.add_argument("--test-sequences-file", type=Path,
+                        help="CAFA/DeepGOPlus target FASTA for --source-mode cafa3-files.")
+    parser.add_argument("--test-annotations-file", type=Path,
+                        help="CAFA/DeepGOPlus test/ground-truth annotation TSV for --source-mode cafa3-files.")
     parser.add_argument("--uniprot-t0", action="append", type=Path,
                         help="UniProt t0 FASTA or DAT file. Repeat for multiple files.")
     parser.add_argument("--uniprot-t1", action="append", type=Path,
@@ -121,6 +135,23 @@ def main(argv: list[str] | None = None) -> None:
             output_dir=args.output_dir,
             include_rels=not args.no_rels,
             write_intermediates=not args.no_intermediates,
+        )
+    elif args.source_mode == "cafa3-files":
+        require_args(args, [
+            "train_sequences_file",
+            "train_annotations_file",
+            "test_sequences_file",
+            "test_annotations_file",
+        ])
+        written = generate_deepgoplus_pickles_from_cafa_files(
+            go_obo=args.go_obo,
+            train_sequences_file=args.train_sequences_file,
+            train_annotations_file=args.train_annotations_file,
+            test_sequences_file=args.test_sequences_file,
+            test_annotations_file=args.test_annotations_file,
+            output_dir=args.output_dir,
+            min_count=args.min_count,
+            include_rels=not args.no_rels,
         )
     else:
         written = build_benchmark(config_from_args(args))

@@ -5,7 +5,52 @@ code against historical reference artefacts.
 
 ## CAFA3 Historical Validation
 
-There are now two historical validation workflows.
+There are now three historical validation workflows.
+
+### DeepGOPlus Pickle-Generation Validation
+
+This validates the recovered `cafa3_data.py` layer:
+
+```text
+Official CAFA3/DeepGOPlus files
+    -> train_data.pkl
+    -> test_data.pkl
+    -> terms.pkl
+    -> compare against released DeepGOPlus pickles
+```
+
+Main runner:
+
+```bash
+bash scripts/validation/run_cafa3_deepgoplus_pickle_generation_validation.sh
+```
+
+HPC wrapper:
+
+```bash
+qsub hpc_jobs/active/hpc_cafa3_deepgoplus_pickle_generation_validation.sh
+```
+
+By default the runner downloads the public CAFA archive candidates:
+
+```text
+https://deepgo.cbrc.kaust.edu.sa/data/data-cafa.tar.gz
+https://deepgo.cbrc.kaust.edu.sa/data/deepgoplus-cafa.tar.gz
+```
+
+It can also use a local extracted copy:
+
+```bash
+export DEEPGOPLUS_CAFA_DIR="/path/to/data-cafa"
+```
+
+The runner copies reports/logs back to:
+
+```text
+~/cafa3_deepgoplus_pickle_generation_reports/<job-or-timestamp>/
+```
+
+Scratch is removed by default.
 
 ### DeepGOPlus/TEMPROT Validation
 
@@ -105,8 +150,10 @@ Expected report files:
 
 ```text
 cafa3_historical_validation_report.md
+cafa3_deepgoplus_pickle_generation_report.md
 csv_comparison.tsv
 pickle_comparison.tsv
+pickle_generation_comparison.tsv
 protein_overlap.tsv
 go_term_overlap.tsv
 run_manifest.md

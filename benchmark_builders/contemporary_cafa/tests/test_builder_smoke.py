@@ -10,7 +10,11 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from cafa_benchmark_builder.builder import build_benchmark, export_from_deepgoplus_pickles
+from cafa_benchmark_builder.builder import (
+    build_benchmark,
+    export_from_deepgoplus_pickles,
+    generate_deepgoplus_pickles_from_cafa_files,
+)
 from cafa_benchmark_builder.config import BuildConfig, EVIDENCE_POLICIES
 from cafa_benchmark_builder.goa import load_annotation_map
 from cafa_benchmark_builder.parsers import iter_uniprot
@@ -125,6 +129,44 @@ class BenchmarkBuilderSmokeTest(unittest.TestCase):
             self.assertEqual(bp_train["proteins"].tolist(), ["P00001"])
             cc_test = pd.read_csv(out / "cc-test.csv")
             self.assertEqual(cc_test["proteins"].tolist(), ["T96060000001"])
+
+    def test_generates_deepgoplus_pickles_from_cafa_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out = root / "out"
+            train_fasta = root / "train.fasta"
+            train_annots = root / "train.tsv"
+            test_fasta = root / "test.fasta"
+            test_annots = root / "test.tsv"
+
+            train_fasta.write_text(">P00001\nMAAA\n>P00002 extra text\nMBBB\n>P99999\nMXXX\n")
+            train_annots.write_text("P00001\tGO:0009987\tP\nP00002\tGO:0005488\tF\n")
+            test_fasta.write_text(">T96060000001 1433B_MOUSE\nMCCC\n>T00000000002\nMDDD\n")
+            test_annots.write_text("T96060000001\tGO:0005886\n")
+
+            written = generate_deepgoplus_pickles_from_cafa_files(
+                go_obo=FIXTURES / "go-mini.obo",
+                train_sequences_file=train_fasta,
+                train_annotations_file=train_annots,
+                test_sequences_file=test_fasta,
+                test_annotations_file=test_annots,
+                output_dir=out,
+                min_count=1,
+            )
+
+            self.assertEqual({p.name for p in written.values()}, {"train_data.pkl", "test_data.pkl", "terms.pkl"})
+            train_df = pd.read_pickle(out / "train_data.pkl")
+            test_df = pd.read_pickle(out / "test_data.pkl")
+            terms_df = pd.read_pickle(out / "terms.pkl")
+
+            self.assertEqual(train_df["proteins"].tolist(), ["P00001", "P00002"])
+            self.assertEqual(test_df["proteins"].tolist(), ["T96060000001"])
+            self.assertEqual(set(train_df.loc[0, "annotations"]), {"GO:0009987", "GO:0008150"})
+            self.assertEqual(set(test_df.loc[0, "annotations"]), {"GO:0005886", "GO:0005575"})
+            self.assertEqual(
+                set(terms_df["terms"]),
+                {"GO:0009987", "GO:0008150", "GO:0005488", "GO:0003674"},
+            )
 
     def test_named_evidence_policies_are_available(self):
         self.assertIn("TAS", EVIDENCE_POLICIES["cafa3-final"])

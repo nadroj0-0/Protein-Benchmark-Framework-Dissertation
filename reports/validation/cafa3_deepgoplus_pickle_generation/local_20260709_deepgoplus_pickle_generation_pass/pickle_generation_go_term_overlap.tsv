@@ -1,0 +1,4 @@
+source	file	generated_count	reference_count	overlap_count	generated_only_count	reference_only_count	jaccard	generated_only_preview	reference_only_preview
+pickle	train_data.pkl	28963	28963	28963	0	0	1		
+pickle	test_data.pkl	6647	6647	6647	0	0	1		
+pickle	terms.pkl	5220	5220	5220	0	0	1		
