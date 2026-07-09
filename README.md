@@ -27,7 +27,8 @@ contracts before expensive training is launched.
 │   ├── embeddings/                        # Embedding wrappers and FASTA builder
 │   ├── verification/                      # Shell and Python verification gates
 │   ├── data_acquisition/                  # HPC/raw database download and inspection helpers
-│   └── diagnostics/                       # Environment probes and comparison diagnostics
+│   ├── diagnostics/                       # Environment probes and comparison diagnostics
+│   └── validation/                        # Historical benchmark validation workflows
 ├── hpc_jobs/
 │   ├── active/                            # qsub wrappers for current cluster workflows
 │   ├── examples/                          # Scheduler examples/templates
