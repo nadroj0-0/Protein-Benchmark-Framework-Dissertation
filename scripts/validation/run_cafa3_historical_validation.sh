@@ -15,6 +15,7 @@ REPORTS="${RUN_DIR}/reports"
 LOGS="${RUN_DIR}/logs"
 REPORT_COPY_DIR="${REPORT_COPY_DIR:-${HOME}/cafa3_historical_validation_reports/${TIMESTAMP}}"
 KEEP_SCRATCH="${KEEP_SCRATCH:-0}"
+PYTHON_BIN="${PYTHON_BIN:-python}"
 
 GOA_T0_URL="https://ftp.ebi.ac.uk/pub/databases/GO/goa/old/UNIPROT/goa_uniprot_all.gaf.163.gz"
 GOA_T1_URL="https://ftp.ebi.ac.uk/pub/databases/GO/goa/old/UNIPROT/goa_uniprot_all.gaf.172.gz"
@@ -250,7 +251,7 @@ write_manifest() {
   } > "$manifest"
 }
 
-for cmd in wget tar find python3 awk tee wc; do
+for cmd in wget tar find "$PYTHON_BIN" awk tee wc; do
   require_cmd "$cmd"
 done
 
@@ -292,7 +293,7 @@ echo "  UniProt t1 input: ${UNIPROT_T1_INPUT}"
 echo "==> [4/8] Run benchmark builder"
 BUILDER_PYTHONPATH="${REPO_ROOT}/benchmark_builders/contemporary_cafa/src${PYTHONPATH:+:${PYTHONPATH}}"
 BUILDER_CMD=(
-  python3 -m cafa_benchmark_builder
+  "$PYTHON_BIN" -m cafa_benchmark_builder
   --uniprot-t0 "$UNIPROT_T0_INPUT"
   --uniprot-t1 "$UNIPROT_T1_INPUT"
   --goa-t0 "${RAW}/goa/goa_uniprot_all.gaf.163.gz"
@@ -352,7 +353,7 @@ write_manifest "$BUILDER_COMMAND_TEXT" "$PICKLE_STATUS"
 
 echo "==> [8/8] Compare generated and reference outputs"
 COMPARE_CMD=(
-  python3 "${REPO_ROOT}/scripts/validation/compare_cafa3_outputs.py"
+  "$PYTHON_BIN" "${REPO_ROOT}/scripts/validation/compare_cafa3_outputs.py"
   --generated-dir "$GENERATED"
   --reference-csv-dir "$REFERENCE_CSV_DIR"
   --reports-dir "$REPORTS"

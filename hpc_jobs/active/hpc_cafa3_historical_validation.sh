@@ -45,6 +45,10 @@ git clone "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"
 
 cd "$FRAMEWORK_DIR"
 
+source scripts/reproduction_common.sh
+load_framework_paths "$FRAMEWORK_DIR"
+activate_or_create_mmfp_env
+
 echo
 echo "Running CAFA3 historical validation workflow"
 echo "Command:"
@@ -55,6 +59,7 @@ export SCRATCH_BASE="$WORK"
 export TIMESTAMP="$RUN_TAG"
 export REPORT_COPY_DIR="$OUTDIR/$RUN_TAG"
 export KEEP_SCRATCH=0
+export PYTHON_BIN=python
 
 bash scripts/validation/run_cafa3_historical_validation.sh
 STATUS=$?
