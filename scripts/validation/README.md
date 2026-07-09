@@ -105,8 +105,14 @@ definition.
 
 ## Optional Inputs
 
-The workflow always downloads the historical raw CAFA3 snapshots and the MMFP
-reference split tarball.
+The workflow always downloads the historical raw CAFA3 snapshots and the nine
+canonical CAFA3 CSV reference files from Zenodo record
+`https://zenodo.org/records/7409660`. These are the CSV benchmark interface that
+PFP ultimately consumes.
+
+Zijian's Zenodo record `https://zenodo.org/records/19498341` contains MMFP/PFP
+artefacts generated from that benchmark, but it is not used as the canonical CSV
+comparison source here.
 
 DeepGOPlus reference pickle artefacts are optional because the exact public URL
 may not always be discoverable automatically. To enable pickle comparison, set

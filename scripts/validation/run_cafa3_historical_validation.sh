@@ -28,7 +28,8 @@ GO_T0_OBO_URL="https://release.geneontology.org/2017-02-01/ontology/go.obo"
 GO_T0_BASIC_URL="https://release.geneontology.org/2017-02-01/ontology/go-basic.obo"
 GO_T1_OBO_URL="https://release.geneontology.org/2017-11-01/ontology/go.obo"
 GO_T1_BASIC_URL="https://release.geneontology.org/2017-11-01/ontology/go-basic.obo"
-MMFP_SPLITS_URL="https://zenodo.org/records/19498341/files/mmfp_data_splits.tar.gz"
+CAFA3_REFERENCE_RECORD_URL="https://zenodo.org/records/7409660"
+CAFA3_REFERENCE_CSV_BASE_URL="${CAFA3_REFERENCE_RECORD_URL}/files"
 
 UNIPROT_T0_RELEASE_DATE="15-Feb-2017"
 UNIPROT_T1_RELEASE_DATE="22-Nov-2017"
@@ -252,7 +253,7 @@ write_manifest() {
     echo "- GO t0 go-basic.obo: ${GO_T0_BASIC_URL}"
     echo "- GO t1 go.obo: ${GO_T1_OBO_URL}"
     echo "- GO t1 go-basic.obo: ${GO_T1_BASIC_URL}"
-    echo "- MMFP/PFP reference splits: ${MMFP_SPLITS_URL}"
+    echo "- Canonical CAFA3 reference CSV record: ${CAFA3_REFERENCE_RECORD_URL}"
     echo
     echo "## Builder Command"
     echo
@@ -347,12 +348,14 @@ printf '%q ' "${BUILDER_CMD[@]}" > "${LOGS}/builder_command.txt"
 echo >> "${LOGS}/builder_command.txt"
 PYTHONPATH="$BUILDER_PYTHONPATH" "${BUILDER_CMD[@]}" 2>&1 | tee "${LOGS}/builder.log"
 
-echo "==> [5/8] Download and extract MMFP/PFP reference CSV artefacts"
-download "$MMFP_SPLITS_URL" "${REFERENCE}/mmfp_data_splits.tar.gz"
-mkdir -p "${REFERENCE}/mmfp_data_splits"
-extract_archive "${REFERENCE}/mmfp_data_splits.tar.gz" "${REFERENCE}/mmfp_data_splits"
-REFERENCE_CSV_DIR="$(locate_complete_set "${REFERENCE}/mmfp_data_splits" "${CSV_FILES[@]}")" || {
-  echo "Could not locate all 9 reference CSVs under ${REFERENCE}/mmfp_data_splits" >&2
+echo "==> [5/8] Download canonical CAFA3 reference CSV artefacts"
+REFERENCE_CSV_DIR="${REFERENCE}/cafa3_zenodo_7409660"
+mkdir -p "$REFERENCE_CSV_DIR"
+for csv_file in "${CSV_FILES[@]}"; do
+  download "${CAFA3_REFERENCE_CSV_BASE_URL}/${csv_file}?download=1" "${REFERENCE_CSV_DIR}/${csv_file}"
+done
+REFERENCE_CSV_DIR="$(locate_complete_set "$REFERENCE_CSV_DIR" "${CSV_FILES[@]}")" || {
+  echo "Could not locate all 9 reference CSVs under ${REFERENCE}/cafa3_zenodo_7409660" >&2
   exit 1
 }
 echo "  Reference CSV directory: ${REFERENCE_CSV_DIR}"
