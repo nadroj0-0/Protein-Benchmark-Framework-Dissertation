@@ -18,6 +18,45 @@ CAFA3_FINAL_EXP_CODES = frozenset({
     "IC",
 })
 
+# Public CAFA_benchmark/create_benchmark.py policy. This is useful for auditing
+# the public Python script, but the final CAFA3 README extends it with TAS and IC.
+CAFA3_PUBLIC_PYTHON_EXP_CODES = frozenset({
+    "EXP",
+    "IDA",
+    "IPI",
+    "IMP",
+    "IGI",
+    "IEP",
+})
+
+# Supervisor-specified policy for dissertation benchmark variants. Keep this as
+# a named preset so the benchmark can switch policy without code changes.
+SUPERVISOR_EXP_CODES = frozenset({
+    "EXP",
+    "IDA",
+    "IPI",
+    "IMP",
+    "IGI",
+    "IEP",
+    "HTP",
+    "HDA",
+    "HMP",
+    "HGI",
+    "HEP",
+    "TAS",
+    "NAS",
+    "IGC",
+    "RCA",
+    "ND",
+    "IC",
+})
+
+EVIDENCE_POLICIES = {
+    "cafa3-final": CAFA3_FINAL_EXP_CODES,
+    "cafa3-public-python": CAFA3_PUBLIC_PYTHON_EXP_CODES,
+    "supervisor": SUPERVISOR_EXP_CODES,
+}
+
 ASPECT_TO_PREFIX = {
     "P": "bp",
     "C": "cc",

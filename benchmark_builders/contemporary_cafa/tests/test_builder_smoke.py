@@ -10,8 +10,8 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from cafa_benchmark_builder.builder import build_benchmark
-from cafa_benchmark_builder.config import BuildConfig
+from cafa_benchmark_builder.builder import build_benchmark, export_from_deepgoplus_pickles
+from cafa_benchmark_builder.config import BuildConfig, EVIDENCE_POLICIES
 from cafa_benchmark_builder.goa import load_annotation_map
 from cafa_benchmark_builder.parsers import iter_uniprot
 
@@ -74,6 +74,64 @@ class BenchmarkBuilderSmokeTest(unittest.TestCase):
             self.assertIn("P00002", all_train_valid)  # TAS survived
             self.assertIn("P00003", all_train_valid)  # IC survived
             self.assertNotIn("P00004", all_train_valid)
+
+    def test_exports_from_deepgoplus_pickles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "deepgoplus"
+            out = root / "out"
+            source.mkdir()
+
+            pd.DataFrame({
+                "proteins": ["P00001", "P00002"],
+                "sequences": ["MAAA", "MBBB"],
+                "annotations": [{"GO:0009987", "GO:0008150"}, {"GO:0005488", "GO:0003674"}],
+            }).to_pickle(source / "train_data.pkl")
+            pd.DataFrame({
+                "proteins": ["P00001"],
+                "sequences": ["MAAA"],
+                "annotations": [{"GO:0009987", "GO:0008150"}],
+            }).to_pickle(source / "train_data_train.pkl")
+            pd.DataFrame({
+                "proteins": ["P00002"],
+                "sequences": ["MBBB"],
+                "annotations": [{"GO:0005488", "GO:0003674"}],
+                "preds": [None],
+            }).to_pickle(source / "train_data_valid.pkl")
+            pd.DataFrame({
+                "proteins": ["T96060000001"],
+                "sequences": ["MCCC"],
+                "annotations": [{"GO:0005886", "GO:0005575"}],
+            }).to_pickle(source / "test_data.pkl")
+            pd.DataFrame({
+                "terms": ["GO:0009987", "GO:0008150", "GO:0005488", "GO:0003674", "GO:0005886", "GO:0005575"],
+            }).to_pickle(source / "terms.pkl")
+
+            written = export_from_deepgoplus_pickles(
+                deepgoplus_dir=source,
+                go_obo=FIXTURES / "go-mini.obo",
+                output_dir=out,
+            )
+
+            expected = {
+                "bp-training.csv", "bp-validation.csv", "bp-test.csv",
+                "cc-training.csv", "cc-validation.csv", "cc-test.csv",
+                "mf-training.csv", "mf-validation.csv", "mf-test.csv",
+                "train_data.pkl", "train_data_train.pkl", "train_data_valid.pkl",
+                "test_data.pkl", "terms.pkl",
+            }
+            self.assertTrue(expected.issubset({p.name for p in written.values()}))
+            bp_train = pd.read_csv(out / "bp-training.csv")
+            self.assertEqual(bp_train["proteins"].tolist(), ["P00001"])
+            cc_test = pd.read_csv(out / "cc-test.csv")
+            self.assertEqual(cc_test["proteins"].tolist(), ["T96060000001"])
+
+    def test_named_evidence_policies_are_available(self):
+        self.assertIn("TAS", EVIDENCE_POLICIES["cafa3-final"])
+        self.assertIn("IC", EVIDENCE_POLICIES["cafa3-final"])
+        self.assertIn("NAS", EVIDENCE_POLICIES["supervisor"])
+        self.assertIn("ND", EVIDENCE_POLICIES["supervisor"])
+        self.assertNotIn("TAS", EVIDENCE_POLICIES["cafa3-public-python"])
 
 
 if __name__ == "__main__":

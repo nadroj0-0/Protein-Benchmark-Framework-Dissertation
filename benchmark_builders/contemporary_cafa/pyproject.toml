@@ -17,3 +17,6 @@ cafa-benchmark-builder = "cafa_benchmark_builder.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+cafa_benchmark_builder = ["resources/*.txt"]

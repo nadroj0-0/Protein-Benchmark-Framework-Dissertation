@@ -25,11 +25,18 @@ full path:
 qsub hpc_jobs/active/hpc_reproduce_eval_only.sh
 qsub hpc_jobs/active/hpc_reproduce_retrain_eval.sh
 qsub hpc_jobs/active/hpc_reproduce_embeddings_retrain_eval.sh
+qsub hpc_jobs/active/hpc_cafa3_deepgoplus_validation.sh
 qsub hpc_jobs/active/hpc_cafa3_historical_validation.sh
 ```
 
 The active wrappers clone the full framework into node-local scratch and
-then call the normal entrypoints under `scripts/reproduction/`.
-The CAFA3 historical validation wrapper calls
-`scripts/validation/run_cafa3_historical_validation.sh`, copies only
-reports/logs back to home, and removes scratch data at the end of the job.
+then call the normal entrypoints under `scripts/`.
+
+For benchmark validation:
+
+- `hpc_cafa3_deepgoplus_validation.sh` validates the released DeepGOPlus/TEMPROT
+  intermediate path and is the preferred lightweight historical validation.
+- `hpc_cafa3_historical_validation.sh` runs the heavier raw-snapshot audit.
+
+Both validation wrappers copy only reports/logs back to home and remove scratch
+data at the end of the job.

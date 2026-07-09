@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from pathlib import Path
 import logging
+import shutil
 
 import numpy as np
 import pandas as pd
@@ -13,6 +14,14 @@ from .ontology import Ontology
 from .parsers import iter_uniprot
 
 LOGGER = logging.getLogger(__name__)
+
+DEEPGOPLUS_PICKLE_FILES = {
+    "train_data": "train_data.pkl",
+    "train_data_train": "train_data_train.pkl",
+    "train_data_valid": "train_data_valid.pkl",
+    "test_data": "test_data.pkl",
+    "terms": "terms.pkl",
+}
 
 
 def load_proteins(paths: tuple[Path, ...], target_taxa: frozenset[str], reviewed_only: bool) -> dict[str, str]:
@@ -231,6 +240,66 @@ def export_pfp_csvs(
             path = output_dir / f"{prefix}-{split}.csv"
             split_df.to_csv(path, index=False)
             written[f"{prefix}-{split}"] = path
+    return written
+
+
+def require_deepgoplus_file(deepgoplus_dir: Path, filename: str) -> Path:
+    path = deepgoplus_dir / filename
+    if not path.is_file():
+        raise FileNotFoundError(f"Missing required DeepGOPlus file: {path}")
+    return path
+
+
+def export_from_deepgoplus_pickles(
+    deepgoplus_dir: Path,
+    go_obo: Path,
+    output_dir: Path,
+    include_rels: bool = True,
+    write_intermediates: bool = True,
+) -> dict[str, Path]:
+    """Export PFP-compatible CSVs from released DeepGOPlus/TEMPROT pickles.
+
+    This is the historical validation path. It intentionally starts from the
+    same intermediate artefacts used by TEMPROT instead of rebuilding them from
+    raw GOA snapshots.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+
+    LOGGER.info("Loading GO ontology from %s", go_obo)
+    go = Ontology(go_obo, with_rels=include_rels)
+
+    paths = {
+        key: require_deepgoplus_file(deepgoplus_dir, filename)
+        for key, filename in DEEPGOPLUS_PICKLE_FILES.items()
+    }
+
+    LOGGER.info("Loading DeepGOPlus train split from %s", paths["train_data_train"])
+    train_df = pd.read_pickle(paths["train_data_train"])
+    LOGGER.info("Loading DeepGOPlus validation split from %s", paths["train_data_valid"])
+    valid_df = pd.read_pickle(paths["train_data_valid"])
+    LOGGER.info("Loading DeepGOPlus test data from %s", paths["test_data"])
+    test_df = pd.read_pickle(paths["test_data"])
+    LOGGER.info("Loading DeepGOPlus terms from %s", paths["terms"])
+    terms_df = pd.read_pickle(paths["terms"])
+
+    LOGGER.info(
+        "Loaded DeepGOPlus dataframes: train=%s valid=%s test=%s terms=%s",
+        train_df.shape,
+        valid_df.shape,
+        test_df.shape,
+        terms_df.shape,
+    )
+
+    written: dict[str, Path] = {}
+    if write_intermediates:
+        for key, src in paths.items():
+            dest = output_dir / src.name
+            shutil.copy2(src, dest)
+            written[key] = dest
+
+    csv_paths = export_pfp_csvs(go, train_df, valid_df.iloc[:, :3], test_df, terms_df, output_dir)
+    written.update(csv_paths)
     return written
 
 

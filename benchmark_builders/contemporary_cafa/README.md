@@ -117,19 +117,74 @@ files.
 
 ## Example Command
 
-Example structure for the real benchmark:
+The builder has two source modes.
+
+### Historical DeepGOPlus Validation Mode
+
+Use this mode to validate the recovered CAFA3 -> DeepGOPlus -> TEMPROT -> PFP
+path without reparsing raw GOA:
 
 ```bash
 python3 -m cafa_benchmark_builder \
-  --uniprot-t0 /home/jsydneyd/protein_databases/uniprot/2025_01/uniprot_sprot.dat.gz \
-  --uniprot-t1 /home/jsydneyd/protein_databases/uniprot/2026_02/uniprot_sprot.dat.gz \
-  --goa-t0 /home/jsydneyd/protein_databases/goa/2025_01/goa_uniprot_all.gaf.225.gz \
-  --goa-t1 /home/jsydneyd/protein_databases/goa/2026_02/goa_uniprot_all.gaf.234.gz \
+  --source-mode deepgoplus \
+  --deepgoplus-dir "/Users/jordansydney-darlin/CAFA3 Supplementary material/external_repos/TEMPROT/data-cafa" \
+  --go-obo "/Users/jordansydney-darlin/CAFA3 Supplementary material/external_repos/TEMPROT/data-cafa/go.obo" \
+  --output-dir /tmp/cafa3_deepgoplus_export
+```
+
+This reads:
+
+```text
+train_data.pkl
+train_data_train.pkl
+train_data_valid.pkl
+test_data.pkl
+terms.pkl
+```
+
+and exports the nine PFP-compatible CSVs. This is the best mode for proving the
+final CSV export layer is faithful to the historical benchmark.
+
+### Raw Snapshot Mode
+
+Example structure for the real contemporary benchmark:
+
+```bash
+python3 -m cafa_benchmark_builder \
+  --source-mode snapshots \
+  --uniprot-t0 /home/jsydneyd/protein_databases/uniprot/release_2025_01/uniprot_sprot.dat.gz \
+  --uniprot-t1 /home/jsydneyd/protein_databases/uniprot/release_2026_02/uniprot_sprot.dat.gz \
+  --goa-t0 /home/jsydneyd/protein_databases/goa/release_2025_01/goa_uniprot_all.gaf.225.gz \
+  --goa-t1 /home/jsydneyd/protein_databases/goa/release_2026_02/goa_uniprot_all.gaf.234.gz \
   --go-obo /home/jsydneyd/protein_databases/go/2026_06_15/go.obo \
-  --target-taxa-file cafa3_target_taxa.txt \
   --reviewed-only \
   --output-dir /home/jsydneyd/contemporary_cafa_2025_2026/csvs
 ```
+
+By default this uses the official CAFA3-style broad training scope: all loaded
+Swiss-Prot proteins with qualifying annotations. To switch to your supervisor's
+"same model organisms as CAFA3" variant, add:
+
+```bash
+--taxon-policy cafa3-targets
+```
+
+To use a custom taxon list instead:
+
+```bash
+--taxon-policy custom --target-taxa-file /path/to/taxa.txt
+```
+
+Evidence policies are also named presets:
+
+```bash
+--evidence-policy cafa3-final
+--evidence-policy cafa3-public-python
+--evidence-policy supervisor
+```
+
+For strict CAFA3 validation use `cafa3-final`. For the dissertation benchmark,
+switch to `supervisor` if that is the agreed policy.
 
 For a tiny smoke run on real files, use:
 

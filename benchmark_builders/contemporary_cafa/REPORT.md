@@ -49,6 +49,17 @@ Defines benchmark configuration and the final CAFA3 evidence policy:
 EXP, IDA, IPI, IMP, IGI, IEP, TAS, IC
 ```
 
+Also defines named evidence-policy presets:
+
+```text
+cafa3-final
+cafa3-public-python
+supervisor
+```
+
+This allows strict CAFA3 validation and supervisor-specified contemporary
+benchmark variants without editing code.
+
 Also contains ontology prefix/namespace mappings:
 
 ```text
@@ -151,6 +162,20 @@ Stages:
 7. Build temporal test set from gained annotations.
 8. Export TEMPROT-style ontology-specific wide CSVs.
 
+Also contains `export_from_deepgoplus_pickles()`, the historical validation path
+that starts from released DeepGOPlus/TEMPROT artefacts:
+
+```text
+train_data.pkl
+train_data_train.pkl
+train_data_valid.pkl
+test_data.pkl
+terms.pkl
+```
+
+This mode validates the final DeepGOPlus -> TEMPROT -> PFP CSV conversion layer
+without reparsing raw GOA.
+
 ### `cli.py`
 
 Command-line interface. All major paths are configurable:
@@ -169,6 +194,10 @@ Command-line interface. All major paths are configurable:
 --seed
 --reviewed-only
 --max-gaf-records
+--source-mode
+--deepgoplus-dir
+--taxon-policy
+--evidence-policy
 ```
 
 ## Faithfulness To Historical Sources
@@ -224,6 +253,20 @@ Historical CAFA also distinguishes NK and LK targets. The public
 `create_benchmark.py` implements NK/LK discovery, but PFP's wide CSV interface
 does not require preserving the NK/LK category labels. The builder leaves room
 to add benchmark variants later.
+
+The implementation now explicitly supports two training-population paths:
+
+```text
+--taxon-policy all
+```
+
+for the broad official CAFA-style Swiss-Prot training source, and
+
+```text
+--taxon-policy cafa3-targets
+```
+
+for the supervisor-style "same model organisms as CAFA3" benchmark variant.
 
 ## Missing Historical Details
 

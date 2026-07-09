@@ -5,6 +5,60 @@ code against historical reference artefacts.
 
 ## CAFA3 Historical Validation
 
+There are now two historical validation workflows.
+
+### DeepGOPlus/TEMPROT Validation
+
+This is the preferred validation for the recovered PFP-facing pipeline:
+
+```text
+DeepGOPlus released pickles
+    -> TEMPROT-style ontology CSV export
+    -> PFP-compatible 9 CSVs
+    -> compare against Zenodo 7409660
+```
+
+Main runner:
+
+```bash
+bash scripts/validation/run_cafa3_deepgoplus_validation.sh
+```
+
+HPC wrapper:
+
+```bash
+qsub hpc_jobs/active/hpc_cafa3_deepgoplus_validation.sh
+```
+
+This path downloads the DeepGOPlus CAFA archive by default. It tries the known
+CAFA archive first and then the older DeepGOPlus-named archive as a fallback:
+
+```text
+https://deepgo.cbrc.kaust.edu.sa/data/data-cafa.tar.gz
+https://deepgo.cbrc.kaust.edu.sa/data/deepgoplus-cafa.tar.gz
+```
+
+It can also use a local extracted copy:
+
+```bash
+export DEEPGOPLUS_PICKLES_DIR="/path/to/data-cafa"
+```
+
+The runner copies reports/logs back to:
+
+```text
+~/cafa3_deepgoplus_validation_reports/<job-or-timestamp>/
+```
+
+Scratch is removed by default.
+
+### Raw Snapshot Audit
+
+This is the heavier audit path that attempts to regenerate the historical
+intermediates from raw 2017 UniProt/GOA/GO snapshots. It is useful for
+methodology forensics, but it is not expected to be bit-for-bit identical unless
+all official CAFA/DeepGOPlus intermediate curation steps are reproduced.
+
 Main runner:
 
 ```bash
@@ -114,11 +168,12 @@ Zijian's Zenodo record `https://zenodo.org/records/19498341` contains MMFP/PFP
 artefacts generated from that benchmark, but it is not used as the canonical CSV
 comparison source here.
 
-DeepGOPlus reference pickle artefacts are optional. By default the workflow uses
-the public CAFA archive:
+DeepGOPlus reference pickle artefacts are optional. By default the workflow tries
+the public CAFA archives:
 
 ```text
 https://deepgo.cbrc.kaust.edu.sa/data/data-cafa.tar.gz
+https://deepgo.cbrc.kaust.edu.sa/data/deepgoplus-cafa.tar.gz
 ```
 
 To override the default, set one of:

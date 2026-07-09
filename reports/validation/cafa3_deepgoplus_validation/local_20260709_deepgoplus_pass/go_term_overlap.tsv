@@ -1,0 +1,15 @@
+source	file	generated_count	reference_count	overlap_count	generated_only_count	reference_only_count	jaccard	generated_only_preview	reference_only_preview
+csv	bp-training.csv	3992	3992	3992	0	0	1		
+csv	bp-validation.csv	3992	3992	3992	0	0	1		
+csv	bp-test.csv	3992	3992	3992	0	0	1		
+csv	cc-training.csv	551	551	551	0	0	1		
+csv	cc-validation.csv	551	551	551	0	0	1		
+csv	cc-test.csv	551	551	551	0	0	1		
+csv	mf-training.csv	677	677	677	0	0	1		
+csv	mf-validation.csv	677	677	677	0	0	1		
+csv	mf-test.csv	677	677	677	0	0	1		
+pickle	train_data.pkl	28963	28963	28963	0	0	1		
+pickle	test_data.pkl	6647	6647	6647	0	0	1		
+pickle	terms.pkl	5220	5220	5220	0	0	1		
+pickle	train_data_train.pkl	28406	28406	28406	0	0	1		
+pickle	train_data_valid.pkl	15794	15794	15794	0	0	1		

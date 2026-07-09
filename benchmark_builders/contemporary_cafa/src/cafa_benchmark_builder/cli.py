@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import argparse
+from importlib import resources
 from pathlib import Path
 
-from .builder import build_benchmark
-from .config import BuildConfig, CAFA3_FINAL_EXP_CODES, normalise_taxa
+from .builder import build_benchmark, export_from_deepgoplus_pickles
+from .config import BuildConfig, EVIDENCE_POLICIES, normalise_taxa
 
 
 def read_taxa_file(path: Path | None) -> list[str]:
@@ -19,22 +20,48 @@ def read_taxa_file(path: Path | None) -> list[str]:
     return values
 
 
+def read_packaged_cafa3_taxa() -> list[str]:
+    path = resources.files("cafa_benchmark_builder").joinpath("resources/cafa3_target_taxa.txt")
+    values = []
+    with path.open("r") as handle:
+        for line in handle:
+            line = line.strip()
+            if line and not line.startswith("#"):
+                values.append(line)
+    return values
+
+
+def require_args(args: argparse.Namespace, names: list[str]) -> None:
+    missing = [name for name in names if getattr(args, name) in (None, [])]
+    if missing:
+        formatted = ", ".join("--" + name.replace("_", "-") for name in missing)
+        raise SystemExit(f"Missing required arguments for --source-mode {args.source_mode}: {formatted}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Build 2025->2026 CAFA-style PFP-compatible benchmark CSVs."
     )
-    parser.add_argument("--uniprot-t0", action="append", required=True, type=Path,
+    parser.add_argument("--source-mode", choices=("snapshots", "deepgoplus"), default="snapshots",
+                        help="Input mode. snapshots parses UniProt/GOA/GO; deepgoplus exports from released pickles.")
+    parser.add_argument("--deepgoplus-dir", type=Path,
+                        help="Directory containing train_data_train.pkl, train_data_valid.pkl, test_data.pkl, terms.pkl.")
+    parser.add_argument("--uniprot-t0", action="append", type=Path,
                         help="UniProt t0 FASTA or DAT file. Repeat for multiple files.")
-    parser.add_argument("--uniprot-t1", action="append", required=True, type=Path,
+    parser.add_argument("--uniprot-t1", action="append", type=Path,
                         help="UniProt t1 FASTA or DAT file. Repeat for multiple files.")
-    parser.add_argument("--goa-t0", required=True, type=Path, help="GOA t0 GAF/GAF.gz file.")
-    parser.add_argument("--goa-t1", required=True, type=Path, help="GOA t1 GAF/GAF.gz file.")
-    parser.add_argument("--go-obo", required=True, type=Path, help="GO ontology OBO file.")
-    parser.add_argument("--output-dir", required=True, type=Path, help="Output directory.")
+    parser.add_argument("--goa-t0", type=Path, help="GOA t0 GAF/GAF.gz file.")
+    parser.add_argument("--goa-t1", type=Path, help="GOA t1 GAF/GAF.gz file.")
+    parser.add_argument("--go-obo", type=Path, required=True, help="GO ontology OBO file.")
+    parser.add_argument("--output-dir", type=Path, required=True, help="Output directory.")
+    parser.add_argument("--taxon-policy", choices=("all", "cafa3-targets", "custom"), default="all",
+                        help="Taxon scope for snapshot mode. all = official broad training; cafa3-targets = CAFA3 target taxa.")
     parser.add_argument("--target-taxon", action="append", default=[],
                         help="NCBI taxon ID to include. Repeatable. Default: all taxa.")
     parser.add_argument("--target-taxa-file", type=Path,
                         help="Optional file containing one taxon ID per line.")
+    parser.add_argument("--evidence-policy", choices=sorted(EVIDENCE_POLICIES), default="cafa3-final",
+                        help="Named evidence-code policy. Default: cafa3-final.")
     parser.add_argument("--evidence-code", action="append", default=[],
                         help="Override evidence code set. Repeatable. Default: final CAFA3 policy.")
     parser.add_argument("--min-count", type=int, default=50,
@@ -55,8 +82,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def config_from_args(args: argparse.Namespace) -> BuildConfig:
-    taxa_values = list(args.target_taxon) + read_taxa_file(args.target_taxa_file)
-    evidence = frozenset(args.evidence_code) if args.evidence_code else CAFA3_FINAL_EXP_CODES
+    require_args(args, ["uniprot_t0", "uniprot_t1", "goa_t0", "goa_t1"])
+    taxa_values = []
+    if args.taxon_policy == "cafa3-targets":
+        taxa_values.extend(read_packaged_cafa3_taxa())
+    taxa_values.extend(args.target_taxon)
+    taxa_values.extend(read_taxa_file(args.target_taxa_file))
+    if args.taxon_policy == "custom" and not taxa_values:
+        raise SystemExit("--taxon-policy custom requires --target-taxon or --target-taxa-file")
+    evidence = frozenset(args.evidence_code) if args.evidence_code else EVIDENCE_POLICIES[args.evidence_policy]
     return BuildConfig(
         uniprot_t0=tuple(args.uniprot_t0),
         uniprot_t1=tuple(args.uniprot_t1),
@@ -79,7 +113,17 @@ def config_from_args(args: argparse.Namespace) -> BuildConfig:
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
-    written = build_benchmark(config_from_args(args))
+    if args.source_mode == "deepgoplus":
+        require_args(args, ["deepgoplus_dir"])
+        written = export_from_deepgoplus_pickles(
+            deepgoplus_dir=args.deepgoplus_dir,
+            go_obo=args.go_obo,
+            output_dir=args.output_dir,
+            include_rels=not args.no_rels,
+            write_intermediates=not args.no_intermediates,
+        )
+    else:
+        written = build_benchmark(config_from_args(args))
     print("Wrote:")
     for key in sorted(written):
         print(f"  {key}: {written[key]}")
