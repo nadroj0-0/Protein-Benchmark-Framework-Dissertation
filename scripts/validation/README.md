@@ -29,6 +29,16 @@ pattern:
 Raw GOA, UniProt and GO downloads are kept in scratch only. They are not copied
 back to home.
 
+The active HPC wrapper uses the scratch-heavy GOA mode by default:
+
+```bash
+DECOMPRESS_GOA=1
+USE_PIGZ=1
+```
+
+and requests `200G` of scratch. This keeps the decompressed `.gaf` files in
+scratch for faster parsing, then removes them during cleanup.
+
 ## Outputs
 
 Each run copies a small report bundle to:
@@ -79,11 +89,11 @@ export USE_PIGZ=1
 # Disable pigz and use Python/gzip fallback.
 export USE_PIGZ=0
 
-# Default: keep .gaf.gz compressed on disk and stream it.
+# Default for direct/local runner use: keep .gaf.gz compressed on disk and stream it.
 export DECOMPRESS_GOA=0
 
-# Optional: decompress GOA to .gaf in scratch before parsing. This uses more
-# scratch but can help when repeated parsing or gzip decompression is the limit.
+# HPC wrapper default: decompress GOA to .gaf in scratch before parsing. This
+# uses more scratch but can help when gzip decompression is the limit.
 export DECOMPRESS_GOA=1
 
 # Default progress heartbeat.

@@ -3,9 +3,9 @@
 # CAFA3 historical validation wrapper for UCL/SGE.
 # Heavy downloads/build artefacts stay in scratch; reports/logs are copied home.
 
-#$ -l tmem=32G
-#$ -l tscratch=120G
-#$ -l scratch0free=120G
+#$ -l tmem=48G
+#$ -l tscratch=200G
+#$ -l scratch0free=200G
 #$ -l h_rt=72:0:0
 #$ -j y
 #$ -N cafa3_hist_val
@@ -60,6 +60,8 @@ export TIMESTAMP="$RUN_TAG"
 export REPORT_COPY_DIR="$OUTDIR/$RUN_TAG"
 export KEEP_SCRATCH=0
 export PYTHON_BIN=python
+export DECOMPRESS_GOA=1
+export USE_PIGZ=1
 
 bash scripts/validation/run_cafa3_historical_validation.sh
 STATUS=$?
