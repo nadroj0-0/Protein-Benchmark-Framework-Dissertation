@@ -38,11 +38,15 @@ UNIPROT_T1_RELEASE="2026_02"
 GOA_T0_RELEASE="225"
 GOA_T1_RELEASE="234"
 
+ONTOLOGY_T0_RELEASE="2025-02-06"
+ONTOLOGY_T1_RELEASE="2026-06-19"
+
 UNIPROT_T0_DIR="$ROOT/uniprot/release_${UNIPROT_T0_RELEASE}"
 UNIPROT_T1_DIR="$ROOT/uniprot/release_${UNIPROT_T1_RELEASE}"
 GOA_T0_DIR="$ROOT/goa/release_${UNIPROT_T0_RELEASE}"
 GOA_T1_DIR="$ROOT/goa/release_${UNIPROT_T1_RELEASE}"
-ONTOLOGY_DIR="$ROOT/ontology"
+ONTOLOGY_T0_DIR="$ROOT/ontology/release_${ONTOLOGY_T0_RELEASE}"
+ONTOLOGY_T1_DIR="$ROOT/ontology/release_${ONTOLOGY_T1_RELEASE}"
 
 download_if_missing() {
     local url="$1"
@@ -65,12 +69,13 @@ mkdir -p \
     "$UNIPROT_T1_DIR" \
     "$GOA_T0_DIR" \
     "$GOA_T1_DIR" \
-    "$ONTOLOGY_DIR" \
+    "$ONTOLOGY_T0_DIR" \
+    "$ONTOLOGY_T1_DIR" \
     "$ROOT/string" \
     "$ROOT/alphafold"
 
 echo
-echo "[1/7] UniProt ${UNIPROT_T0_RELEASE}"
+echo "[1/8] UniProt ${UNIPROT_T0_RELEASE}"
 
 download_if_missing \
 "https://ftp.uniprot.org/pub/databases/uniprot/previous_releases/release-${UNIPROT_T0_RELEASE}/knowledgebase/uniprot_sprot-only${UNIPROT_T0_RELEASE}.tar.gz" \
@@ -89,7 +94,7 @@ download_if_missing \
 "$UNIPROT_T0_DIR/news.html"
 
 echo
-echo "[2/7] UniProt ${UNIPROT_T1_RELEASE}"
+echo "[2/8] UniProt ${UNIPROT_T1_RELEASE}"
 
 UNIPROT_CURRENT_BASE="https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/complete"
 
@@ -113,7 +118,7 @@ download_if_missing \
 "$UNIPROT_T1_DIR/changes.html"
 
 echo
-echo "[3/7] GOA ${GOA_T0_RELEASE}"
+echo "[3/8] GOA ${GOA_T0_RELEASE}"
 
 download_if_missing \
 "https://ftp.ebi.ac.uk/pub/databases/GO/goa/old/UNIPROT/goa_uniprot_all.gaf.${GOA_T0_RELEASE}.gz" \
@@ -124,7 +129,11 @@ download_if_missing \
 "$GOA_T0_DIR/README"
 
 echo
-echo "[4/7] GOA ${GOA_T1_RELEASE}"
+echo "[4/8] GOA ${GOA_T1_RELEASE}"
+
+download_if_missing \
+"https://ftp.ebi.ac.uk/pub/databases/GO/goa/current_release_numbers.txt" \
+"$GOA_T1_DIR/current_release_numbers.txt"
 
 #download_if_missing \
 #"https://ftp.ebi.ac.uk/pub/databases/GO/goa/UNIPROT/goa_uniprot_all.gaf.gz" \
@@ -139,18 +148,37 @@ download_if_missing \
 "$GOA_T1_DIR/README"
 
 echo
-echo "[5/7] GO ontology"
+echo "[5/8] GO ontology ${ONTOLOGY_T0_RELEASE}"
 
 download_if_missing \
-"http://current.geneontology.org/ontology/go-basic.obo" \
-"$ONTOLOGY_DIR/go-basic.obo"
+"https://release.geneontology.org/${ONTOLOGY_T0_RELEASE}/ontology/go-basic.obo" \
+"$ONTOLOGY_T0_DIR/go-basic.obo"
 
 download_if_missing \
-"http://current.geneontology.org/ontology/go.obo" \
-"$ONTOLOGY_DIR/go.obo"
+"https://release.geneontology.org/${ONTOLOGY_T0_RELEASE}/ontology/go.obo" \
+"$ONTOLOGY_T0_DIR/go.obo"
+
+download_if_missing \
+"https://release.geneontology.org/${ONTOLOGY_T0_RELEASE}/summary.txt" \
+"$ONTOLOGY_T0_DIR/summary.txt"
 
 echo
-echo "[6/7] Writing manifest"
+echo "[6/8] GO ontology ${ONTOLOGY_T1_RELEASE}"
+
+download_if_missing \
+"https://current.geneontology.org/ontology/go-basic.obo" \
+"$ONTOLOGY_T1_DIR/go-basic.obo"
+
+download_if_missing \
+"https://current.geneontology.org/ontology/go.obo" \
+"$ONTOLOGY_T1_DIR/go.obo"
+
+download_if_missing \
+"https://current.geneontology.org/summary.txt" \
+"$ONTOLOGY_T1_DIR/summary.txt"
+
+echo
+echo "[7/8] Writing manifest"
 
 cat > "$ROOT/MANIFEST.md" <<EOF
 # Protein Database Manifest
@@ -161,16 +189,18 @@ Generated: ${TODAY}
 
 Reference biological databases for the contemporary CAFA-style temporal benchmark.
 
-## Training snapshot / t0
+---
 
-### UniProt
+# Training snapshot (t0)
+
+## UniProt
 
 Release: ${UNIPROT_T0_RELEASE}
 
 Directory:
 
 \`\`\`
-$UNIPROT_T0_DIR
+${UNIPROT_T0_DIR}
 \`\`\`
 
 Primary archive:
@@ -185,14 +215,14 @@ Source:
 https://ftp.uniprot.org/pub/databases/uniprot/previous_releases/release-${UNIPROT_T0_RELEASE}/
 \`\`\`
 
-### GOA
+## GOA
 
-GOA release: ${GOA_T0_RELEASE}
+Release: ${GOA_T0_RELEASE}
 
 Directory:
 
 \`\`\`
-$GOA_T0_DIR
+${GOA_T0_DIR}
 \`\`\`
 
 Primary annotation file:
@@ -207,61 +237,14 @@ Source:
 https://ftp.ebi.ac.uk/pub/databases/GO/goa/old/UNIPROT/
 \`\`\`
 
-## Evaluation snapshot / t1
+## Gene Ontology
 
-### UniProt
-
-Release: ${UNIPROT_T1_RELEASE}
+Release: ${ONTOLOGY_T0_RELEASE}
 
 Directory:
 
 \`\`\`
-$UNIPROT_T1_DIR
-\`\`\`
-
-Files:
-
-\`\`\`
-uniprot_sprot.dat.gz
-uniprot_sprot.fasta.gz
-uniprot_sprot.xml.gz
-uniprot_sprot_varsplic.fasta.gz
-\`\`\`
-
-Source:
-
-\`\`\`
-https://ftp.uniprot.org/pub/databases/uniprot/current_release/
-\`\`\`
-
-### GOA
-
-GOA release: ${GOA_T1_RELEASE}
-
-Directory:
-
-\`\`\`
-$GOA_T1_DIR
-\`\`\`
-
-Primary annotation file:
-
-\`\`\`
-goa_uniprot_all.gaf.${GOA_T1_RELEASE}.gz
-\`\`\`
-
-Source:
-
-\`\`\`
-https://ftp.ebi.ac.uk/pub/databases/GO/goa/UNIPROT/
-\`\`\`
-
-## Ontology
-
-Directory:
-
-\`\`\`
-$ONTOLOGY_DIR
+${ONTOLOGY_T0_DIR}
 \`\`\`
 
 Files:
@@ -274,18 +257,100 @@ go.obo
 Source:
 
 \`\`\`
-http://current.geneontology.org/ontology/
+https://release.geneontology.org/${ONTOLOGY_T0_RELEASE}/ontology/
 \`\`\`
+
+---
+
+# Evaluation snapshot (t1)
+
+## UniProt
+
+Release: ${UNIPROT_T1_RELEASE}
+
+Directory:
+
+\`\`\`
+${UNIPROT_T1_DIR}
+\`\`\`
+
+Files:
+
+\`\`\`
+uniprot_sprot.dat.gz
+uniprot_sprot.fasta.gz
+uniprot_sprot.xml.gz
+uniprot_sprot_varsplic.fasta.gz
+relnotes.txt
+changes.html
+\`\`\`
+
+Source:
+
+\`\`\`
+https://ftp.uniprot.org/pub/databases/uniprot/current_release/
+\`\`\`
+
+## GOA
+
+Current release: ${GOA_T1_RELEASE}
+
+Directory:
+
+\`\`\`
+${GOA_T1_DIR}
+\`\`\`
+
+Files:
+
+\`\`\`
+current_release_numbers.txt
+goa_uniprot_all.gaf.${GOA_T1_RELEASE}.gz
+goa_uniprot_all.gaf.${GOA_T1_RELEASE}.gz.md5
+README
+\`\`\`
+
+Source:
+
+\`\`\`
+https://ftp.ebi.ac.uk/pub/databases/GO/goa/UNIPROT/
+\`\`\`
+
+## Gene Ontology
+
+Current release
+
+Directory:
+
+\`\`\`
+${ONTOLOGY_T1_DIR}
+\`\`\`
+
+Files:
+
+\`\`\`
+go-basic.obo
+go.obo
+\`\`\`
+
+Source:
+
+\`\`\`
+https://current.geneontology.org/ontology/
+\`\`\`
+
+---
 
 ## Notes
 
-The GOA 2026 file was downloaded from the current GOA directory and saved locally with release number ${GOA_T1_RELEASE} to freeze the snapshot used in this benchmark.
-
-Large GOA GAF files should normally be streamed directly from gzip rather than decompressed, to avoid disk quota problems.
+- Training (t0) uses archived, fixed snapshots to ensure reproducibility.
+- Evaluation (t1) uses the current releases available at download time.
+- GOA current release metadata is recorded in \`current_release_numbers.txt\`.
+- Large GOA GAF files should be streamed directly from the compressed archive rather than decompressed to disk where possible.
 EOF
 
 echo
-echo "[7/7] Summary"
+echo "[8/8] Summary"
 
 find "$ROOT" -type f | sort
 
