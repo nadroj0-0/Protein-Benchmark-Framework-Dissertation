@@ -16,6 +16,9 @@ LOGS="${RUN_DIR}/logs"
 REPORT_COPY_DIR="${REPORT_COPY_DIR:-${HOME}/cafa3_historical_validation_reports/${TIMESTAMP}}"
 KEEP_SCRATCH="${KEEP_SCRATCH:-0}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
+USE_PIGZ="${USE_PIGZ:-1}"
+DECOMPRESS_GOA="${DECOMPRESS_GOA:-0}"
+GOA_PROGRESS_INTERVAL="${GOA_PROGRESS_INTERVAL:-1000000}"
 
 GOA_T0_URL="https://ftp.ebi.ac.uk/pub/databases/GO/goa/old/UNIPROT/goa_uniprot_all.gaf.163.gz"
 GOA_T1_URL="https://ftp.ebi.ac.uk/pub/databases/GO/goa/old/UNIPROT/goa_uniprot_all.gaf.172.gz"
@@ -151,6 +154,27 @@ find_uniprot_input() {
   printf '%s\n' "$match"
 }
 
+decompress_gaf_if_requested() {
+  local gz="$1"
+  local out="${gz%.gz}"
+  if [ "$DECOMPRESS_GOA" != "1" ]; then
+    printf '%s\n' "$gz"
+    return 0
+  fi
+  if [ -s "$out" ]; then
+    echo "  decompressed GOA exists: $out" >&2
+    printf '%s\n' "$out"
+    return 0
+  fi
+  echo "  decompressing GOA in scratch: $gz -> $out" >&2
+  if [ "$USE_PIGZ" != "0" ] && command -v pigz >/dev/null 2>&1; then
+    pigz -dc "$gz" > "$out"
+  else
+    gzip -dc "$gz" > "$out"
+  fi
+  printf '%s\n' "$out"
+}
+
 locate_complete_set() {
   local root="$1"
   shift
@@ -209,6 +233,9 @@ write_manifest() {
     echo "- Repository commit: $(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
     echo "- Scratch run directory: ${RUN_DIR}"
     echo "- Report copy directory: ${REPORT_COPY_DIR}"
+    echo "- GOA pigz stream: ${CAFA_BUILDER_USE_PIGZ:-${USE_PIGZ}}"
+    echo "- GOA pre-unzip: ${DECOMPRESS_GOA}"
+    echo "- GOA progress interval: ${GOA_PROGRESS_INTERVAL}"
     echo "- CAFA3 t0 date: ${CAFA3_T0_DATE}"
     echo "- CAFA3 t1 date: ${CAFA3_T1_DATE}"
     echo "- UniProt t0 release date: ${UNIPROT_T0_RELEASE_DATE}"
@@ -254,6 +281,11 @@ write_manifest() {
 for cmd in wget tar find "$PYTHON_BIN" awk tee wc; do
   require_cmd "$cmd"
 done
+if [ "$DECOMPRESS_GOA" = "1" ]; then
+  require_cmd gzip
+fi
+export CAFA_BUILDER_USE_PIGZ="${CAFA_BUILDER_USE_PIGZ:-${USE_PIGZ}}"
+export CAFA_BUILDER_GOA_PROGRESS_INTERVAL="${GOA_PROGRESS_INTERVAL}"
 
 echo "=============================================================="
 echo "CAFA3 Historical Validation"
@@ -261,6 +293,9 @@ echo "=============================================================="
 echo "Run dir         : $RUN_DIR"
 echo "Report copy dir : $REPORT_COPY_DIR"
 echo "Scratch cleanup : $([ "$KEEP_SCRATCH" = "1" ] && echo disabled || echo enabled)"
+echo "GOA pigz stream : $([ "${CAFA_BUILDER_USE_PIGZ}" = "0" ] && echo disabled || echo enabled-if-available)"
+echo "GOA pre-unzip   : $([ "$DECOMPRESS_GOA" = "1" ] && echo enabled || echo disabled)"
+echo "GOA progress    : every ${GOA_PROGRESS_INTERVAL} parsed rows"
 echo
 
 echo "==> [1/8] Download historical raw snapshots into scratch"
@@ -290,14 +325,20 @@ UNIPROT_T1_INPUT="$(find_uniprot_input "${RAW}/uniprot/release_2017_11")"
 echo "  UniProt t0 input: ${UNIPROT_T0_INPUT}"
 echo "  UniProt t1 input: ${UNIPROT_T1_INPUT}"
 
+echo "==> [3b/8] Resolve GOA inputs"
+GOA_T0_INPUT="$(decompress_gaf_if_requested "${RAW}/goa/goa_uniprot_all.gaf.163.gz")"
+GOA_T1_INPUT="$(decompress_gaf_if_requested "${RAW}/goa/goa_uniprot_all.gaf.172.gz")"
+echo "  GOA t0 input: ${GOA_T0_INPUT}"
+echo "  GOA t1 input: ${GOA_T1_INPUT}"
+
 echo "==> [4/8] Run benchmark builder"
 BUILDER_PYTHONPATH="${REPO_ROOT}/benchmark_builders/contemporary_cafa/src${PYTHONPATH:+:${PYTHONPATH}}"
 BUILDER_CMD=(
   "$PYTHON_BIN" -m cafa_benchmark_builder
   --uniprot-t0 "$UNIPROT_T0_INPUT"
   --uniprot-t1 "$UNIPROT_T1_INPUT"
-  --goa-t0 "${RAW}/goa/goa_uniprot_all.gaf.163.gz"
-  --goa-t1 "${RAW}/goa/goa_uniprot_all.gaf.172.gz"
+  --goa-t0 "$GOA_T0_INPUT"
+  --goa-t1 "$GOA_T1_INPUT"
   --go-obo "${RAW}/go/2017-11-01/go-basic.obo"
   --reviewed-only
   --output-dir "$GENERATED"

@@ -63,6 +63,36 @@ logs/
 By default scratch is deleted at the end of the run. Set `KEEP_SCRATCH=1` only
 for debugging.
 
+## GOA Parsing Performance
+
+GOA files are kept compressed by default and streamed by the benchmark builder.
+The builder filters GOA rows early against the loaded UniProt accession universe,
+then evidence code, `NOT`, aspect, and taxon. It also logs progress during large
+GAF parses.
+
+Useful knobs:
+
+```bash
+# Default: use pigz for streaming gzip decompression if available.
+export USE_PIGZ=1
+
+# Disable pigz and use Python/gzip fallback.
+export USE_PIGZ=0
+
+# Default: keep .gaf.gz compressed on disk and stream it.
+export DECOMPRESS_GOA=0
+
+# Optional: decompress GOA to .gaf in scratch before parsing. This uses more
+# scratch but can help when repeated parsing or gzip decompression is the limit.
+export DECOMPRESS_GOA=1
+
+# Default progress heartbeat.
+export GOA_PROGRESS_INTERVAL=1000000
+```
+
+These settings affect scratch/runtime only. They do not change the benchmark
+definition.
+
 ## Optional Inputs
 
 The workflow always downloads the historical raw CAFA3 snapshots and the MMFP

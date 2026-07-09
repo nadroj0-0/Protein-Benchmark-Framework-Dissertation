@@ -47,12 +47,16 @@ def build_training_dataframe(
     seqs = []
     prop_annotations = []
     cnt = Counter()
+    skipped_missing_sequence = 0
+    skipped_empty_propagation = 0
 
     for prot_id, annots in train_annots.items():
         if prot_id not in sequences:
+            skipped_missing_sequence += 1
             continue
         annots_set = propagate_annotations(go, annots)
         if not annots_set:
+            skipped_empty_propagation += 1
             continue
         proteins.append(prot_id)
         seqs.append(sequences[prot_id])
@@ -65,6 +69,16 @@ def build_training_dataframe(
         "sequences": seqs,
         "annotations": prop_annotations,
     })
+    if skipped_missing_sequence:
+        LOGGER.warning(
+            "Dropped %d t0-annotated proteins from training because no t0 sequence was loaded",
+            skipped_missing_sequence,
+        )
+    if skipped_empty_propagation:
+        LOGGER.warning(
+            "Dropped %d t0-annotated proteins from training because annotation propagation returned no GO terms",
+            skipped_empty_propagation,
+        )
     return df, cnt
 
 
@@ -78,27 +92,45 @@ def build_test_dataframe(
     proteins = []
     seqs = []
     prop_annotations = []
+    skipped_train_id = 0
+    skipped_missing_sequence = 0
+    skipped_no_gain = 0
+    skipped_empty_propagation = 0
 
     for prot_id, annots_t1 in t1_annots.items():
         if prot_id in train_proteins:
+            skipped_train_id += 1
             continue
         if prot_id not in sequences:
+            skipped_missing_sequence += 1
             continue
         gained = annots_t1 - t0_annots.get(prot_id, set())
         if not gained:
+            skipped_no_gain += 1
             continue
         annots_set = propagate_annotations(go, gained)
         if not annots_set:
+            skipped_empty_propagation += 1
             continue
         proteins.append(prot_id)
         seqs.append(sequences[prot_id])
         prop_annotations.append(annots_set)
 
-    return pd.DataFrame({
+    df = pd.DataFrame({
         "proteins": proteins,
         "sequences": seqs,
         "annotations": prop_annotations,
     })
+    LOGGER.info(
+        "Test candidate filtering: kept=%d skipped_train_or_valid_id=%d "
+        "skipped_missing_t1_sequence=%d skipped_no_gained_terms=%d skipped_empty_propagation=%d",
+        len(df),
+        skipped_train_id,
+        skipped_missing_sequence,
+        skipped_no_gain,
+        skipped_empty_propagation,
+    )
+    return df
 
 
 def make_terms_dataframe(cnt: Counter, min_count: int) -> pd.DataFrame:
@@ -212,12 +244,16 @@ def build_benchmark(config: BuildConfig) -> dict[str, Path]:
     seq_t0 = load_proteins(config.uniprot_t0, config.target_taxa, config.reviewed_only)
     seq_t1 = load_proteins(config.uniprot_t1, config.target_taxa, config.reviewed_only)
 
+    t0_annotation_universe = set(seq_t0) | set(seq_t1)
+    t1_annotation_universe = set(seq_t1)
+
     LOGGER.info("Loading t0 GOA annotations from %s", config.goa_t0)
     t0_annots = load_annotation_map(
         config.goa_t0,
         evidence_codes=config.evidence_codes,
         target_taxa=config.target_taxa,
         max_records=config.max_gaf_records,
+        allowed_proteins=t0_annotation_universe,
     )
     LOGGER.info("Loading t1 GOA annotations from %s", config.goa_t1)
     t1_annots = load_annotation_map(
@@ -225,6 +261,7 @@ def build_benchmark(config: BuildConfig) -> dict[str, Path]:
         evidence_codes=config.evidence_codes,
         target_taxa=config.target_taxa,
         max_records=config.max_gaf_records,
+        allowed_proteins=t1_annotation_universe,
     )
 
     LOGGER.info("Building DeepGOPlus-style training dataframe")

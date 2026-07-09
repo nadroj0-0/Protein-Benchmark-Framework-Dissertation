@@ -30,6 +30,13 @@ class BenchmarkBuilderSmokeTest(unittest.TestCase):
         self.assertIn("GO:0005886", annots["P00003"])  # IC kept by final CAFA3 policy
         self.assertNotIn("P00004", annots)             # NOT removed
 
+        filtered = load_annotation_map(
+            FIXTURES / "goa-t0.gaf",
+            target_taxa=frozenset({"9606"}),
+            allowed_proteins={"P00002"},
+        )
+        self.assertEqual(set(filtered), {"P00002"})
+
     def test_builds_nine_pfp_compatible_csvs(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)

@@ -147,7 +147,9 @@ Do not use `--max-gaf-records` for the real benchmark.
 
 1. Load GO from OBO.
 2. Stream UniProt t0 and t1 sequences from FASTA or DAT.
-3. Stream GOA t0 and t1 GAF rows.
+3. Stream GOA t0 and t1 GAF rows, filtering early to the loaded UniProt
+   accession universe so irrelevant GOA rows are skipped before expensive
+   object construction.
 4. Keep only:
    - `DB == UniProtKB`
    - evidence in final CAFA3 policy
@@ -177,6 +179,11 @@ Older CAFA2 MATLAB code contains protein-binding removal logic, but the exact
 CAFA3 Python execution path for those final postprocessing rules is not present
 locally. This builder therefore records the gap rather than pretending it is
 fully solved.
+
+This temporal benchmark also follows TEMPROT's exact-sequence duplicate removal
+only. It is temporally split, but it is not a homology-decontaminated benchmark:
+near-identical homologs are intentionally left to a separate homology-aware
+benchmark design.
 
 ## PFP Handoff
 
