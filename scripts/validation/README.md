@@ -114,17 +114,22 @@ Zijian's Zenodo record `https://zenodo.org/records/19498341` contains MMFP/PFP
 artefacts generated from that benchmark, but it is not used as the canonical CSV
 comparison source here.
 
-DeepGOPlus reference pickle artefacts are optional because the exact public URL
-may not always be discoverable automatically. To enable pickle comparison, set
-one of:
+DeepGOPlus reference pickle artefacts are optional. By default the workflow uses
+the public CAFA archive:
+
+```text
+https://deepgo.cbrc.kaust.edu.sa/data/data-cafa.tar.gz
+```
+
+To override the default, set one of:
 
 ```bash
 export DEEPGOPLUS_PICKLES_DIR=/path/to/extracted/deepgoplus/cafa3/files
-export DEEPGOPLUS_PICKLES_URL=https://example/path/to/deepgoplus-cafa3.tar.gz
+export DEEPGOPLUS_PICKLES_URL=https://deepgo.cbrc.kaust.edu.sa/data/data-cafa.tar.gz
 ```
 
-If neither is set and no URL is discoverable from available local materials, the
-workflow continues with CSV-only comparison and records the skip in the report.
+If the pickle archive cannot be downloaded or extracted, the workflow continues
+with CSV-only comparison and records the skip in the report.
 
 ## Python Environment
 

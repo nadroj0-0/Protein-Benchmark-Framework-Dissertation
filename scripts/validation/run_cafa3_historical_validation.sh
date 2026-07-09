@@ -30,6 +30,7 @@ GO_T1_OBO_URL="https://release.geneontology.org/2017-11-01/ontology/go.obo"
 GO_T1_BASIC_URL="https://release.geneontology.org/2017-11-01/ontology/go-basic.obo"
 CAFA3_REFERENCE_RECORD_URL="https://zenodo.org/records/7409660"
 CAFA3_REFERENCE_CSV_BASE_URL="${CAFA3_REFERENCE_RECORD_URL}/files"
+DEFAULT_DEEPGOPLUS_PICKLES_URL="https://deepgo.cbrc.kaust.edu.sa/data/data-cafa.tar.gz"
 
 UNIPROT_T0_RELEASE_DATE="15-Feb-2017"
 UNIPROT_T1_RELEASE_DATE="22-Nov-2017"
@@ -217,7 +218,9 @@ discover_deepgoplus_url() {
   if [ -n "${TEMPROT_DIR:-}" ] && [ -d "${TEMPROT_DIR}" ]; then
     roots+=("$TEMPROT_DIR")
   fi
-  grep -RhoE 'https?://[^[:space:]"'"'"'<>)]*(data-cafa|deepgoplus|deepgo)[^[:space:]"'"'"'<>)]*\.(tar\.gz|tgz|zip)' "${roots[@]}" 2>/dev/null | head -1 || true
+  grep -RhoE 'https?://[^[:space:]"'"'"'<>)]*(data-cafa|deepgoplus|deepgo)[^[:space:]"'"'"'<>)]*\.(tar\.gz|tgz|zip)' "${roots[@]}" 2>/dev/null \
+    | grep -v '^https\?://example/' \
+    | head -1 || true
 }
 
 write_manifest() {
@@ -254,6 +257,7 @@ write_manifest() {
     echo "- GO t1 go.obo: ${GO_T1_OBO_URL}"
     echo "- GO t1 go-basic.obo: ${GO_T1_BASIC_URL}"
     echo "- Canonical CAFA3 reference CSV record: ${CAFA3_REFERENCE_RECORD_URL}"
+    echo "- Default DeepGOPlus CAFA pickle archive: ${DEFAULT_DEEPGOPLUS_PICKLES_URL}"
     echo
     echo "## Builder Command"
     echo
@@ -370,6 +374,7 @@ if [ -n "${DEEPGOPLUS_PICKLES_DIR:-}" ] && [ -d "${DEEPGOPLUS_PICKLES_DIR}" ]; t
   PICKLE_STATUS="copied from DEEPGOPLUS_PICKLES_DIR=${DEEPGOPLUS_PICKLES_DIR}"
 else
   DEEPGOPLUS_PICKLES_URL="${DEEPGOPLUS_PICKLES_URL:-$(discover_deepgoplus_url)}"
+  DEEPGOPLUS_PICKLES_URL="${DEEPGOPLUS_PICKLES_URL:-$DEFAULT_DEEPGOPLUS_PICKLES_URL}"
   if [ -n "$DEEPGOPLUS_PICKLES_URL" ]; then
     case "$DEEPGOPLUS_PICKLES_URL" in
       *.tar.gz) PICKLE_SUFFIX=".tar.gz" ;;
@@ -378,11 +383,20 @@ else
       *) PICKLE_SUFFIX=".archive" ;;
     esac
     PICKLE_ARCHIVE="${REFERENCE}/deepgoplus_pickles_reference${PICKLE_SUFFIX}"
-    download "$DEEPGOPLUS_PICKLES_URL" "$PICKLE_ARCHIVE"
-    mkdir -p "${REFERENCE}/deepgoplus_pickles"
-    extract_archive "$PICKLE_ARCHIVE" "${REFERENCE}/deepgoplus_pickles"
-    REFERENCE_PICKLE_DIR="$(locate_complete_set "${REFERENCE}/deepgoplus_pickles" "${PICKLE_FILES[@]}" || true)"
-    PICKLE_STATUS="downloaded from ${DEEPGOPLUS_PICKLES_URL}"
+    if download "$DEEPGOPLUS_PICKLES_URL" "$PICKLE_ARCHIVE"; then
+      mkdir -p "${REFERENCE}/deepgoplus_pickles"
+      if extract_archive "$PICKLE_ARCHIVE" "${REFERENCE}/deepgoplus_pickles"; then
+        REFERENCE_PICKLE_DIR="$(locate_complete_set "${REFERENCE}/deepgoplus_pickles" "${PICKLE_FILES[@]}" || true)"
+        PICKLE_STATUS="downloaded from ${DEEPGOPLUS_PICKLES_URL}"
+      else
+        PICKLE_STATUS="downloaded but extraction failed for ${DEEPGOPLUS_PICKLES_URL}; pickle comparison skipped"
+        REFERENCE_PICKLE_DIR=""
+      fi
+    else
+      PICKLE_STATUS="download failed for ${DEEPGOPLUS_PICKLES_URL}; pickle comparison skipped"
+      rm -f "$PICKLE_ARCHIVE"
+      REFERENCE_PICKLE_DIR=""
+    fi
   fi
 fi
 if [ -z "$REFERENCE_PICKLE_DIR" ]; then
