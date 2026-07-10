@@ -42,17 +42,23 @@ UNIPROT_T1_RELEASE="2026_02"
 GOA_T0_RELEASE="225"
 GOA_T1_RELEASE="234"
 
-# GO versions declared in the GOA 225 and 234 GAF headers. These are used for
-# annotation-ID normalisation; the benchmark prediction graph is frozen at t0.
-ONTOLOGY_T0_RELEASE="2025-03-07"
-ONTOLOGY_T1_RELEASE="2026-06-15"
+# Public GO product releases used by the benchmark builder. GOA 225 declares a
+# 2025-03-07 ontology that is not retained as a standalone GO release, so the
+# prediction graph is frozen to the last preceding release (2025-02-06) and the
+# first following release (2025-03-16) is used only for source-ID resolution.
+# The 2026-06-19 product contains data-version releases/2026-06-15, exactly
+# matching GOA 234.
+ONTOLOGY_T0_BENCHMARK_RELEASE="2025-02-06"
+ONTOLOGY_T0_SOURCE_RELEASE="2025-03-16"
+ONTOLOGY_T1_SOURCE_RELEASE="2026-06-19"
 
 UNIPROT_T0_DIR="$ROOT/uniprot/release_${UNIPROT_T0_RELEASE}"
 UNIPROT_T1_DIR="$ROOT/uniprot/release_${UNIPROT_T1_RELEASE}"
 GOA_T0_DIR="$ROOT/goa/release_${UNIPROT_T0_RELEASE}"
 GOA_T1_DIR="$ROOT/goa/release_${UNIPROT_T1_RELEASE}"
-ONTOLOGY_T0_DIR="$ROOT/ontology/release_${ONTOLOGY_T0_RELEASE}"
-ONTOLOGY_T1_DIR="$ROOT/ontology/release_${ONTOLOGY_T1_RELEASE}"
+ONTOLOGY_T0_DIR="$ROOT/ontology/release_${ONTOLOGY_T0_BENCHMARK_RELEASE}"
+ONTOLOGY_T0_SOURCE_DIR="$ROOT/ontology/release_${ONTOLOGY_T0_SOURCE_RELEASE}"
+ONTOLOGY_T1_DIR="$ROOT/ontology/release_${ONTOLOGY_T1_SOURCE_RELEASE}"
 
 download_if_missing() {
     local url="$1"
@@ -86,6 +92,7 @@ mkdir -p \
     "$GOA_T0_DIR" \
     "$GOA_T1_DIR" \
     "$ONTOLOGY_T0_DIR" \
+    "$ONTOLOGY_T0_SOURCE_DIR" \
     "$ONTOLOGY_T1_DIR" \
     "$ROOT/string" \
     "$ROOT/alphafold"
@@ -99,8 +106,8 @@ download_if_missing \
 
 if [[ "$DOWNLOAD_TREMBL" == "1" ]]; then
     download_if_missing \
-    "https://ftp.uniprot.org/pub/databases/uniprot/previous_releases/release-${UNIPROT_T0_RELEASE}/knowledgebase/uniprot_trembl-only${UNIPROT_T0_RELEASE}.tar.gz" \
-    "$UNIPROT_T0_DIR/uniprot_trembl-only${UNIPROT_T0_RELEASE}.tar.gz"
+    "https://ftp.uniprot.org/pub/databases/uniprot/previous_releases/release-${UNIPROT_T0_RELEASE}/knowledgebase/knowledgebase${UNIPROT_T0_RELEASE}.tar.gz" \
+    "$UNIPROT_T0_DIR/knowledgebase${UNIPROT_T0_RELEASE}.tar.gz"
 fi
 
 download_if_missing \
@@ -197,33 +204,37 @@ download_if_missing \
 "$GOA_T1_DIR/README"
 
 echo
-echo "[5/8] GO ontology ${ONTOLOGY_T0_RELEASE}"
+echo "[5/8] GO ontologies ${ONTOLOGY_T0_BENCHMARK_RELEASE} and ${ONTOLOGY_T0_SOURCE_RELEASE}"
 
 download_if_missing \
-"https://release.geneontology.org/${ONTOLOGY_T0_RELEASE}/ontology/go-basic.obo" \
+"https://release.geneontology.org/${ONTOLOGY_T0_BENCHMARK_RELEASE}/ontology/go-basic.obo" \
 "$ONTOLOGY_T0_DIR/go-basic.obo"
 
 download_if_missing \
-"https://release.geneontology.org/${ONTOLOGY_T0_RELEASE}/ontology/go.obo" \
+"https://release.geneontology.org/${ONTOLOGY_T0_BENCHMARK_RELEASE}/ontology/go.obo" \
 "$ONTOLOGY_T0_DIR/go.obo"
 
 download_if_missing \
-"https://release.geneontology.org/${ONTOLOGY_T0_RELEASE}/summary.txt" \
+"https://release.geneontology.org/${ONTOLOGY_T0_BENCHMARK_RELEASE}/summary.txt" \
 "$ONTOLOGY_T0_DIR/summary.txt"
 
+download_if_missing \
+"https://release.geneontology.org/${ONTOLOGY_T0_SOURCE_RELEASE}/ontology/go-basic.obo" \
+"$ONTOLOGY_T0_SOURCE_DIR/go-basic.obo"
+
 echo
-echo "[6/8] GO ontology ${ONTOLOGY_T1_RELEASE}"
+echo "[6/8] GO ontology ${ONTOLOGY_T1_SOURCE_RELEASE}"
 
 download_if_missing \
-"https://release.geneontology.org/${ONTOLOGY_T1_RELEASE}/ontology/go-basic.obo" \
+"https://release.geneontology.org/${ONTOLOGY_T1_SOURCE_RELEASE}/ontology/go-basic.obo" \
 "$ONTOLOGY_T1_DIR/go-basic.obo"
 
 download_if_missing \
-"https://release.geneontology.org/${ONTOLOGY_T1_RELEASE}/ontology/go.obo" \
+"https://release.geneontology.org/${ONTOLOGY_T1_SOURCE_RELEASE}/ontology/go.obo" \
 "$ONTOLOGY_T1_DIR/go.obo"
 
 download_if_missing \
-"https://release.geneontology.org/${ONTOLOGY_T1_RELEASE}/summary.txt" \
+"https://release.geneontology.org/${ONTOLOGY_T1_SOURCE_RELEASE}/summary.txt" \
 "$ONTOLOGY_T1_DIR/summary.txt"
 
 echo
@@ -288,7 +299,7 @@ https://ftp.ebi.ac.uk/pub/databases/GO/goa/old/UNIPROT/
 
 ## Gene Ontology
 
-Release: ${ONTOLOGY_T0_RELEASE}
+Release: ${ONTOLOGY_T0_BENCHMARK_RELEASE}
 
 Directory:
 
@@ -306,7 +317,7 @@ go.obo
 Source:
 
 \`\`\`
-https://release.geneontology.org/${ONTOLOGY_T0_RELEASE}/ontology/
+https://release.geneontology.org/${ONTOLOGY_T0_BENCHMARK_RELEASE}/ontology/
 \`\`\`
 
 ---

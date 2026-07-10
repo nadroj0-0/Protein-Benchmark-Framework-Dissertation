@@ -34,8 +34,9 @@ qsub hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh
 The active wrappers clone the full framework into node-local scratch and
 then call the normal entrypoints under `scripts/`.
 
-`hpc_contemporary_temporal_benchmark.sh` stages the frozen 2025/2026 UniProt,
-GOA and GO inputs, invokes
+`hpc_contemporary_temporal_benchmark.sh` stages any locally available frozen
+2025/2026 UniProt, GOA and GO inputs, downloads missing inputs into scratch,
+stream-filters full TrEMBL sources to the CAFA3 taxa, and invokes
 `scripts/benchmark_generation/run_contemporary_temporal_benchmark.sh`, copies
 the complete benchmark run to durable storage and clears scratch. It builds the
 benchmark only; it does not launch PFP.
@@ -43,6 +44,12 @@ benchmark only; it does not launch PFP.
 The wrapper is a `.sh` file because that is the repository convention. Grid
 Engine does not require `.qsub`; the `qsub` command uses the embedded `#$`
 directives regardless of the filename suffix.
+
+`PROTEIN_DATABASE_ROOT` can point at a persistent database tree. Local files are
+an optional cache, not a requirement. If no files are available, the job uses
+the official frozen URLs and keeps only the filtered/required products in
+scratch. Colon-separated `UNIPROT_T0_INPUTS` and `UNIPROT_T1_INPUTS` are copied
+to scratch when explicitly supplied.
 
 For benchmark validation:
 

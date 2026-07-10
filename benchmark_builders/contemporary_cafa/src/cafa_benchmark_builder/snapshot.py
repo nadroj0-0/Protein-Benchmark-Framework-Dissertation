@@ -399,6 +399,7 @@ def _write_reports(
         "excluded_target_proteins": _counter_dict(exclusions),
         "t0_unmapped_terms": _counter_dict(t0_result.unmapped_terms),
         "t1_unmapped_terms": _counter_dict(t1_result.unmapped_terms),
+        "t0_terms_outside_frozen_ontology": _counter_dict(t0_result.out_of_benchmark_terms),
         "t1_terms_outside_frozen_t0_ontology": _counter_dict(t1_result.out_of_benchmark_terms),
     }
     statistics_path = report_dir / "benchmark_statistics.json"
@@ -425,6 +426,10 @@ def _write_reports(
         "training_reviewed_only": config.reviewed_only,
         "target_reviewed_only": config.target_reviewed_only,
         "include_relationships": config.include_rels,
+        "ontology_policy": (
+            "Resolve each GAF against its source product, then map labels into the frozen "
+            "t0 benchmark ontology; report and exclude terms outside that frozen graph."
+        ),
         "inputs": {
             "uniprot_t0": [str(path) for path in config.uniprot_t0],
             "uniprot_t1": [str(path) for path in config.uniprot_t1],
@@ -459,6 +464,7 @@ def _write_reports(
         f"- Test proteins before ontology export: {len(test_df)}\n"
         f"- Training-defined GO terms: {len(terms_df)}\n"
         f"- t1 rows excluded as backfill: {t1_result.counters['skipped_backfill']}\n"
+        f"- t0 terms outside the frozen benchmark ontology: {t0_result.counters['outside_frozen_ontology']}\n"
         f"- t1 terms outside the frozen t0 ontology: {t1_result.counters['outside_frozen_ontology']}\n"
         "- All nine PFP CSVs passed schema, duplicate, binary-label and overlap checks.\n"
     )

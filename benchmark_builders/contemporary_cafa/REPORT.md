@@ -62,10 +62,17 @@ The UCL Grid Engine wrapper is:
 hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh
 ```
 
-The wrapper stages frozen inputs in node-local scratch, runs the reusable shell
-entrypoint, copies the complete run directory to durable storage, and clears
-scratch through an EXIT/SIGINT/SIGTERM trap. It does not run PFP training or
-evaluation.
+The wrapper stages available frozen inputs in node-local scratch and lets the
+reusable entrypoint download any missing inputs there. Large TrEMBL sources are
+stream-filtered to the CAFA3 taxa rather than stored wholesale. It copies the
+complete run directory to durable storage and clears scratch through an
+EXIT/SIGINT/SIGTERM trap. It does not run PFP training or evaluation.
+
+The public GO archive does not contain a standalone product directory for the
+2025-03-07 ontology declared by GOA 225. The build freezes labels to the last
+preceding release (2025-02-06) and uses 2025-03-16 only for source-ID
+normalisation. This explicit approximation is recorded in the build manifest
+and must be stated in the dissertation methodology.
 
 ## Remaining scientific decision
 

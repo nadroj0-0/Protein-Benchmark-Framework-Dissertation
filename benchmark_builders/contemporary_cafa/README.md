@@ -57,15 +57,18 @@ UniProt 2025_01
 UniProt 2026_02
 GOA UniProt release 225
 GOA UniProt release 234
-GO 2025-03-07 (declared by GOA 225)
-GO 2026-06-15 (declared by GOA 234)
+GO product release 2025-02-06 (frozen prediction graph)
+GO product release 2025-03-16 (t0 source-ID resolution)
+GO product release 2026-06-19, data-version 2026-06-15 (t1 source-ID resolution)
 ```
 
-The prediction and training label graph is frozen to the `t0` ontology. GOA IDs
-are first canonicalised in their matching timepoint ontology, including primary
-IDs, `alt_id` values and unambiguous `replaced_by` values, then mapped into the
-frozen `t0` graph. Valid `t1` terms introduced after `t0` are reported and
-excluded because they were not predictable at training time.
+GOA 225 declares GO version 2025-03-07, but the public GO product archive does
+not retain a standalone 2025-03-07 release directory. The builder therefore
+freezes the prediction graph to the last preceding public release (2025-02-06)
+and uses the first following public release (2025-03-16) only to resolve source
+IDs. GOA IDs are canonicalised in the source graph, including primary IDs,
+`alt_id` values and unambiguous `replaced_by` values, then mapped into the frozen
+graph. Terms absent from the frozen graph are reported and excluded.
 
 To represent all proteins from the target organisms, supply both Swiss-Prot and
 TrEMBL DAT files. A Swiss-Prot-only build is a diagnostic variant, not the full
@@ -117,9 +120,9 @@ python -m cafa_benchmark_builder \
   --uniprot-t1 /path/2026_02/uniprot_trembl.dat.gz \
   --goa-t0 /path/goa_uniprot_all.gaf.225.gz \
   --goa-t1 /path/goa_uniprot_all.gaf.234.gz \
-  --go-obo /path/go-2025-03-07/go-basic.obo \
-  --go-obo-t0 /path/go-2025-03-07/go-basic.obo \
-  --go-obo-t1 /path/go-2026-06-15/go-basic.obo \
+  --go-obo /path/go-2025-02-06/go-basic.obo \
+  --go-obo-t0 /path/go-2025-03-16/go-basic.obo \
+  --go-obo-t1 /path/go-2026-06-19/go-basic.obo \
   --output-dir /path/run/outputs \
   --report-dir /path/run/reports
 ```
@@ -127,8 +130,9 @@ python -m cafa_benchmark_builder \
 Paths are never hard-coded in Python. `--uniprot-t0` and `--uniprot-t1` are
 repeatable, allowing Swiss-Prot and TrEMBL inputs to be combined.
 
-The repository-level local runner resolves the dissertation database layout and
-calls the same CLI:
+The repository-level runner resolves the dissertation database layout and calls
+the same CLI. Existing inputs are reused; missing inputs are downloaded into
+`DB_ROOT`:
 
 ```bash
 DB_ROOT="$HOME/protein_databases" \
@@ -141,6 +145,13 @@ For a deliberately incomplete Swiss-Prot-only diagnostic:
 ```bash
 ALLOW_SPROT_ONLY=1 bash scripts/benchmark_generation/run_contemporary_temporal_benchmark.sh
 ```
+
+The historical UniProt 2025_01 TrEMBL data are available only inside the 181 GB
+`knowledgebase2025_01.tar.gz` archive, while the current 2026_02 TrEMBL DAT is
+about 110 GB compressed. The runner streams these sources through
+`filter_uniprot_dat.py` and stores only records from the CAFA3 taxa. It does not
+retain either full TrEMBL source unless a persistent local copy was explicitly
+provided.
 
 ## Cluster run
 
@@ -156,11 +167,22 @@ Choose the supervisor profile at submission time:
 qsub -v PROFILE=supervisor hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh
 ```
 
-The wrapper requests 64 GB RAM and 200 GB scratch, stages only required frozen
-inputs, clones the committed framework, activates `mmfp`, invokes the normal
-runner, copies outputs/reports/logs to
+The wrapper requests 64 GB RAM and 200 GB scratch. It copies any available
+frozen inputs from `${PROTEIN_DATABASE_ROOT:-$HOME/protein_databases}`, downloads
+anything missing directly into scratch, activates `mmfp`, invokes the normal
+runner, and copies outputs/reports/logs to
 `$HOME/contemporary_cafa_benchmark_results`, and removes its scratch directory
 on success, error, interruption or `qdel` termination.
+
+To use a different persistent database root:
+
+```bash
+qsub -v PROTEIN_DATABASE_ROOT=/path/to/databases,PROFILE=supervisor \
+  hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh
+```
+
+Advanced callers may supply colon-separated `UNIPROT_T0_INPUTS` and
+`UNIPROT_T1_INPUTS`; the wrapper copies those files to scratch before running.
 
 The `.sh` suffix is intentional. `qsub` reads the `#$` directives inside a shell
 script and does not require a `.qsub` filename extension.
@@ -198,6 +220,7 @@ taxon_summary.tsv
 evidence_summary.tsv
 input_checksums.sha256
 output_checksums.sha256
+input_acquisition.tsv
 ```
 
 ## Failure gates

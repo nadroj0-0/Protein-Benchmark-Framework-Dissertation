@@ -44,9 +44,9 @@ https://current.geneontology.org/
 
 Resolved release on **9 July 2026**:
 
-- GOA-declared ontology version **2026-06-15** (used to normalise GOA 234)
-- The independent current GO endpoint was release **2026-06-19** on 9 July;
-  it is not substituted for the ontology version declared by the GAF.
+- GOA-declared ontology version **2026-06-15**
+- Public GO product directory **2026-06-19**, whose `go-basic.obo` declares
+  `data-version: releases/2026-06-15`
 
 ---
 
@@ -55,6 +55,11 @@ Resolved release on **9 July 2026**:
 The download script checks the mutable UniProt and GOA endpoints before using
 them and fails if they have advanced. The GO ontology URLs are fixed archived
 release URLs.
+
+GOA 225 declares GO version 2025-03-07. No standalone 2025-03-07 product
+directory is retained in the public GO release bucket. Benchmark generation
+therefore freezes predictions to 2025-02-06 and uses 2025-03-16 only for source
+GO-ID resolution; the resulting exclusions are reported.
 
 This ensures that the exact evaluation snapshot used on **9 July 2026** can be
 recreated in the future.

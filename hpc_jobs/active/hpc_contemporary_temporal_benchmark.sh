@@ -54,13 +54,49 @@ stage_file() {
     cp -a "$source" "$destination"
 }
 
+stage_if_present() {
+    local relative="$1"
+    if stage_file "$relative"; then
+        printf 'staged\t%s\n' "$relative" >> "$SCRATCH_RUN_ROOT/logs/local_staging.tsv"
+    else
+        printf 'download-required\t%s\n' "$relative" >> "$SCRATCH_RUN_ROOT/logs/local_staging.tsv"
+    fi
+}
+
+stage_input_list() {
+    local variable_name="$1"
+    local label="$2"
+    local value="${!variable_name:-}"
+    local staged=()
+    local source
+    local index=0
+    IFS=':' read -r -a sources <<< "$value"
+    for source in "${sources[@]}"; do
+        if [[ ! -f "$source" ]]; then
+            echo "Explicit $variable_name input does not exist: $source" >&2
+            exit 1
+        fi
+        local destination="$STAGED_DB_ROOT/custom/$label/${index}_$(basename "$source")"
+        mkdir -p "$(dirname "$destination")"
+        cp -a "$source" "$destination"
+        staged+=("$destination")
+        printf 'staged-custom\t%s\n' "$source" >> "$SCRATCH_RUN_ROOT/logs/local_staging.tsv"
+        index=$((index + 1))
+    done
+    local joined
+    joined="$(IFS=:; echo "${staged[*]}")"
+    printf -v "$variable_name" '%s' "$joined"
+    export "$variable_name"
+}
+
 echo "Host        : $(hostname)"
 echo "Job ID      : ${JOB_ID:-manual}"
 echo "Profile     : ${PROFILE:-contemporary-cafa3-style}"
 echo "Scratch     : $WORK"
 echo "Final output: $FINAL_RUN_ROOT"
 
-mkdir -p "$WORK" "$RESULTS_ROOT" "$STAGED_DB_ROOT"
+mkdir -p "$WORK" "$RESULTS_ROOT" "$STAGED_DB_ROOT" "$SCRATCH_RUN_ROOT/logs"
+printf 'action\tpath\n' > "$SCRATCH_RUN_ROOT/logs/local_staging.tsv"
 
 echo "Cloning dissertation framework into scratch"
 git clone "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"
@@ -70,24 +106,36 @@ load_framework_paths "$FRAMEWORK_DIR"
 activate_or_create_mmfp_env
 
 echo "Staging frozen database inputs"
-stage_file "uniprot/release_2025_01/uniprot_sprot-only2025_01.tar.gz"
-stage_file "uniprot/release_2026_02/uniprot_sprot.dat.gz"
-if ! stage_file "uniprot/release_2025_01/uniprot_trembl-only2025_01.tar.gz"; then
-    if [[ "${ALLOW_SPROT_ONLY:-0}" != "1" ]]; then
-        echo "Missing t0 TrEMBL archive under $SOURCE_DB_ROOT" >&2
+if [[ -n "${UNIPROT_T0_INPUTS:-}" || -n "${UNIPROT_T1_INPUTS:-}" ]]; then
+    if [[ -z "${UNIPROT_T0_INPUTS:-}" || -z "${UNIPROT_T1_INPUTS:-}" ]]; then
+        echo "UNIPROT_T0_INPUTS and UNIPROT_T1_INPUTS must be supplied together" >&2
         exit 1
     fi
+    stage_input_list UNIPROT_T0_INPUTS t0
+    stage_input_list UNIPROT_T1_INPUTS t1
+else
+    stage_if_present "uniprot/release_2025_01/uniprot_sprot.dat.gz"
+    stage_if_present "uniprot/release_2025_01/uniprot_sprot-only2025_01.tar.gz"
+    stage_if_present "uniprot/release_2025_01/uniprot_trembl_cafa3_targets.dat.gz"
+    stage_if_present "uniprot/release_2026_02/uniprot_sprot.dat.gz"
+    stage_if_present "uniprot/release_2026_02/uniprot_trembl_cafa3_targets.dat.gz"
 fi
-if ! stage_file "uniprot/release_2026_02/uniprot_trembl.dat.gz"; then
-    if [[ "${ALLOW_SPROT_ONLY:-0}" != "1" ]]; then
-        echo "Missing t1 TrEMBL DAT under $SOURCE_DB_ROOT" >&2
-        exit 1
-    fi
+stage_if_present "goa/release_2025_01/goa_uniprot_all.gaf.225.gz"
+stage_if_present "goa/release_2026_02/goa_uniprot_all.gaf.234.gz"
+stage_if_present "ontology/release_2025-02-06/go-basic.obo"
+stage_if_present "ontology/release_2025-03-16/go-basic.obo"
+stage_if_present "ontology/release_2026-06-19/go-basic.obo"
+
+# Full TrEMBL sources are 100+ GB. If present locally, stream-filter them in
+# place rather than duplicating them into 200 GB scratch.
+if [[ -f "$SOURCE_DB_ROOT/uniprot/release_2025_01/uniprot_trembl.dat.gz" ]]; then
+    export T0_TREMBL_DAT_SOURCE="$SOURCE_DB_ROOT/uniprot/release_2025_01/uniprot_trembl.dat.gz"
+elif [[ -f "$SOURCE_DB_ROOT/uniprot/release_2025_01/knowledgebase2025_01.tar.gz" ]]; then
+    export T0_TREMBL_ARCHIVE_SOURCE="$SOURCE_DB_ROOT/uniprot/release_2025_01/knowledgebase2025_01.tar.gz"
 fi
-stage_file "goa/release_2025_01/goa_uniprot_all.gaf.225.gz"
-stage_file "goa/release_2026_02/goa_uniprot_all.gaf.234.gz"
-stage_file "ontology/release_2025-03-07/go-basic.obo"
-stage_file "ontology/release_2026-06-15/go-basic.obo"
+if [[ -f "$SOURCE_DB_ROOT/uniprot/release_2026_02/uniprot_trembl.dat.gz" ]]; then
+    export T1_TREMBL_DAT_SOURCE="$SOURCE_DB_ROOT/uniprot/release_2026_02/uniprot_trembl.dat.gz"
+fi
 
 export DB_ROOT="$STAGED_DB_ROOT"
 export RUN_ROOT="$SCRATCH_RUN_ROOT"
