@@ -1,88 +1,181 @@
 # Contemporary CAFA Benchmark Builder
 
-This is a small, separate codebase for generating 2025->2026 CAFA-style
-benchmark CSVs that can be consumed by immutable PFP via
-`scripts/prepare_cafa3_data.py`.
+This package constructs a deterministic temporal protein-function benchmark and
+exports the nine wide CSV files consumed by immutable PFP. It also retains the
+validated historical DeepGOPlus and CAFA-file conversion modes.
 
-It recreates the historical execution chain we reverse engineered:
+## Production contract
 
-```text
-Raw UniProt / GOA / GO ontology
-    -> CAFA-style temporal annotation comparison
-    -> DeepGOPlus-style proteins/sequences/annotations tables
-    -> DeepGOPlus min_count term filtering
-    -> DeepGOPlus 90/10 train/valid split
-    -> TEMPROT-style ontology-specific wide CSV export
-    -> PFP-compatible bp/cc/mf training/validation/test CSVs
-```
+For the snapshot mode, a test protein must:
 
-PFP itself is not modified.
+1. exist in the selected target population at `t0`;
+2. map unambiguously to a `t1` UniProt record through primary or secondary
+   accessions;
+3. have no qualifying annotation at `t0` under the chosen evidence policy;
+4. have a qualifying annotation at `t1` dated after the configured `t0` cutoff;
+5. use its `t0` sequence in every exported test file;
+6. survive the sequence-change, ontology, protein-binding and training-term
+   policies.
 
-## Provenance
+Proteins first appearing at `t1` are never test candidates. A protein is
+excluded because of its `t0` annotation before any sequence join or term-count
+filter, so missing embeddings or a frequency threshold cannot turn an annotated
+protein into an apparent no-knowledge target.
 
-This builder intentionally follows the historical sources as closely as
-possible:
+## Named profiles
 
-- DeepGOPlus `cafa3_data.py`
-  - loads GO with `Ontology(..., with_rels=True)`
-  - propagates annotations with `go.get_anchestors(go_id)`
-  - writes `train_data.pkl`, `test_data.pkl`, `terms.pkl`
-  - filters terms by `min_count >= 50`
-- DeepGOPlus `deepgoplus.py`
-  - splits train/valid using `np.random.seed(seed=0)`,
-    `np.random.shuffle(index)`, and `split=0.9`
-- TEMPROT `src/<ontology>/dataset.py`
-  - reads `train_data_train.pkl`, `train_data_valid.pkl`, `test_data.pkl`,
-    `terms.pkl`
-  - keeps ontology-specific terms
-  - writes `proteins`, `sequences`, then one binary column per GO term
-  - removes duplicated sequences across train/test/valid
-- PFP `scripts/prepare_cafa3_data.py`
-  - consumes `bp-training.csv`, `bp-validation.csv`, `bp-test.csv`
-  - same for `cc` and `mf`
+| Profile | Training taxa | Target taxa | Evidence | Training records |
+|---|---|---|---|---|
+| `cafa3-reconstructed` | all taxa | CAFA3 targets | final CAFA3 eight-code set | reviewed |
+| `contemporary-cafa3-style` | all taxa | CAFA3 targets | final CAFA3 eight-code set | reviewed |
+| `supervisor` | CAFA3 targets | CAFA3 targets | supervisor-specified set | reviewed + unreviewed |
 
-The final CAFA3 evidence policy is taken from the official CAFA3 benchmark
-README:
+All profiles include reviewed and unreviewed proteins in the target population
+when those UniProt records are supplied. This preserves the difference between
+the broad Swiss-Prot CAFA-style training population and the target-organism
+candidate population. CLI switches can override each policy without editing
+source code.
+
+The final CAFA3 evidence set is:
 
 ```text
-EXP, IDA, IPI, IMP, IGI, IEP, TAS, IC
+EXP IDA IPI IMP IGI IEP TAS IC
 ```
 
-This deliberately differs from the public `CAFA_benchmark/create_benchmark.py`,
-which only keeps:
+The supervisor set is:
 
 ```text
-EXP, IDA, IPI, IMP, IGI, IEP
+EXP IDA IPI IMP IGI IEP HTP HDA HMP HGI HEP TAS NAS IGC RCA ND IC
 ```
 
-The README is treated as the final official policy.
+## Frozen inputs
 
-## What It Produces
-
-The final output directory contains:
+The production 2025 to 2026 run expects:
 
 ```text
-bp-training.csv
-bp-validation.csv
-bp-test.csv
-
-cc-training.csv
-cc-validation.csv
-cc-test.csv
-
-mf-training.csv
-mf-validation.csv
-mf-test.csv
+UniProt 2025_01
+UniProt 2026_02
+GOA UniProt release 225
+GOA UniProt release 234
+GO 2025-03-07 (declared by GOA 225)
+GO 2026-06-15 (declared by GOA 234)
 ```
 
-Each CSV has the PFP/TEMPROT shape:
+The prediction and training label graph is frozen to the `t0` ontology. GOA IDs
+are first canonicalised in their matching timepoint ontology, including primary
+IDs, `alt_id` values and unambiguous `replaced_by` values, then mapped into the
+frozen `t0` graph. Valid `t1` terms introduced after `t0` are reported and
+excluded because they were not predictable at training time.
+
+To represent all proteins from the target organisms, supply both Swiss-Prot and
+TrEMBL DAT files. A Swiss-Prot-only build is a diagnostic variant, not the full
+supervisor benchmark.
+
+## Pipeline
 
 ```text
-proteins,sequences,GO:...,GO:...,GO:...
-P12345,MSEQ...,1,0,1
+UniProt DAT/FASTA t0 + t1
+        |
+        +-- canonical records and secondary-accession crosswalk
+        |
+GOA GAF t0 + t1 -- evidence / NOT / date filtering
+        |
+GO OBO t0 + t1 -- GO-ID canonicalisation into frozen t0 graph
+        |
+        +-- t0 qualifying annotations -> training population
+        +-- unannotated-at-t0 targets with post-t0 annotations -> test
+        |
+DeepGOPlus-shaped train_data.pkl / test_data.pkl / terms.pkl
+        |
+np.random.seed(0), np.random.shuffle, 90/10 train/validation
+        |
+TEMPROT-shaped ontology separation and exact-sequence de-duplication
+        |
+bp/cc/mf x training/validation/test CSVs for PFP
 ```
 
-If intermediates are enabled, it also writes DeepGOPlus-style pickles:
+The training-defined term universe uses propagated `t0` annotations and
+`min_count >= 50`. Snapshot rows and GO columns are sorted before the seeded
+split so Python hash randomisation cannot change the outputs.
+
+## Direct CLI use
+
+Install the pinned builder environment:
+
+```bash
+python -m pip install -e benchmark_builders/contemporary_cafa
+```
+
+Then run with paths supplied explicitly:
+
+```bash
+python -m cafa_benchmark_builder \
+  --profile contemporary-cafa3-style \
+  --uniprot-t0 /path/2025_01/uniprot_sprot.dat.gz \
+  --uniprot-t0 /path/2025_01/uniprot_trembl.dat.gz \
+  --uniprot-t1 /path/2026_02/uniprot_sprot.dat.gz \
+  --uniprot-t1 /path/2026_02/uniprot_trembl.dat.gz \
+  --goa-t0 /path/goa_uniprot_all.gaf.225.gz \
+  --goa-t1 /path/goa_uniprot_all.gaf.234.gz \
+  --go-obo /path/go-2025-03-07/go-basic.obo \
+  --go-obo-t0 /path/go-2025-03-07/go-basic.obo \
+  --go-obo-t1 /path/go-2026-06-15/go-basic.obo \
+  --output-dir /path/run/outputs \
+  --report-dir /path/run/reports
+```
+
+Paths are never hard-coded in Python. `--uniprot-t0` and `--uniprot-t1` are
+repeatable, allowing Swiss-Prot and TrEMBL inputs to be combined.
+
+The repository-level local runner resolves the dissertation database layout and
+calls the same CLI:
+
+```bash
+DB_ROOT="$HOME/protein_databases" \
+PROFILE=contemporary-cafa3-style \
+bash scripts/benchmark_generation/run_contemporary_temporal_benchmark.sh
+```
+
+For a deliberately incomplete Swiss-Prot-only diagnostic:
+
+```bash
+ALLOW_SPROT_ONLY=1 bash scripts/benchmark_generation/run_contemporary_temporal_benchmark.sh
+```
+
+## Cluster run
+
+From the cloned framework on Morecambe:
+
+```bash
+qsub hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh
+```
+
+Choose the supervisor profile at submission time:
+
+```bash
+qsub -v PROFILE=supervisor hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh
+```
+
+The wrapper requests 64 GB RAM and 200 GB scratch, stages only required frozen
+inputs, clones the committed framework, activates `mmfp`, invokes the normal
+runner, copies outputs/reports/logs to
+`$HOME/contemporary_cafa_benchmark_results`, and removes its scratch directory
+on success, error, interruption or `qdel` termination.
+
+The `.sh` suffix is intentional. `qsub` reads the `#$` directives inside a shell
+script and does not require a `.qsub` filename extension.
+
+## Outputs
+
+PFP-compatible CSVs:
+
+```text
+bp-training.csv      bp-validation.csv      bp-test.csv
+cc-training.csv      cc-validation.csv      cc-test.csv
+mf-training.csv      mf-validation.csv      mf-test.csv
+```
+
+DeepGOPlus-shaped intermediates:
 
 ```text
 train_data.pkl
@@ -92,189 +185,60 @@ test_data.pkl
 terms.pkl
 ```
 
-## Installation
-
-From this directory:
-
-```bash
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -e .
-```
-
-The code only depends on NumPy and pandas.
-
-## Smoke Tests
-
-Run the lightweight tests:
-
-```bash
-python3 -m unittest discover -s tests
-```
-
-The tests use tiny local fixtures only. They do not touch real GOA or UniProt
-files.
-
-## Example Command
-
-The builder has three source modes.
-
-### Historical CAFA3 File-to-Pickle Validation Mode
-
-Use this mode to validate the recovered DeepGOPlus `cafa3_data.py` layer:
-
-```bash
-python3 -m cafa_benchmark_builder \
-  --source-mode cafa3-files \
-  --go-obo "/Users/jordansydney-darlin/CAFA3 Supplementary material/external_repos/TEMPROT/data-cafa/go.obo" \
-  --train-sequences-file "/Users/jordansydney-darlin/CAFA3 Supplementary material/external_repos/TEMPROT/data-cafa/CAFA3_training_data/uniprot_sprot_exp.fasta" \
-  --train-annotations-file "/Users/jordansydney-darlin/CAFA3 Supplementary material/external_repos/TEMPROT/data-cafa/CAFA3_training_data/uniprot_sprot_exp.txt" \
-  --test-sequences-file "/Users/jordansydney-darlin/CAFA3 Supplementary material/external_repos/TEMPROT/data-cafa/CAFA3_targets/targets_all.fasta" \
-  --test-annotations-file "/Users/jordansydney-darlin/CAFA3 Supplementary material/external_repos/TEMPROT/data-cafa/benchmark20171115/groundtruth/leafonly_all.txt" \
-  --output-dir /tmp/cafa3_deepgoplus_pickles \
-  --min-count 50
-```
-
-This writes:
+Audit material:
 
 ```text
-train_data.pkl
-test_data.pkl
-terms.pkl
+benchmark_build_report.md
+benchmark_statistics.json
+build_manifest.json
+protein_flow.tsv
+exclusion_reasons.tsv
+annotation_gain_summary.tsv
+taxon_summary.tsv
+evidence_summary.tsv
+input_checksums.sha256
+output_checksums.sha256
 ```
 
-It does not create the 90/10 train/validation split or the nine PFP CSVs. Those
-belong to the next historical layer.
+## Failure gates
 
-### Historical DeepGOPlus Validation Mode
+A production build exits non-zero when it finds:
 
-Use this mode to validate the recovered CAFA3 -> DeepGOPlus -> TEMPROT -> PFP
-path without reparsing raw GOA:
+- an input file missing;
+- an invalid GAF date where backfill filtering is required;
+- an unresolvable GO ID in its matching source ontology;
+- a test protein absent at `t0`;
+- a qualifying `t0` annotation on a selected test protein;
+- train/test protein overlap;
+- malformed CSV schemas, duplicate IDs or non-binary labels;
+- exact sequence overlap between exported splits;
+- an empty ontology/split under strict QC.
+
+Expected exclusions such as a valid post-`t0` GO term outside the frozen graph,
+an accession merge, a sequence change, or a `t1`-only protein are counted in the
+reports rather than silently discarded.
+
+## Tests
 
 ```bash
-python3 -m cafa_benchmark_builder \
-  --source-mode deepgoplus \
-  --deepgoplus-dir "/Users/jordansydney-darlin/CAFA3 Supplementary material/external_repos/TEMPROT/data-cafa" \
-  --go-obo "/Users/jordansydney-darlin/CAFA3 Supplementary material/external_repos/TEMPROT/data-cafa/go.obo" \
-  --output-dir /tmp/cafa3_deepgoplus_export
+cd benchmark_builders/contemporary_cafa
+PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -v
 ```
 
-This reads:
+The tests cover evidence/NOT filtering, backfill removal, `t0`-presence rules,
+`t0` sequence use, secondary-accession mapping, ambiguous merges, sequence
+changes, GO alternate/replacement IDs, all nine PFP CSVs, historical modes and
+byte-identical repeated fixture outputs.
+
+## Historical modes
+
+These validated paths remain available and are intentionally separate from the
+new snapshot front end:
 
 ```text
-train_data.pkl
-train_data_train.pkl
-train_data_valid.pkl
-test_data.pkl
-terms.pkl
+--source-mode deepgoplus
+--source-mode cafa3-files
 ```
 
-and exports the nine PFP-compatible CSVs. This is the best mode for proving the
-final CSV export layer is faithful to the historical benchmark.
-
-### Raw Snapshot Mode
-
-Example structure for the real contemporary benchmark:
-
-```bash
-python3 -m cafa_benchmark_builder \
-  --source-mode snapshots \
-  --uniprot-t0 /home/jsydneyd/protein_databases/uniprot/release_2025_01/uniprot_sprot.dat.gz \
-  --uniprot-t1 /home/jsydneyd/protein_databases/uniprot/release_2026_02/uniprot_sprot.dat.gz \
-  --goa-t0 /home/jsydneyd/protein_databases/goa/release_2025_01/goa_uniprot_all.gaf.225.gz \
-  --goa-t1 /home/jsydneyd/protein_databases/goa/release_2026_02/goa_uniprot_all.gaf.234.gz \
-  --go-obo /home/jsydneyd/protein_databases/go/2026_06_15/go.obo \
-  --reviewed-only \
-  --output-dir /home/jsydneyd/contemporary_cafa_2025_2026/csvs
-```
-
-By default this uses the official CAFA3-style broad training scope: all loaded
-Swiss-Prot proteins with qualifying annotations. To switch to your supervisor's
-"same model organisms as CAFA3" variant, add:
-
-```bash
---taxon-policy cafa3-targets
-```
-
-To use a custom taxon list instead:
-
-```bash
---taxon-policy custom --target-taxa-file /path/to/taxa.txt
-```
-
-Evidence policies are also named presets:
-
-```bash
---evidence-policy cafa3-final
---evidence-policy cafa3-public-python
---evidence-policy supervisor
-```
-
-For strict CAFA3 validation use `cafa3-final`. For the dissertation benchmark,
-switch to `supervisor` if that is the agreed policy.
-
-For a tiny smoke run on real files, use:
-
-```bash
-python3 -m cafa_benchmark_builder \
-  ...same paths... \
-  --min-count 1 \
-  --max-gaf-records 10000 \
-  --output-dir /tmp/cafa_smoke
-```
-
-Do not use `--max-gaf-records` for the real benchmark.
-
-## Method Implemented
-
-1. Load GO from OBO.
-2. Stream UniProt t0 and t1 sequences from FASTA or DAT.
-3. Stream GOA t0 and t1 GAF rows, filtering early to the loaded UniProt
-   accession universe so irrelevant GOA rows are skipped before expensive
-   object construction.
-4. Keep only:
-   - `DB == UniProtKB`
-   - evidence in final CAFA3 policy
-   - aspect in `P`, `C`, `F`
-   - optionally configured target taxa
-   - no `NOT` qualifier
-5. Training annotations are experimental t0 annotations for proteins with t0
-   sequences.
-6. Test annotations are gained t1 annotations for proteins not present in the
-   t0 training set.
-7. Propagate annotations through GO using DeepGOPlus-style ancestor expansion.
-8. Count propagated training annotations.
-9. Keep GO terms with `min_count >= 50`.
-10. Split train/valid with DeepGOPlus `seed=0`, `split=0.9`.
-11. Export ontology-specific TEMPROT/PFP CSVs.
-
-## Known Caveats
-
-The official CAFA3 README documents two postprocessing rules that are not fully
-recoverable from the public Python code alone:
-
-1. CGD backfill removal for Candida annotations assigned before t0.
-2. Removal of MFO benchmark proteins whose only MFO annotation was
-   `GO:0005515`.
-
-Older CAFA2 MATLAB code contains protein-binding removal logic, but the exact
-CAFA3 Python execution path for those final postprocessing rules is not present
-locally. This builder therefore records the gap rather than pretending it is
-fully solved.
-
-This temporal benchmark also follows TEMPROT's exact-sequence duplicate removal
-only. It is temporally split, but it is not a homology-decontaminated benchmark:
-near-identical homologs are intentionally left to a separate homology-aware
-benchmark design.
-
-## PFP Handoff
-
-After generating the nine CSVs, run PFP's existing preparer:
-
-```bash
-python scripts/prepare_cafa3_data.py \
-  --cafa3-dir /path/to/generated/csvs \
-  --output-dir data
-```
-
-Then continue with PFP's existing embedding/training workflow.
+They reproduce the released pickle-to-CSV and official-file-to-pickle stages.
+They do not apply the contemporary temporal candidate policy.

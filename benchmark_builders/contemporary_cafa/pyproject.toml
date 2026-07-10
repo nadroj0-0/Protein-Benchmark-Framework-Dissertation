@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "contemporary-cafa-benchmark"
-version = "0.1.0"
+version = "0.2.0"
 description = "Faithful CAFA-style temporal benchmark builder for PFP-compatible CSVs"
 requires-python = ">=3.9"
 dependencies = [
-  "numpy>=1.23",
-  "pandas>=1.5",
+  "numpy==2.0.2",
+  "pandas==2.3.3",
 ]
 
 [project.scripts]

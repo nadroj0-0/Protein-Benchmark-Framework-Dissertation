@@ -28,6 +28,7 @@ contracts before expensive training is launched.
 │   ├── verification/                      # Shell and Python verification gates
 │   ├── data_acquisition/                  # HPC/raw database download and inspection helpers
 │   ├── diagnostics/                       # Environment probes and comparison diagnostics
+│   ├── benchmark_generation/              # Reusable contemporary benchmark runner
 │   └── validation/                        # Historical benchmark validation workflows
 ├── hpc_jobs/
 │   ├── active/                            # qsub wrappers for current cluster workflows
@@ -69,6 +70,16 @@ benchmark_builders/contemporary_cafa/
 It is kept as a self-contained subproject so that the immutable PFP
 reproduction wrappers and the new benchmark-generation code remain
 separate.
+
+The production runner and UCL/SGE entrypoint are:
+
+```bash
+bash scripts/benchmark_generation/run_contemporary_temporal_benchmark.sh
+qsub hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh
+```
+
+See `benchmark_builders/contemporary_cafa/README.md` for the temporal contract,
+named profiles, required frozen inputs, reports and QC gates.
 
 ## Quick start
 

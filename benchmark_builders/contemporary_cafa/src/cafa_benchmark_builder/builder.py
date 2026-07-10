@@ -59,7 +59,8 @@ def build_training_dataframe(
     skipped_missing_sequence = 0
     skipped_empty_propagation = 0
 
-    for prot_id, annots in train_annots.items():
+    for prot_id in sorted(train_annots):
+        annots = train_annots[prot_id]
         if prot_id not in sequences:
             skipped_missing_sequence += 1
             continue
@@ -69,8 +70,8 @@ def build_training_dataframe(
             continue
         proteins.append(prot_id)
         seqs.append(sequences[prot_id])
-        prop_annotations.append(annots_set)
-        for go_id in annots_set:
+        prop_annotations.append(tuple(sorted(annots_set)))
+        for go_id in sorted(annots_set):
             cnt[go_id] += 1
 
     df = pd.DataFrame({
@@ -146,7 +147,7 @@ def make_terms_dataframe(cnt: Counter, min_count: int) -> pd.DataFrame:
     # Mirrors DeepGOPlus cafa3_data.py: filter propagated training terms by
     # min_count and store a single-column DataFrame named "terms".
     terms = []
-    for key, val in cnt.items():
+    for key, val in sorted(cnt.items()):
         if val >= min_count:
             terms.append(key)
     return pd.DataFrame({"terms": terms})
@@ -442,65 +443,8 @@ def generate_deepgoplus_pickles_from_cafa_files(
 
 
 def build_benchmark(config: BuildConfig) -> dict[str, Path]:
-    config.output_dir.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+    # Import locally to keep the historical DeepGOPlus/TEMPROT helpers in this
+    # module independent of the richer snapshot-construction audit layer.
+    from .snapshot import build_snapshot_benchmark
 
-    LOGGER.info("Loading GO ontology from %s", config.go_obo)
-    go = Ontology(config.go_obo, with_rels=config.include_rels)
-
-    seq_t0 = load_proteins(config.uniprot_t0, config.target_taxa, config.reviewed_only)
-    seq_t1 = load_proteins(config.uniprot_t1, config.target_taxa, config.reviewed_only)
-
-    t0_annotation_universe = set(seq_t0) | set(seq_t1)
-    t1_annotation_universe = set(seq_t1)
-
-    LOGGER.info("Loading t0 GOA annotations from %s", config.goa_t0)
-    t0_annots = load_annotation_map(
-        config.goa_t0,
-        evidence_codes=config.evidence_codes,
-        target_taxa=config.target_taxa,
-        max_records=config.max_gaf_records,
-        allowed_proteins=t0_annotation_universe,
-    )
-    LOGGER.info("Loading t1 GOA annotations from %s", config.goa_t1)
-    t1_annots = load_annotation_map(
-        config.goa_t1,
-        evidence_codes=config.evidence_codes,
-        target_taxa=config.target_taxa,
-        max_records=config.max_gaf_records,
-        allowed_proteins=t1_annotation_universe,
-    )
-
-    LOGGER.info("Building DeepGOPlus-style training dataframe")
-    train_all_df, cnt = build_training_dataframe(go, seq_t0, t0_annots)
-    LOGGER.info("Training proteins before split: %d", len(train_all_df))
-
-    terms_df = make_terms_dataframe(cnt, config.min_count)
-    LOGGER.info("Terms with min_count >= %d: %d", config.min_count, len(terms_df))
-
-    train_df, valid_df = split_train_valid(train_all_df, split=config.split, seed=config.seed)
-    LOGGER.info("Train/valid split: %d/%d", len(train_df), len(valid_df))
-
-    LOGGER.info("Building temporal gained-annotation test dataframe")
-    test_df = build_test_dataframe(go, seq_t1, t0_annots, t1_annots, set(train_all_df["proteins"]))
-    LOGGER.info("Test proteins: %d", len(test_df))
-
-    written: dict[str, Path] = {}
-    if config.write_intermediates:
-        paths = {
-            "train_data": config.output_dir / "train_data.pkl",
-            "train_data_train": config.output_dir / "train_data_train.pkl",
-            "train_data_valid": config.output_dir / "train_data_valid.pkl",
-            "test_data": config.output_dir / "test_data.pkl",
-            "terms": config.output_dir / "terms.pkl",
-        }
-        train_all_df.to_pickle(paths["train_data"])
-        train_df.to_pickle(paths["train_data_train"])
-        valid_df.to_pickle(paths["train_data_valid"])
-        test_df.to_pickle(paths["test_data"])
-        terms_df.to_pickle(paths["terms"])
-        written.update(paths)
-
-    csv_paths = export_pfp_csvs(go, train_df, valid_df, test_df, terms_df, config.output_dir)
-    written.update(csv_paths)
-    return written
+    return build_snapshot_benchmark(config)

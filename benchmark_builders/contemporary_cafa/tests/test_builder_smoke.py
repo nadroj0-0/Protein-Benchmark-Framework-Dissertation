@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+import json
 
 import pandas as pd
 
@@ -15,7 +16,7 @@ from cafa_benchmark_builder.builder import (
     export_from_deepgoplus_pickles,
     generate_deepgoplus_pickles_from_cafa_files,
 )
-from cafa_benchmark_builder.config import BuildConfig, EVIDENCE_POLICIES
+from cafa_benchmark_builder.config import BENCHMARK_PROFILES, BuildConfig, EVIDENCE_POLICIES
 from cafa_benchmark_builder.goa import load_annotation_map
 from cafa_benchmark_builder.parsers import iter_uniprot
 
@@ -51,8 +52,12 @@ class BenchmarkBuilderSmokeTest(unittest.TestCase):
                 goa_t1=FIXTURES / "goa-t1.gaf",
                 go_obo=FIXTURES / "go-mini.obo",
                 output_dir=out,
+                training_taxa=frozenset({"9606"}),
                 target_taxa=frozenset({"9606"}),
                 min_count=1,
+                t0_cutoff="20250131",
+                write_checksums=False,
+                strict_qc=False,
             ))
 
             expected = {
@@ -67,9 +72,17 @@ class BenchmarkBuilderSmokeTest(unittest.TestCase):
                 self.assertIn("sequences", df.columns)
 
             bp_test = pd.read_csv(out / "bp-test.csv")
-            self.assertEqual(set(bp_test["proteins"]), {"P00005"})
+            self.assertEqual(set(bp_test["proteins"]), {"P00004"})
+            self.assertEqual(bp_test.loc[0, "sequences"], "MEEEEE")  # always the t0 sequence
             self.assertIn("GO:0009987", bp_test.columns)
             self.assertIn("GO:0008150", bp_test.columns)
+
+            flow = pd.read_csv(out / "reports" / "protein_flow.tsv", sep="\t")
+            future_only = flow.loc[flow["t1_id"] == "P00005"].iloc[0]
+            self.assertEqual(future_only["reason"], "not_present_at_t0")
+            self.assertNotIn("P00005", set(bp_test["proteins"]))
+            stats = json.loads((out / "reports" / "benchmark_statistics.json").read_text())
+            self.assertEqual(stats["t1_goa"]["skipped_backfill"], 1)
 
             all_train_valid = []
             for name in ["bp-training.csv", "bp-validation.csv", "cc-training.csv",
@@ -174,6 +187,52 @@ class BenchmarkBuilderSmokeTest(unittest.TestCase):
         self.assertIn("NAS", EVIDENCE_POLICIES["supervisor"])
         self.assertIn("ND", EVIDENCE_POLICIES["supervisor"])
         self.assertNotIn("TAS", EVIDENCE_POLICIES["cafa3-public-python"])
+
+    def test_profiles_separate_training_and_target_policy(self):
+        cafa = BENCHMARK_PROFILES["contemporary-cafa3-style"]
+        supervisor = BENCHMARK_PROFILES["supervisor"]
+        self.assertEqual(cafa.training_taxon_policy, "all")
+        self.assertEqual(cafa.target_taxon_policy, "cafa3-targets")
+        self.assertTrue(cafa.training_reviewed_only)
+        self.assertFalse(cafa.target_reviewed_only)
+        self.assertEqual(supervisor.training_taxon_policy, "cafa3-targets")
+        self.assertEqual(supervisor.evidence_policy, "supervisor")
+
+    def test_snapshot_outputs_are_deterministic(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            outputs = []
+            for name in ("first", "second"):
+                out = root / name
+                build_benchmark(BuildConfig(
+                    uniprot_t0=(FIXTURES / "uniprot-t0.fasta",),
+                    uniprot_t1=(FIXTURES / "uniprot-t1.fasta",),
+                    goa_t0=FIXTURES / "goa-t0.gaf",
+                    goa_t1=FIXTURES / "goa-t1.gaf",
+                    go_obo=FIXTURES / "go-mini.obo",
+                    output_dir=out,
+                    training_taxa=frozenset({"9606"}),
+                    target_taxa=frozenset({"9606"}),
+                    min_count=1,
+                    t0_cutoff="20250131",
+                    write_checksums=False,
+                    strict_qc=False,
+                ))
+                outputs.append(out)
+
+            core_files = [
+                "train_data.pkl", "train_data_train.pkl", "train_data_valid.pkl",
+                "test_data.pkl", "terms.pkl",
+                "bp-training.csv", "bp-validation.csv", "bp-test.csv",
+                "cc-training.csv", "cc-validation.csv", "cc-test.csv",
+                "mf-training.csv", "mf-validation.csv", "mf-test.csv",
+            ]
+            for filename in core_files:
+                self.assertEqual(
+                    (outputs[0] / filename).read_bytes(),
+                    (outputs[1] / filename).read_bytes(),
+                    filename,
+                )
 
 
 if __name__ == "__main__":

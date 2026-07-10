@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from collections import defaultdict
+from collections import Counter, defaultdict
 import logging
 import os
 from pathlib import Path
@@ -11,7 +11,8 @@ from typing import Iterator
 
 from .config import CAFA3_FINAL_EXP_CODES
 from .io_utils import open_text
-from .models import GafRecord
+from .models import AnnotationLoadResult, GafRecord
+from .ontology import Ontology
 
 LOGGER = logging.getLogger(__name__)
 
@@ -223,3 +224,127 @@ def load_annotation_map(
         skipped_taxon,
     )
     return dict(annots)
+
+
+def load_normalized_annotation_map(
+    path: str | Path,
+    *,
+    alias_to_primary: dict[str, str],
+    source_ontology: Ontology,
+    benchmark_ontology: Ontology,
+    evidence_codes: frozenset[str] = CAFA3_FINAL_EXP_CODES,
+    target_taxa: frozenset[str] = frozenset(),
+    exclude_on_or_before: str | None = None,
+    require_valid_dates: bool = True,
+    max_records: int | None = None,
+    progress_interval: int | None = None,
+) -> AnnotationLoadResult:
+    """Stream, filter and normalise a GOA snapshot.
+
+    UniProt secondary accessions are collapsed onto the snapshot's primary
+    accession. GO IDs are first resolved in the source snapshot and then mapped
+    into the frozen benchmark ontology. Terms introduced after the frozen
+    ontology are counted separately from malformed/unresolvable GO IDs.
+    """
+    annots: dict[str, set[str]] = defaultdict(set)
+    counters = Counter()
+    evidence_counts = Counter()
+    taxon_counts = Counter()
+    unmapped_terms = Counter()
+    out_of_benchmark_terms = Counter()
+    progress_every = progress_interval_from_env() if progress_interval is None else progress_interval
+
+    with open_gaf_text(path) as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip() or line.startswith("!"):
+                continue
+            cols = line.rstrip("\n").split("\t")
+            if len(cols) < 15:
+                raise ValueError(f"Invalid GAF row at {path}:{line_number}: expected at least 15 columns")
+            counters["processed"] += 1
+
+            if cols[0] != "UniProtKB":
+                counters["skipped_db"] += 1
+            else:
+                protein_id = alias_to_primary.get(cols[1])
+                taxon_id = parse_taxon(cols[12])
+                if protein_id is None:
+                    counters["skipped_outside_sequences"] += 1
+                elif cols[6] not in evidence_codes:
+                    counters["skipped_evidence"] += 1
+                elif cols[3] and "NOT" in cols[3].split("|"):
+                    counters["skipped_not"] += 1
+                elif cols[8] not in {"P", "C", "F"}:
+                    counters["skipped_aspect"] += 1
+                elif target_taxa and taxon_id not in target_taxa:
+                    counters["skipped_taxon"] += 1
+                elif exclude_on_or_before is not None and (
+                    not cols[13].isdigit() or len(cols[13]) != 8
+                ):
+                    counters["invalid_date"] += 1
+                elif exclude_on_or_before is not None and cols[13] <= exclude_on_or_before:
+                    counters["skipped_backfill"] += 1
+                else:
+                    source_term = source_ontology.resolve_term(cols[4])
+                    if source_term is None:
+                        counters["unmapped_source_go"] += 1
+                        unmapped_terms[cols[4]] += 1
+                    else:
+                        benchmark_term = benchmark_ontology.resolve_term(source_term)
+                        if benchmark_term is None:
+                            # If the source snapshot has replaced a t0 term,
+                            # the original GAF ID may still be the resolvable
+                            # identifier in the frozen benchmark graph.
+                            benchmark_term = benchmark_ontology.resolve_term(cols[4])
+                        if benchmark_term is None:
+                            counters["outside_frozen_ontology"] += 1
+                            out_of_benchmark_terms[source_term] += 1
+                        else:
+                            annots[protein_id].add(benchmark_term)
+                            counters["kept_rows"] += 1
+                            evidence_counts[cols[6]] += 1
+                            taxon_counts[taxon_id] += 1
+
+            if progress_every and counters["processed"] % progress_every == 0:
+                LOGGER.info(
+                    "GOA progress for %s: processed=%d kept_rows=%d proteins=%d "
+                    "skipped_outside_sequences=%d skipped_backfill=%d",
+                    path,
+                    counters["processed"],
+                    counters["kept_rows"],
+                    len(annots),
+                    counters["skipped_outside_sequences"],
+                    counters["skipped_backfill"],
+                )
+            if max_records is not None and counters["processed"] >= max_records:
+                break
+
+    if require_valid_dates and counters["invalid_date"]:
+        raise ValueError(
+            f"{path} contains {counters['invalid_date']} otherwise-eligible rows with invalid GAF dates; "
+            "backfill filtering cannot be applied safely"
+        )
+
+    LOGGER.info(
+        "Loaded normalized GOA annotations from %s: processed=%d kept_rows=%d proteins=%d "
+        "skipped_outside_sequences=%d skipped_evidence=%d skipped_not=%d "
+        "skipped_backfill=%d outside_frozen_ontology=%d unmapped_source_go=%d",
+        path,
+        counters["processed"],
+        counters["kept_rows"],
+        len(annots),
+        counters["skipped_outside_sequences"],
+        counters["skipped_evidence"],
+        counters["skipped_not"],
+        counters["skipped_backfill"],
+        counters["outside_frozen_ontology"],
+        counters["unmapped_source_go"],
+    )
+    return AnnotationLoadResult(
+        annotations={protein_id: set(terms) for protein_id, terms in annots.items()},
+        counters=counters,
+        evidence_counts=evidence_counts,
+        taxon_counts=taxon_counts,
+        unmapped_terms=unmapped_terms,
+        out_of_benchmark_terms=out_of_benchmark_terms,
+    )

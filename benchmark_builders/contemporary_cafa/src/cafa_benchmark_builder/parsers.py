@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Iterator
 
 from .io_utils import open_text
-from .models import ProteinRecord
+from .models import ProteinCatalog, ProteinRecord
 
 OX_RE = re.compile(r"\bOX=(\d+)\b")
 DAT_TAXON_RE = re.compile(r"NCBI_TaxID=(\d+)")
@@ -116,3 +116,41 @@ def iter_uniprot(path: str | Path) -> Iterator[ProteinRecord]:
         yield from iter_uniprot_dat(path)
     else:
         yield from iter_uniprot_fasta(path)
+
+
+def load_protein_catalog(
+    paths: tuple[Path, ...],
+    target_taxa: frozenset[str] = frozenset(),
+    reviewed_only: bool = False,
+) -> ProteinCatalog:
+    """Load canonical UniProt records and their accession aliases.
+
+    The first accession in a UniProt DAT record is the primary accession. Any
+    later accessions are retained only as aliases for cross-release identity
+    matching and GAF lookup; they are never emitted as duplicate proteins.
+    """
+    catalog = ProteinCatalog()
+    for path in paths:
+        for record in iter_uniprot(path):
+            if target_taxa and record.taxon_id not in target_taxa:
+                continue
+            if reviewed_only and record.reviewed is not True:
+                continue
+
+            primary = record.protein_id
+            existing = catalog.records.get(primary)
+            if existing is not None and existing.sequence != record.sequence:
+                raise ValueError(f"Conflicting sequences for UniProt accession {primary}")
+            catalog.records.setdefault(primary, record)
+
+            aliases = set(record.accessions) | {primary}
+            for alias in aliases:
+                if alias in catalog.ambiguous_aliases:
+                    continue
+                previous = catalog.alias_to_primary.get(alias)
+                if previous is None or previous == primary:
+                    catalog.alias_to_primary[alias] = primary
+                else:
+                    catalog.ambiguous_aliases.add(alias)
+                    del catalog.alias_to_primary[alias]
+    return catalog

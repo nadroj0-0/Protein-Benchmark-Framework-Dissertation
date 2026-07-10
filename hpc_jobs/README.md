@@ -28,10 +28,21 @@ qsub hpc_jobs/active/hpc_reproduce_embeddings_retrain_eval.sh
 qsub hpc_jobs/active/hpc_cafa3_deepgoplus_pickle_generation_validation.sh
 qsub hpc_jobs/active/hpc_cafa3_deepgoplus_validation.sh
 qsub hpc_jobs/active/hpc_cafa3_historical_validation.sh
+qsub hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh
 ```
 
 The active wrappers clone the full framework into node-local scratch and
 then call the normal entrypoints under `scripts/`.
+
+`hpc_contemporary_temporal_benchmark.sh` stages the frozen 2025/2026 UniProt,
+GOA and GO inputs, invokes
+`scripts/benchmark_generation/run_contemporary_temporal_benchmark.sh`, copies
+the complete benchmark run to durable storage and clears scratch. It builds the
+benchmark only; it does not launch PFP.
+
+The wrapper is a `.sh` file because that is the repository convention. Grid
+Engine does not require `.qsub`; the `qsub` command uses the embedded `#$`
+directives regardless of the filename suffix.
 
 For benchmark validation:
 

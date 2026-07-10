@@ -26,11 +26,15 @@
 #   - creates directories if absent
 #   - resumes interrupted downloads using wget -c
 #
+# Full target-organism coverage also needs TrEMBL. Because those archives are
+# very large, opt in explicitly with DOWNLOAD_TREMBL=1.
+#
 
 set -euo pipefail
 
 ROOT="$HOME/protein_databases"
 TODAY="$(date +%F)"
+DOWNLOAD_TREMBL="${DOWNLOAD_TREMBL:-0}"
 
 UNIPROT_T0_RELEASE="2025_01"
 UNIPROT_T1_RELEASE="2026_02"
@@ -38,8 +42,10 @@ UNIPROT_T1_RELEASE="2026_02"
 GOA_T0_RELEASE="225"
 GOA_T1_RELEASE="234"
 
-ONTOLOGY_T0_RELEASE="2025-02-06"
-ONTOLOGY_T1_RELEASE="2026-06-19"
+# GO versions declared in the GOA 225 and 234 GAF headers. These are used for
+# annotation-ID normalisation; the benchmark prediction graph is frozen at t0.
+ONTOLOGY_T0_RELEASE="2025-03-07"
+ONTOLOGY_T1_RELEASE="2026-06-15"
 
 UNIPROT_T0_DIR="$ROOT/uniprot/release_${UNIPROT_T0_RELEASE}"
 UNIPROT_T1_DIR="$ROOT/uniprot/release_${UNIPROT_T1_RELEASE}"
@@ -57,6 +63,16 @@ download_if_missing() {
     else
         echo "Downloading $(basename "$out")..."
         wget -c "$url" -O "$out"
+    fi
+}
+
+assert_file_contains() {
+    local file="$1"
+    local expected="$2"
+    if ! grep -q "$expected" "$file"; then
+        echo "Release check failed: $file does not contain $expected" >&2
+        echo "A mutable current endpoint may have advanced; use the archived release instead." >&2
+        exit 1
     fi
 }
 
@@ -81,6 +97,12 @@ download_if_missing \
 "https://ftp.uniprot.org/pub/databases/uniprot/previous_releases/release-${UNIPROT_T0_RELEASE}/knowledgebase/uniprot_sprot-only${UNIPROT_T0_RELEASE}.tar.gz" \
 "$UNIPROT_T0_DIR/uniprot_sprot-only${UNIPROT_T0_RELEASE}.tar.gz"
 
+if [[ "$DOWNLOAD_TREMBL" == "1" ]]; then
+    download_if_missing \
+    "https://ftp.uniprot.org/pub/databases/uniprot/previous_releases/release-${UNIPROT_T0_RELEASE}/knowledgebase/uniprot_trembl-only${UNIPROT_T0_RELEASE}.tar.gz" \
+    "$UNIPROT_T0_DIR/uniprot_trembl-only${UNIPROT_T0_RELEASE}.tar.gz"
+fi
+
 download_if_missing \
 "https://ftp.uniprot.org/pub/databases/uniprot/previous_releases/release-${UNIPROT_T0_RELEASE}/relnotes.txt" \
 "$UNIPROT_T0_DIR/relnotes.txt"
@@ -98,6 +120,12 @@ echo "[2/8] UniProt ${UNIPROT_T1_RELEASE}"
 
 UNIPROT_CURRENT_BASE="https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/complete"
 
+download_if_missing \
+"https://ftp.uniprot.org/pub/databases/uniprot/current_release/relnotes.txt" \
+"$UNIPROT_T1_DIR/relnotes.txt"
+
+assert_file_contains "$UNIPROT_T1_DIR/relnotes.txt" "$UNIPROT_T1_RELEASE"
+
 for f in \
     uniprot_sprot.dat.gz \
     uniprot_sprot.fasta.gz \
@@ -109,9 +137,11 @@ do
     "$UNIPROT_T1_DIR/$f"
 done
 
-download_if_missing \
-"https://ftp.uniprot.org/pub/databases/uniprot/current_release/relnotes.txt" \
-"$UNIPROT_T1_DIR/relnotes.txt"
+if [[ "$DOWNLOAD_TREMBL" == "1" ]]; then
+    download_if_missing \
+    "$UNIPROT_CURRENT_BASE/uniprot_trembl.dat.gz" \
+    "$UNIPROT_T1_DIR/uniprot_trembl.dat.gz"
+fi
 
 download_if_missing \
 "https://ftp.uniprot.org/pub/databases/uniprot/current_release/changes.html" \
@@ -135,13 +165,32 @@ download_if_missing \
 "https://ftp.ebi.ac.uk/pub/databases/GO/goa/current_release_numbers.txt" \
 "$GOA_T1_DIR/current_release_numbers.txt"
 
-#download_if_missing \
-#"https://ftp.ebi.ac.uk/pub/databases/GO/goa/UNIPROT/goa_uniprot_all.gaf.gz" \
-#"$GOA_T1_DIR/goa_uniprot_all.gaf.${GOA_T1_RELEASE}.gz"
+assert_file_contains "$GOA_T1_DIR/current_release_numbers.txt" "$GOA_T1_RELEASE"
+
+download_if_missing \
+"https://ftp.ebi.ac.uk/pub/databases/GO/goa/UNIPROT/goa_uniprot_all.gaf.gz" \
+"$GOA_T1_DIR/goa_uniprot_all.gaf.${GOA_T1_RELEASE}.gz"
 
 download_if_missing \
 "https://ftp.ebi.ac.uk/pub/databases/GO/goa/UNIPROT/goa_uniprot_all.gaf.gz.md5" \
 "$GOA_T1_DIR/goa_uniprot_all.gaf.${GOA_T1_RELEASE}.gz.md5"
+
+EXPECTED_GOA_T1_MD5="$(awk '{print $1}' "$GOA_T1_DIR/goa_uniprot_all.gaf.${GOA_T1_RELEASE}.gz.md5")"
+ACTUAL_GOA_T1_MD5="$(md5sum "$GOA_T1_DIR/goa_uniprot_all.gaf.${GOA_T1_RELEASE}.gz" | awk '{print $1}')"
+if [[ "$EXPECTED_GOA_T1_MD5" != "$ACTUAL_GOA_T1_MD5" ]]; then
+    echo "GOA ${GOA_T1_RELEASE} checksum mismatch" >&2
+    exit 1
+fi
+if ! zgrep -m 1 '^!date-generated:.*2026-06-17' \
+    "$GOA_T1_DIR/goa_uniprot_all.gaf.${GOA_T1_RELEASE}.gz" >/dev/null; then
+    echo "Downloaded GOA file is not the frozen release 234 snapshot from 2026-06-17" >&2
+    exit 1
+fi
+if ! zgrep -m 1 '^!go-version:.*2026-06-15' \
+    "$GOA_T1_DIR/goa_uniprot_all.gaf.${GOA_T1_RELEASE}.gz" >/dev/null; then
+    echo "Downloaded GOA file does not declare GO 2026-06-15" >&2
+    exit 1
+fi
 
 download_if_missing \
 "https://ftp.ebi.ac.uk/pub/databases/GO/goa/UNIPROT/README" \
@@ -166,15 +215,15 @@ echo
 echo "[6/8] GO ontology ${ONTOLOGY_T1_RELEASE}"
 
 download_if_missing \
-"https://current.geneontology.org/ontology/go-basic.obo" \
+"https://release.geneontology.org/${ONTOLOGY_T1_RELEASE}/ontology/go-basic.obo" \
 "$ONTOLOGY_T1_DIR/go-basic.obo"
 
 download_if_missing \
-"https://current.geneontology.org/ontology/go.obo" \
+"https://release.geneontology.org/${ONTOLOGY_T1_RELEASE}/ontology/go.obo" \
 "$ONTOLOGY_T1_DIR/go.obo"
 
 download_if_missing \
-"https://current.geneontology.org/summary.txt" \
+"https://release.geneontology.org/${ONTOLOGY_T1_RELEASE}/summary.txt" \
 "$ONTOLOGY_T1_DIR/summary.txt"
 
 echo

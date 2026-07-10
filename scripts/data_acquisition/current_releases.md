@@ -18,8 +18,8 @@ https://ftp.uniprot.org/pub/databases/uniprot/current_release/
 
 Resolved release on **9 July 2026**:
 
-- UniProtKB Release **2026_01**
-- Official release date: **28 January 2026**
+- UniProtKB Release **2026_02**
+- Official release date: **10 June 2026**
 
 ---
 
@@ -44,15 +44,17 @@ https://current.geneontology.org/
 
 Resolved release on **9 July 2026**:
 
-- Gene Ontology Release **2026-06-19**
+- GOA-declared ontology version **2026-06-15** (used to normalise GOA 234)
+- The independent current GO endpoint was release **2026-06-19** on 9 July;
+  it is not substituted for the ontology version declared by the GAF.
 
 ---
 
 ## Reproducing this benchmark in the future
 
-If the upstream **current** endpoints have advanced beyond the versions listed
-above, they should be replaced with the corresponding archived snapshot URLs
-before rerunning the download script.
+The download script checks the mutable UniProt and GOA endpoints before using
+them and fails if they have advanced. The GO ontology URLs are fixed archived
+release URLs.
 
 This ensures that the exact evaluation snapshot used on **9 July 2026** can be
 recreated in the future.

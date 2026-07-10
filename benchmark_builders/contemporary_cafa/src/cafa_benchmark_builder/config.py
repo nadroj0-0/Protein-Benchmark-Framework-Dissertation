@@ -5,50 +5,22 @@ from pathlib import Path
 from typing import Iterable
 
 
-# Final CAFA3 benchmark README policy:
-# benchmark20171115/00README.txt says EXP, IDA, IPI, IMP, IGI, IEP, TAS, IC.
+# Final CAFA3 benchmark policy from benchmark20171115/00README.txt.
 CAFA3_FINAL_EXP_CODES = frozenset({
-    "EXP",
-    "IDA",
-    "IPI",
-    "IMP",
-    "IGI",
-    "IEP",
-    "TAS",
-    "IC",
+    "EXP", "IDA", "IPI", "IMP", "IGI", "IEP", "TAS", "IC",
 })
 
-# Public CAFA_benchmark/create_benchmark.py policy. This is useful for auditing
-# the public Python script, but the final CAFA3 README extends it with TAS and IC.
+# Public CAFA_benchmark/create_benchmark.py policy. The final CAFA3 release
+# extended this six-code set with TAS and IC.
 CAFA3_PUBLIC_PYTHON_EXP_CODES = frozenset({
-    "EXP",
-    "IDA",
-    "IPI",
-    "IMP",
-    "IGI",
-    "IEP",
+    "EXP", "IDA", "IPI", "IMP", "IGI", "IEP",
 })
 
-# Supervisor-specified policy for dissertation benchmark variants. Keep this as
-# a named preset so the benchmark can switch policy without code changes.
+# Dissertation-supervisor policy. It is deliberately a named alternative, not
+# folded into the CAFA3 profile, so results can state exactly which was used.
 SUPERVISOR_EXP_CODES = frozenset({
-    "EXP",
-    "IDA",
-    "IPI",
-    "IMP",
-    "IGI",
-    "IEP",
-    "HTP",
-    "HDA",
-    "HMP",
-    "HGI",
-    "HEP",
-    "TAS",
-    "NAS",
-    "IGC",
-    "RCA",
-    "ND",
-    "IC",
+    "EXP", "IDA", "IPI", "IMP", "IGI", "IEP", "HTP", "HDA", "HMP",
+    "HGI", "HEP", "TAS", "NAS", "IGC", "RCA", "ND", "IC",
 })
 
 EVIDENCE_POLICIES = {
@@ -57,11 +29,54 @@ EVIDENCE_POLICIES = {
     "supervisor": SUPERVISOR_EXP_CODES,
 }
 
-ASPECT_TO_PREFIX = {
-    "P": "bp",
-    "C": "cc",
-    "F": "mf",
+
+@dataclass(frozen=True)
+class BenchmarkProfile:
+    name: str
+    training_taxon_policy: str
+    target_taxon_policy: str
+    evidence_policy: str
+    training_reviewed_only: bool
+    target_reviewed_only: bool
+    t0_cutoff: str
+    exclude_t1_backfill: bool = True
+    require_t0_presence: bool = True
+    sequence_change_policy: str = "exclude"
+    protein_binding_policy: str = "drop-mf-protein-binding-only"
+
+
+# Profiles encode policy only. Paths remain required CLI arguments.
+BENCHMARK_PROFILES = {
+    "cafa3-reconstructed": BenchmarkProfile(
+        name="cafa3-reconstructed",
+        training_taxon_policy="all",
+        target_taxon_policy="cafa3-targets",
+        evidence_policy="cafa3-final",
+        training_reviewed_only=True,
+        target_reviewed_only=False,
+        t0_cutoff="20170213",
+    ),
+    "contemporary-cafa3-style": BenchmarkProfile(
+        name="contemporary-cafa3-style",
+        training_taxon_policy="all",
+        target_taxon_policy="cafa3-targets",
+        evidence_policy="cafa3-final",
+        training_reviewed_only=True,
+        target_reviewed_only=False,
+        t0_cutoff="20250308",
+    ),
+    "supervisor": BenchmarkProfile(
+        name="supervisor",
+        training_taxon_policy="cafa3-targets",
+        target_taxon_policy="cafa3-targets",
+        evidence_policy="supervisor",
+        training_reviewed_only=False,
+        target_reviewed_only=False,
+        t0_cutoff="20250308",
+    ),
 }
+
+ASPECT_TO_PREFIX = {"P": "bp", "C": "cc", "F": "mf"}
 
 PREFIX_TO_NAMESPACE = {
     "bp": "biological_process",
@@ -80,15 +95,40 @@ class BuildConfig:
     goa_t1: Path
     go_obo: Path
     output_dir: Path
+    go_obo_t0: Path | None = None
+    go_obo_t1: Path | None = None
+    report_dir: Path | None = None
+    profile_name: str = "contemporary-cafa3-style"
+    training_taxa: frozenset[str] = field(default_factory=frozenset)
     target_taxa: frozenset[str] = field(default_factory=frozenset)
     evidence_codes: frozenset[str] = CAFA3_FINAL_EXP_CODES
+    t0_cutoff: str | None = "20250308"
+    exclude_t1_backfill: bool = True
+    require_t0_presence: bool = True
+    sequence_change_policy: str = "exclude"
+    protein_binding_policy: str = "drop-mf-protein-binding-only"
     min_count: int = 50
     split: float = 0.9
     seed: int = 0
-    reviewed_only: bool = False
+    reviewed_only: bool = True
+    target_reviewed_only: bool = False
     include_rels: bool = True
     write_intermediates: bool = True
+    write_checksums: bool = True
+    strict_qc: bool = True
     max_gaf_records: int | None = None
+
+    @property
+    def ontology_t0(self) -> Path:
+        return self.go_obo_t0 or self.go_obo
+
+    @property
+    def ontology_t1(self) -> Path:
+        return self.go_obo_t1 or self.go_obo
+
+    @property
+    def reports(self) -> Path:
+        return self.report_dir or self.output_dir / "reports"
 
 
 def normalise_taxa(values: Iterable[str]) -> frozenset[str]:
@@ -101,3 +141,12 @@ def normalise_taxa(values: Iterable[str]) -> frozenset[str]:
             value = value.split(":", 1)[1]
         taxa.add(value)
     return frozenset(taxa)
+
+
+def normalise_gaf_date(value: str | None) -> str | None:
+    if value is None:
+        return None
+    compact = value.replace("-", "").strip()
+    if len(compact) != 8 or not compact.isdigit():
+        raise ValueError(f"Expected a GAF date in YYYYMMDD or YYYY-MM-DD form, got {value!r}")
+    return compact
