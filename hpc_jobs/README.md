@@ -57,7 +57,10 @@ For benchmark validation:
   official CAFA3/DeepGOPlus file-to-pickle layer.
 - `hpc_cafa3_deepgoplus_validation.sh` validates the released DeepGOPlus/TEMPROT
   intermediate path and is the preferred lightweight historical validation.
-- `hpc_cafa3_historical_validation.sh` runs the heavier raw-snapshot audit.
+- `hpc_cafa3_historical_validation.sh` runs the heavier raw-snapshot audit and
+  retains its regenerated nine CSVs and five pickle intermediates with the
+  comparison reports.
 
-Both validation wrappers copy only reports/logs back to home and remove scratch
-data at the end of the job.
+Validation wrappers remove scratch after completion. The lightweight validation
+jobs copy reports/logs; the raw-snapshot audit additionally retains its generated
+CSV and pickle artefacts.

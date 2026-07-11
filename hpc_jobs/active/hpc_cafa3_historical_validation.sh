@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # CAFA3 historical validation wrapper for UCL/SGE.
-# Heavy downloads/build artefacts stay in scratch; reports/logs are copied home.
+# Heavy downloads stay in scratch; generated artefacts, reports and logs are copied home.
 
 #$ -l tmem=48G
 #$ -l tscratch=200G
@@ -68,5 +68,5 @@ STATUS=$?
 
 echo
 echo "Finished at: $(date)"
-echo "Reports copied to: $OUTDIR/$RUN_TAG"
+echo "Generated artefacts and reports copied to: $OUTDIR/$RUN_TAG"
 exit "$STATUS"

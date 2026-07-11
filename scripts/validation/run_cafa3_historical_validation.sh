@@ -52,6 +52,10 @@ LOG_FILE="${LOGS}/run.log"
 
 copy_back() {
   mkdir -p "$REPORT_COPY_DIR"
+  if [ -d "$GENERATED" ]; then
+    mkdir -p "$REPORT_COPY_DIR/generated"
+    cp -R "$GENERATED/." "$REPORT_COPY_DIR/generated"/ 2>/dev/null || true
+  fi
   if [ -d "$REPORTS" ]; then
     cp -R "$REPORTS/." "$REPORT_COPY_DIR"/ 2>/dev/null || true
   fi
@@ -65,7 +69,7 @@ cleanup() {
   local status=$?
   echo
   echo "==> Final status: ${status}"
-  echo "==> Copying reports/logs to: ${REPORT_COPY_DIR}"
+  echo "==> Copying generated artefacts, reports and logs to: ${REPORT_COPY_DIR}"
   copy_back
   if [ "${KEEP_SCRATCH}" = "1" ]; then
     echo "==> KEEP_SCRATCH=1; preserving scratch run directory: ${RUN_DIR}"
@@ -338,15 +342,25 @@ echo "  GOA t1 input: ${GOA_T1_INPUT}"
 
 echo "==> [4/8] Run benchmark builder"
 BUILDER_PYTHONPATH="${REPO_ROOT}/benchmark_builders/contemporary_cafa/src${PYTHONPATH:+:${PYTHONPATH}}"
+# The public monthly GO products only bracket the exact GOA snapshot dates.
+# Preserve unmapped-term counts for the forensic comparison instead of aborting.
 BUILDER_CMD=(
   "$PYTHON_BIN" -m cafa_benchmark_builder
+  --source-mode snapshots
+  --profile cafa3-reconstructed
   --uniprot-t0 "$UNIPROT_T0_INPUT"
   --uniprot-t1 "$UNIPROT_T1_INPUT"
   --goa-t0 "$GOA_T0_INPUT"
   --goa-t1 "$GOA_T1_INPUT"
-  --go-obo "${RAW}/go/2017-11-01/go-basic.obo"
-  --reviewed-only
+  --go-obo "${RAW}/go/2017-02-01/go-basic.obo"
+  --go-obo-t0 "${RAW}/go/2017-02-01/go-basic.obo"
+  --go-obo-t1 "${RAW}/go/2017-11-01/go-basic.obo"
+  --training-reviewed-only
+  --include-unreviewed-targets
+  --t0-cutoff 20170213
+  --no-strict-qc
   --output-dir "$GENERATED"
+  --report-dir "${REPORTS}/builder"
 )
 printf '%q ' "${BUILDER_CMD[@]}" > "${LOGS}/builder_command.txt"
 echo >> "${LOGS}/builder_command.txt"
@@ -424,4 +438,4 @@ fi
 
 echo
 echo "==> Validation complete."
-echo "==> Reports will be copied to: ${REPORT_COPY_DIR}"
+echo "==> Generated artefacts, reports and logs will be copied to: ${REPORT_COPY_DIR}"

@@ -122,7 +122,8 @@ pattern:
 1. create a job-specific scratch directory;
 2. clone the framework into scratch;
 3. call the real implementation under `scripts/validation/`;
-4. copy reports and logs back to `$HOME/cafa3_historical_validation_reports/`;
+4. copy generated CSV/pickle artefacts, reports and logs back to
+   `$HOME/cafa3_historical_validation_reports/`;
 5. remove the scratch directory.
 
 Raw GOA, UniProt and GO downloads are kept in scratch only. They are not copied
@@ -159,6 +160,15 @@ go_term_overlap.tsv
 run_manifest.md
 logs/
 ```
+
+The regenerated PFP and DeepGOPlus-shaped artefacts are retained under:
+
+```text
+~/cafa3_historical_validation_reports/<job-or-timestamp>/generated/
+```
+
+This contains the nine ontology/split CSVs and five pickle intermediates. Raw
+UniProt, GOA, GO and downloaded reference copies remain scratch-only.
 
 The scratch run directory contains the heavy raw/generated/reference files while
 the job is running:
@@ -253,5 +263,6 @@ The workflow does not modify PFP and does not install packages automatically.
 ## Scratch Policy
 
 The cluster wrapper and main runner both clean scratch by default. This is
-deliberate: raw database snapshots and extracted build artefacts are large and
-should not be left behind after the reports have been copied home.
+deliberate: raw database snapshots and downloaded reference artefacts are large
+and should not be left behind after generated outputs and reports have been
+copied home.
