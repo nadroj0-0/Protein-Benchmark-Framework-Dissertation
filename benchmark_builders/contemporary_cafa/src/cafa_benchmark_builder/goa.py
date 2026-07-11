@@ -235,6 +235,7 @@ def load_normalized_annotation_map(
     evidence_codes: frozenset[str] = CAFA3_FINAL_EXP_CODES,
     target_taxa: frozenset[str] = frozenset(),
     exclude_on_or_before: str | None = None,
+    include_on_or_before: str | None = None,
     require_valid_dates: bool = True,
     max_records: int | None = None,
     progress_interval: int | None = None,
@@ -278,12 +279,14 @@ def load_normalized_annotation_map(
                     counters["skipped_aspect"] += 1
                 elif target_taxa and taxon_id not in target_taxa:
                     counters["skipped_taxon"] += 1
-                elif exclude_on_or_before is not None and (
+                elif (exclude_on_or_before is not None or include_on_or_before is not None) and (
                     not cols[13].isdigit() or len(cols[13]) != 8
                 ):
                     counters["invalid_date"] += 1
                 elif exclude_on_or_before is not None and cols[13] <= exclude_on_or_before:
                     counters["skipped_backfill"] += 1
+                elif include_on_or_before is not None and cols[13] > include_on_or_before:
+                    counters["skipped_after_cutoff"] += 1
                 else:
                     source_term = source_ontology.resolve_term(cols[4])
                     if source_term is None:
@@ -308,13 +311,14 @@ def load_normalized_annotation_map(
             if progress_every and counters["processed"] % progress_every == 0:
                 LOGGER.info(
                     "GOA progress for %s: processed=%d kept_rows=%d proteins=%d "
-                    "skipped_outside_sequences=%d skipped_backfill=%d",
+                    "skipped_outside_sequences=%d skipped_backfill=%d skipped_after_cutoff=%d",
                     path,
                     counters["processed"],
                     counters["kept_rows"],
                     len(annots),
                     counters["skipped_outside_sequences"],
                     counters["skipped_backfill"],
+                    counters["skipped_after_cutoff"],
                 )
             if max_records is not None and counters["processed"] >= max_records:
                 break
@@ -328,7 +332,8 @@ def load_normalized_annotation_map(
     LOGGER.info(
         "Loaded normalized GOA annotations from %s: processed=%d kept_rows=%d proteins=%d "
         "skipped_outside_sequences=%d skipped_evidence=%d skipped_not=%d "
-        "skipped_backfill=%d outside_frozen_ontology=%d unmapped_source_go=%d",
+        "skipped_backfill=%d skipped_after_cutoff=%d outside_frozen_ontology=%d "
+        "unmapped_source_go=%d",
         path,
         counters["processed"],
         counters["kept_rows"],
@@ -337,6 +342,7 @@ def load_normalized_annotation_map(
         counters["skipped_evidence"],
         counters["skipped_not"],
         counters["skipped_backfill"],
+        counters["skipped_after_cutoff"],
         counters["outside_frozen_ontology"],
         counters["unmapped_source_go"],
     )

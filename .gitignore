@@ -40,3 +40,7 @@ results/
 *.e[0-9]*
 
 .idea
+
+# Machine-generated HPC report bundles retained locally, not versioned
+reports/validation/cafa3_historical_validation/
+reports/benchmarks/contemporary_cafa/

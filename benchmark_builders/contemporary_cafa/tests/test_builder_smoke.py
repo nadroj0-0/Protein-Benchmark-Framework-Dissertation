@@ -193,10 +193,12 @@ class BenchmarkBuilderSmokeTest(unittest.TestCase):
         supervisor = BENCHMARK_PROFILES["supervisor"]
         self.assertEqual(cafa.training_taxon_policy, "all")
         self.assertEqual(cafa.target_taxon_policy, "cafa3-targets")
+        self.assertEqual(cafa.test_eligibility_policy, "ontology-no-knowledge")
         self.assertTrue(cafa.training_reviewed_only)
         self.assertFalse(cafa.target_reviewed_only)
         self.assertEqual(supervisor.training_taxon_policy, "cafa3-targets")
         self.assertEqual(supervisor.evidence_policy, "supervisor")
+        self.assertEqual(supervisor.test_eligibility_policy, "global-no-knowledge")
 
     def test_snapshot_outputs_are_deterministic(self):
         with tempfile.TemporaryDirectory() as tmp:

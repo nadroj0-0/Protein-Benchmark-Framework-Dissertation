@@ -102,6 +102,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--evidence-code", action="append", default=[])
     parser.add_argument("--t0-cutoff",
                         help="Backfill cutoff in YYYYMMDD or YYYY-MM-DD form.")
+    parser.add_argument("--t1-cutoff",
+                        help="Latest accepted t1 annotation date in YYYYMMDD or YYYY-MM-DD form.")
     backfill = parser.add_mutually_exclusive_group()
     backfill.add_argument("--exclude-t1-backfill", dest="exclude_t1_backfill",
                           action="store_true")
@@ -111,6 +113,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sequence-change-policy", choices=("exclude", "use-t0", "error"))
     parser.add_argument("--protein-binding-policy",
                         choices=("keep", "drop-mf-protein-binding-only"))
+    parser.add_argument(
+        "--test-eligibility-policy",
+        choices=("global-no-knowledge", "ontology-no-knowledge"),
+        help=("global-no-knowledge excludes every protein with any qualifying t0 annotation; "
+              "ontology-no-knowledge reproduces CAFA NK/LK eligibility per ontology."),
+    )
 
     training_review = parser.add_mutually_exclusive_group()
     training_review.add_argument("--training-reviewed-only", dest="training_reviewed_only",
@@ -177,6 +185,10 @@ def config_from_args(args: argparse.Namespace) -> BuildConfig:
         ),
         evidence_codes=evidence,
         t0_cutoff=normalise_gaf_date(args.t0_cutoff or profile.t0_cutoff),
+        t1_cutoff=normalise_gaf_date(args.t1_cutoff or profile.t1_cutoff),
+        test_eligibility_policy=(
+            args.test_eligibility_policy or profile.test_eligibility_policy
+        ),
         exclude_t1_backfill=exclude_backfill,
         require_t0_presence=profile.require_t0_presence,
         sequence_change_policy=args.sequence_change_policy or profile.sequence_change_policy,

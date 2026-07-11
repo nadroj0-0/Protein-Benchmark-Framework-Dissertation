@@ -19,11 +19,19 @@ PYTHON_BIN="${PYTHON_BIN:-python}"
 USE_PIGZ="${USE_PIGZ:-1}"
 DECOMPRESS_GOA="${DECOMPRESS_GOA:-0}"
 GOA_PROGRESS_INTERVAL="${GOA_PROGRESS_INTERVAL:-1000000}"
+INCLUDE_TREMBL_TARGETS="${INCLUDE_TREMBL_TARGETS:-1}"
+PIGZ_THREADS="${PIGZ_THREADS:-1}"
+
+FILTER_DAT="${REPO_ROOT}/scripts/benchmark_generation/filter_uniprot_dat.py"
+EXTRACT_MEMBER="${REPO_ROOT}/scripts/benchmark_generation/extract_tar_member.py"
+TARGET_TAXA="${REPO_ROOT}/benchmark_builders/contemporary_cafa/src/cafa_benchmark_builder/resources/cafa3_target_taxa.txt"
 
 GOA_T0_URL="https://ftp.ebi.ac.uk/pub/databases/GO/goa/old/UNIPROT/goa_uniprot_all.gaf.163.gz"
 GOA_T1_URL="https://ftp.ebi.ac.uk/pub/databases/GO/goa/old/UNIPROT/goa_uniprot_all.gaf.172.gz"
 UNIPROT_T0_URL="https://ftp.uniprot.org/pub/databases/uniprot/previous_releases/release-2017_02/knowledgebase/uniprot_sprot-only2017_02.tar.gz"
 UNIPROT_T1_URL="https://ftp.uniprot.org/pub/databases/uniprot/previous_releases/release-2017_11/knowledgebase/uniprot_sprot-only2017_11.tar.gz"
+UNIPROT_T0_FULL_URL="https://ftp.uniprot.org/pub/databases/uniprot/previous_releases/release-2017_02/knowledgebase/knowledgebase2017_02.tar.gz"
+UNIPROT_T1_FULL_URL="https://ftp.uniprot.org/pub/databases/uniprot/previous_releases/release-2017_11/knowledgebase/knowledgebase2017_11.tar.gz"
 GO_T0_OBO_URL="https://release.geneontology.org/2017-02-01/ontology/go.obo"
 GO_T0_BASIC_URL="https://release.geneontology.org/2017-02-01/ontology/go-basic.obo"
 GO_T1_OBO_URL="https://release.geneontology.org/2017-11-01/ontology/go.obo"
@@ -181,6 +189,42 @@ decompress_gaf_if_requested() {
   printf '%s\n' "$out"
 }
 
+compress_stream() {
+  if [ "$USE_PIGZ" != "0" ] && command -v pigz >/dev/null 2>&1; then
+    pigz -p "$PIGZ_THREADS" -c
+  else
+    gzip -c
+  fi
+}
+
+decompress_stream() {
+  if [ "$USE_PIGZ" != "0" ] && command -v pigz >/dev/null 2>&1; then
+    pigz -p "$PIGZ_THREADS" -dc
+  else
+    gzip -dc
+  fi
+}
+
+filter_trembl_archive_url() {
+  local label="$1"
+  local url="$2"
+  local destination="$3"
+  local temporary="${destination}.part"
+  mkdir -p "$(dirname "$destination")"
+  echo "  streaming ${label} and retaining only CAFA3 target taxa"
+  rm -f "$temporary"
+  if wget --progress=dot:giga -O - "$url" \
+    | "$PYTHON_BIN" "$EXTRACT_MEMBER" --suffix uniprot_trembl.dat.gz \
+    | decompress_stream \
+    | "$PYTHON_BIN" "$FILTER_DAT" --taxa-file "$TARGET_TAXA" \
+    | compress_stream > "$temporary"; then
+    mv "$temporary" "$destination"
+  else
+    rm -f "$temporary"
+    return 1
+  fi
+}
+
 locate_complete_set() {
   local root="$1"
   shift
@@ -244,6 +288,7 @@ write_manifest() {
     echo "- GOA pigz stream: ${CAFA_BUILDER_USE_PIGZ:-${USE_PIGZ}}"
     echo "- GOA pre-unzip: ${DECOMPRESS_GOA}"
     echo "- GOA progress interval: ${GOA_PROGRESS_INTERVAL}"
+    echo "- TrEMBL target records included: ${INCLUDE_TREMBL_TARGETS}"
     echo "- CAFA3 t0 date: ${CAFA3_T0_DATE}"
     echo "- CAFA3 t1 date: ${CAFA3_T1_DATE}"
     echo "- UniProt t0 release date: ${UNIPROT_T0_RELEASE_DATE}"
@@ -256,12 +301,20 @@ write_manifest() {
     echo "- GOA t1: ${GOA_T1_URL}"
     echo "- UniProt t0: ${UNIPROT_T0_URL}"
     echo "- UniProt t1: ${UNIPROT_T1_URL}"
+    echo "- UniProt t0 complete archive used for target-taxon TrEMBL: ${UNIPROT_T0_FULL_URL}"
+    echo "- UniProt t1 complete archive used for target-taxon TrEMBL: ${UNIPROT_T1_FULL_URL}"
     echo "- GO t0 go.obo: ${GO_T0_OBO_URL}"
     echo "- GO t0 go-basic.obo: ${GO_T0_BASIC_URL}"
     echo "- GO t1 go.obo: ${GO_T1_OBO_URL}"
     echo "- GO t1 go-basic.obo: ${GO_T1_BASIC_URL}"
     echo "- Canonical CAFA3 reference CSV record: ${CAFA3_REFERENCE_RECORD_URL}"
     echo "- Default DeepGOPlus CAFA pickle archive: ${DEFAULT_DEEPGOPLUS_PICKLES_URL}"
+    echo
+    echo "## Historical Interpretation Boundary"
+    echo
+    echo "- The official CAFA3 training package was frozen in September 2016."
+    echo "- This raw-snapshot experiment uses February 2017 GOA/Swiss-Prot for both training labels and the target t0 knowledge state."
+    echo "- CAFA3 target eligibility is reproduced per ontology (NK and LK), but exact official target IDs and curated September 2016 training inputs are compared as references rather than regenerated here."
     echo
     echo "## Builder Command"
     echo
@@ -290,7 +343,10 @@ write_manifest() {
 for cmd in wget tar find "$PYTHON_BIN" awk tee wc; do
   require_cmd "$cmd"
 done
-if [ "$DECOMPRESS_GOA" = "1" ]; then
+for helper in "$FILTER_DAT" "$EXTRACT_MEMBER" "$TARGET_TAXA"; do
+  [ -f "$helper" ] || { echo "Missing required helper: $helper" >&2; exit 1; }
+done
+if [ "$DECOMPRESS_GOA" = "1" ] || [ "$INCLUDE_TREMBL_TARGETS" = "1" ]; then
   require_cmd gzip
 fi
 export CAFA_BUILDER_USE_PIGZ="${CAFA_BUILDER_USE_PIGZ:-${USE_PIGZ}}"
@@ -334,6 +390,16 @@ UNIPROT_T1_INPUT="$(find_uniprot_input "${RAW}/uniprot/release_2017_11")"
 echo "  UniProt t0 input: ${UNIPROT_T0_INPUT}"
 echo "  UniProt t1 input: ${UNIPROT_T1_INPUT}"
 
+UNIPROT_T0_TREMBL="${RAW}/uniprot/release_2017_02/uniprot_trembl_cafa3_targets.dat.gz"
+UNIPROT_T1_TREMBL="${RAW}/uniprot/release_2017_11/uniprot_trembl_cafa3_targets.dat.gz"
+if [ "$INCLUDE_TREMBL_TARGETS" = "1" ]; then
+  echo "==> [3a/8] Stream-filter historical TrEMBL target populations"
+  filter_trembl_archive_url "UniProt 2017_02 TrEMBL" "$UNIPROT_T0_FULL_URL" "$UNIPROT_T0_TREMBL"
+  filter_trembl_archive_url "UniProt 2017_11 TrEMBL" "$UNIPROT_T1_FULL_URL" "$UNIPROT_T1_TREMBL"
+else
+  echo "==> [3a/8] INCLUDE_TREMBL_TARGETS=0; running Swiss-Prot-only target diagnostic"
+fi
+
 echo "==> [3b/8] Resolve GOA inputs"
 GOA_T0_INPUT="$(decompress_gaf_if_requested "${RAW}/goa/goa_uniprot_all.gaf.163.gz")"
 GOA_T1_INPUT="$(decompress_gaf_if_requested "${RAW}/goa/goa_uniprot_all.gaf.172.gz")"
@@ -356,12 +422,22 @@ BUILDER_CMD=(
   --go-obo-t0 "${RAW}/go/2017-02-01/go-basic.obo"
   --go-obo-t1 "${RAW}/go/2017-11-01/go-basic.obo"
   --training-reviewed-only
-  --include-unreviewed-targets
   --t0-cutoff 20170213
+  --t1-cutoff 20171115
+  --test-eligibility-policy ontology-no-knowledge
   --no-strict-qc
   --output-dir "$GENERATED"
   --report-dir "${REPORTS}/builder"
 )
+if [ "$INCLUDE_TREMBL_TARGETS" = "1" ]; then
+  BUILDER_CMD+=(
+    --uniprot-t0 "$UNIPROT_T0_TREMBL"
+    --uniprot-t1 "$UNIPROT_T1_TREMBL"
+    --include-unreviewed-targets
+  )
+else
+  BUILDER_CMD+=(--target-reviewed-only)
+fi
 printf '%q ' "${BUILDER_CMD[@]}" > "${LOGS}/builder_command.txt"
 echo >> "${LOGS}/builder_command.txt"
 PYTHONPATH="$BUILDER_PYTHONPATH" "${BUILDER_CMD[@]}" 2>&1 | tee "${LOGS}/builder.log"

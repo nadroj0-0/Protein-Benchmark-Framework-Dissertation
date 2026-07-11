@@ -62,3 +62,35 @@ activate_or_create_mmfp_env() {
 
   conda activate "${MMFP_ENV}"
 }
+
+activate_isolated_benchmark_builder_env() {
+  local framework_root="$1"
+  local environment_dir="$2"
+  local requirements="${framework_root}/benchmark_builders/contemporary_cafa/requirements.txt"
+  local base_python="${PYTHON_BIN:-python}"
+
+  if [ ! -f "$requirements" ]; then
+    echo "Missing benchmark-builder requirements: $requirements" >&2
+    exit 1
+  fi
+  if ! command -v "$base_python" >/dev/null 2>&1; then
+    echo "Missing Python interpreter for benchmark environment: $base_python" >&2
+    return 1
+  fi
+
+  echo "==> Creating isolated benchmark-builder environment: $environment_dir"
+  "$base_python" -m venv "$environment_dir" || return 1
+  "${environment_dir}/bin/python" -m pip install --disable-pip-version-check \
+    --no-input -r "$requirements" || return 1
+  # shellcheck disable=SC1091
+  source "${environment_dir}/bin/activate" || return 1
+  export PYTHON_BIN="${environment_dir}/bin/python"
+  "$PYTHON_BIN" -c '
+import importlib.metadata
+expected = {"numpy": "2.0.2", "pandas": "2.3.3"}
+actual = {name: importlib.metadata.version(name) for name in expected}
+if actual != expected:
+    raise SystemExit(f"Builder dependency mismatch: expected {expected}, found {actual}")
+' || return 1
+  echo "==> Benchmark-builder dependencies are pinned."
+}

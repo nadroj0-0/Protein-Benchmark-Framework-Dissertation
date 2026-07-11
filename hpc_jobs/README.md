@@ -34,6 +34,11 @@ qsub hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh
 The active wrappers clone the full framework into node-local scratch and
 then call the normal entrypoints under `scripts/`.
 
+The historical and contemporary benchmark-generation wrappers activate the
+shared `mmfp` environment only as a bootstrap, then install the pinned NumPy and
+pandas versions into an isolated scratch virtual environment. This keeps the
+model environment unchanged while making benchmark generation reproducible.
+
 `hpc_contemporary_temporal_benchmark.sh` stages any locally available frozen
 2025/2026 UniProt, GOA and GO inputs, downloads missing inputs into scratch,
 stream-filters full TrEMBL sources to the CAFA3 taxa, and invokes
@@ -58,8 +63,11 @@ For benchmark validation:
 - `hpc_cafa3_deepgoplus_validation.sh` validates the released DeepGOPlus/TEMPROT
   intermediate path and is the preferred lightweight historical validation.
 - `hpc_cafa3_historical_validation.sh` runs the heavier raw-snapshot audit and
-  retains its regenerated nine CSVs and five pickle intermediates with the
-  comparison reports.
+  stream-filters reviewed and unreviewed CAFA3 target-taxon records, applies
+  ontology-specific NK/LK eligibility, and retains its regenerated nine CSVs
+  and five pickle intermediates with the comparison reports. Its manifest also
+  records that the official September 2016 training package predates the
+  February 2017 target baseline used by this raw-snapshot approximation.
 
 Validation wrappers remove scratch after completion. The lightweight validation
 jobs copy reports/logs; the raw-snapshot audit additionally retains its generated

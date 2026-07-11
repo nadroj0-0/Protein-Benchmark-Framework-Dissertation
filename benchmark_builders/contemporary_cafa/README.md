@@ -11,24 +11,26 @@ For the snapshot mode, a test protein must:
 1. exist in the selected target population at `t0`;
 2. map unambiguously to a `t1` UniProt record through primary or secondary
    accessions;
-3. have no qualifying annotation at `t0` under the chosen evidence policy;
+3. satisfy the profile's knowledge policy at `t0`;
 4. have a qualifying annotation at `t1` dated after the configured `t0` cutoff;
 5. use its `t0` sequence in every exported test file;
 6. survive the sequence-change, ontology, protein-binding and training-term
    policies.
 
-Proteins first appearing at `t1` are never test candidates. A protein is
-excluded because of its `t0` annotation before any sequence join or term-count
-filter, so missing embeddings or a frequency threshold cannot turn an annotated
-protein into an apparent no-knowledge target.
+Proteins first appearing at `t1` are never test candidates. The CAFA-style
+profiles apply eligibility per ontology: a protein may be an LK/type2 benchmark
+in an ontology where it had no qualifying `t0` annotation even if another
+ontology was already annotated. The supervisor profile uses the stricter global
+rule from the dissertation specification, so any qualifying `t0` annotation
+places the protein in training and excludes it from every test ontology.
 
 ## Named profiles
 
-| Profile | Training taxa | Target taxa | Evidence | Training records |
-|---|---|---|---|---|
-| `cafa3-reconstructed` | all taxa | CAFA3 targets | final CAFA3 eight-code set | reviewed |
-| `contemporary-cafa3-style` | all taxa | CAFA3 targets | final CAFA3 eight-code set | reviewed |
-| `supervisor` | CAFA3 targets | CAFA3 targets | supervisor-specified set | reviewed + unreviewed |
+| Profile | Training taxa | Target taxa | Evidence | Test knowledge rule | Training records |
+|---|---|---|---|---|---|
+| `cafa3-reconstructed` | all taxa | CAFA3 targets | final CAFA3 eight-code set | ontology-specific NK/LK | reviewed |
+| `contemporary-cafa3-style` | all taxa | CAFA3 targets | final CAFA3 eight-code set | ontology-specific NK/LK | reviewed |
+| `supervisor` | CAFA3 targets | CAFA3 targets | supervisor-specified set | globally unannotated at t0 | reviewed + unreviewed |
 
 All profiles include reviewed and unreviewed proteins in the target population
 when those UniProt records are supplied. This preserves the difference between
@@ -62,6 +64,11 @@ GO product release 2025-03-16 (t0 source-ID resolution)
 GO product release 2026-06-19, data-version 2026-06-15 (t1 source-ID resolution)
 ```
 
+The GAF date window is bounded explicitly: rows assigned on or before
+`2025-03-08` are not annotation gains, and rows after the frozen GOA 234
+endpoint (`2026-06-17`) are rejected. The historical CAFA3 profile uses the
+documented `2017-02-13` to `2017-11-15` growth period.
+
 GOA 225 declares GO version 2025-03-07, but the public GO product archive does
 not retain a standalone 2025-03-07 release directory. The builder therefore
 freezes the prediction graph to the last preceding public release (2025-02-06)
@@ -86,7 +93,7 @@ GOA GAF t0 + t1 -- evidence / NOT / date filtering
 GO OBO t0 + t1 -- GO-ID canonicalisation into frozen t0 graph
         |
         +-- t0 qualifying annotations -> training population
-        +-- unannotated-at-t0 targets with post-t0 annotations -> test
+        +-- profile-eligible targets with post-t0 annotations -> test
         |
 DeepGOPlus-shaped train_data.pkl / test_data.pkl / terms.pkl
         |
@@ -169,8 +176,9 @@ qsub -v PROFILE=supervisor hpc_jobs/active/hpc_contemporary_temporal_benchmark.s
 
 The wrapper requests 64 GB RAM and 200 GB scratch. It copies any available
 frozen inputs from `${PROTEIN_DATABASE_ROOT:-$HOME/protein_databases}`, downloads
-anything missing directly into scratch, activates `mmfp`, invokes the normal
-runner, and copies outputs/reports/logs to
+anything missing directly into scratch, activates `mmfp`, creates an isolated
+scratch virtual environment containing the pinned builder versions, invokes the
+normal runner, and copies outputs/reports/logs to
 `$HOME/contemporary_cafa_benchmark_results`, and removes its scratch directory
 on success, error, interruption or `qdel` termination.
 

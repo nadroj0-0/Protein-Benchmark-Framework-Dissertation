@@ -150,6 +150,27 @@ def _drop_protein_binding_only(terms: set[str], go: Ontology, policy: str) -> se
     return set(terms)
 
 
+def _test_eligible_terms(
+    t0_terms: set[str],
+    t1_terms: set[str],
+    go: Ontology,
+    policy: str,
+) -> tuple[set[str], set[str]]:
+    """Return newly assigned terms and t0-blocked namespaces for a test target."""
+    if policy == "global-no-knowledge":
+        blocked = {go.get_namespace(term) for term in t0_terms if go.has_term(term)}
+        return (set() if t0_terms else set(t1_terms)), blocked
+    if policy != "ontology-no-knowledge":
+        raise ValueError(f"Unknown test eligibility policy: {policy}")
+
+    blocked = {go.get_namespace(term) for term in t0_terms if go.has_term(term)}
+    eligible = {
+        term for term in t1_terms
+        if go.has_term(term) and go.get_namespace(term) not in blocked
+    }
+    return eligible, blocked
+
+
 def _build_test_dataframe(
     go: Ontology,
     t0_catalog: ProteinCatalog,
@@ -159,6 +180,7 @@ def _build_test_dataframe(
     t0_annots: dict[str, set[str]],
     t1_annots: dict[str, set[str]],
     protein_binding_policy: str,
+    test_eligibility_policy: str,
 ) -> tuple[pd.DataFrame, list[dict[str, object]]]:
     translated_t1 = {
         t1_to_t0[t1_id]: set(terms)
@@ -178,13 +200,16 @@ def _build_test_dataframe(
             "sequence_changed": int(match.sequence_changed),
             "t0_annotation_count": len(t0_annots.get(match.t0_id, set())),
             "t1_annotation_count": len(translated_t1.get(match.t0_id, set())),
+            "blocked_ontologies": "",
+            "eligible_ontologies": "",
             "status": match.status,
             "reason": match.reason,
         }
         if match.status != "matched":
             flow.append(entry)
             continue
-        if match.t0_id in t0_annots:
+        t0_terms = t0_annots.get(match.t0_id, set())
+        if test_eligibility_policy == "global-no-knowledge" and t0_terms:
             entry.update(status="excluded", reason="qualifying_annotation_at_t0")
             flow.append(entry)
             continue
@@ -194,11 +219,25 @@ def _build_test_dataframe(
             entry.update(status="excluded", reason="no_new_qualifying_annotation_at_t1")
             flow.append(entry)
             continue
+        direct_terms, blocked = _test_eligible_terms(
+            t0_terms, direct_terms, go, test_eligibility_policy
+        )
+        entry["blocked_ontologies"] = ",".join(sorted(blocked))
+        if not direct_terms:
+            entry.update(
+                status="excluded",
+                reason="qualifying_annotation_at_t0_in_gained_ontology",
+            )
+            flow.append(entry)
+            continue
         direct_terms = _drop_protein_binding_only(direct_terms, go, protein_binding_policy)
         if not direct_terms:
             entry.update(status="excluded", reason="protein_binding_only")
             flow.append(entry)
             continue
+        entry["eligible_ontologies"] = ",".join(sorted({
+            go.get_namespace(term) for term in direct_terms if go.has_term(term)
+        }))
         propagated = propagate_annotations(go, direct_terms)
         if not propagated:
             entry.update(status="excluded", reason="empty_annotation_after_propagation")
@@ -330,7 +369,7 @@ def _write_reports(
     flow_path = report_dir / "protein_flow.tsv"
     _write_tsv(flow_path, [
         "t0_id", "t1_id", "taxon_id", "sequence_changed", "t0_annotation_count",
-        "t1_annotation_count", "status", "reason",
+        "t1_annotation_count", "blocked_ontologies", "eligible_ontologies", "status", "reason",
     ], flow)
     reports["protein_flow_report"] = flow_path
 
@@ -416,6 +455,8 @@ def _write_reports(
         "training_taxa": sorted(config.training_taxa),
         "target_taxa": sorted(config.target_taxa),
         "t0_cutoff": config.t0_cutoff,
+        "t1_cutoff": config.t1_cutoff,
+        "test_eligibility_policy": config.test_eligibility_policy,
         "exclude_t1_backfill": config.exclude_t1_backfill,
         "require_t0_presence": config.require_t0_presence,
         "sequence_change_policy": config.sequence_change_policy,
@@ -464,6 +505,8 @@ def _write_reports(
         f"- Test proteins before ontology export: {len(test_df)}\n"
         f"- Training-defined GO terms: {len(terms_df)}\n"
         f"- t1 rows excluded as backfill: {t1_result.counters['skipped_backfill']}\n"
+        f"- t1 rows after the endpoint cutoff: {t1_result.counters['skipped_after_cutoff']}\n"
+        f"- Test eligibility policy: `{config.test_eligibility_policy}`\n"
         f"- t0 terms outside the frozen benchmark ontology: {t0_result.counters['outside_frozen_ontology']}\n"
         f"- t1 terms outside the frozen t0 ontology: {t1_result.counters['outside_frozen_ontology']}\n"
         "- All nine PFP CSVs passed schema, duplicate, binary-label and overlap checks.\n"
@@ -479,6 +522,14 @@ def _validate_config(config: BuildConfig) -> None:
         raise ValueError("min_count must be positive")
     if config.sequence_change_policy not in {"exclude", "use-t0", "error"}:
         raise ValueError("sequence_change_policy must be exclude, use-t0 or error")
+    if config.test_eligibility_policy not in {
+        "global-no-knowledge", "ontology-no-knowledge",
+    }:
+        raise ValueError(
+            "test_eligibility_policy must be global-no-knowledge or ontology-no-knowledge"
+        )
+    if config.t0_cutoff and config.t1_cutoff and config.t1_cutoff <= config.t0_cutoff:
+        raise ValueError("t1_cutoff must be later than t0_cutoff")
     if not config.require_t0_presence:
         raise ValueError("This builder requires t0 presence; disabling it would violate the benchmark contract")
     for path in (
@@ -546,6 +597,7 @@ def build_snapshot_benchmark(config: BuildConfig) -> dict[str, Path]:
         evidence_codes=config.evidence_codes,
         target_taxa=config.target_taxa,
         exclude_on_or_before=config.t0_cutoff if config.exclude_t1_backfill else None,
+        include_on_or_before=config.t1_cutoff,
         max_records=config.max_gaf_records,
     )
     if config.strict_qc and (t0_result.unmapped_terms or t1_result.unmapped_terms):
@@ -585,14 +637,21 @@ def build_snapshot_benchmark(config: BuildConfig) -> dict[str, Path]:
         target_t0_annots,
         t1_result.annotations,
         config.protein_binding_policy,
+        config.test_eligibility_policy,
     )
 
     test_ids = set(test_df["proteins"].tolist())
     if not test_ids <= target_t0_ids:
         raise ValueError("Test contains a protein absent from the t0 target snapshot")
-    if test_ids & set(target_t0_annots):
+    if (
+        config.test_eligibility_policy == "global-no-knowledge"
+        and test_ids & set(target_t0_annots)
+    ):
         raise ValueError("Test contains a protein with a qualifying t0 annotation")
-    if test_ids & set(train_all_df["proteins"].tolist()):
+    if (
+        config.test_eligibility_policy == "global-no-knowledge"
+        and test_ids & set(train_all_df["proteins"].tolist())
+    ):
         raise ValueError("Protein ID overlap between training and test")
     LOGGER.info("Selected %d temporal test proteins", len(test_df))
 

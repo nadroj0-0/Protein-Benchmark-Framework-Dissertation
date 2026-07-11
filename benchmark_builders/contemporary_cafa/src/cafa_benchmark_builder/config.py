@@ -39,6 +39,8 @@ class BenchmarkProfile:
     training_reviewed_only: bool
     target_reviewed_only: bool
     t0_cutoff: str
+    t1_cutoff: str
+    test_eligibility_policy: str
     exclude_t1_backfill: bool = True
     require_t0_presence: bool = True
     sequence_change_policy: str = "exclude"
@@ -55,6 +57,8 @@ BENCHMARK_PROFILES = {
         training_reviewed_only=True,
         target_reviewed_only=False,
         t0_cutoff="20170213",
+        t1_cutoff="20171115",
+        test_eligibility_policy="ontology-no-knowledge",
     ),
     "contemporary-cafa3-style": BenchmarkProfile(
         name="contemporary-cafa3-style",
@@ -64,6 +68,8 @@ BENCHMARK_PROFILES = {
         training_reviewed_only=True,
         target_reviewed_only=False,
         t0_cutoff="20250308",
+        t1_cutoff="20260617",
+        test_eligibility_policy="ontology-no-knowledge",
     ),
     "supervisor": BenchmarkProfile(
         name="supervisor",
@@ -73,6 +79,8 @@ BENCHMARK_PROFILES = {
         training_reviewed_only=False,
         target_reviewed_only=False,
         t0_cutoff="20250308",
+        t1_cutoff="20260617",
+        test_eligibility_policy="global-no-knowledge",
     ),
 }
 
@@ -103,6 +111,8 @@ class BuildConfig:
     target_taxa: frozenset[str] = field(default_factory=frozenset)
     evidence_codes: frozenset[str] = CAFA3_FINAL_EXP_CODES
     t0_cutoff: str | None = "20250308"
+    t1_cutoff: str | None = "20260617"
+    test_eligibility_policy: str = "ontology-no-knowledge"
     exclude_t1_backfill: bool = True
     require_t0_presence: bool = True
     sequence_change_policy: str = "exclude"

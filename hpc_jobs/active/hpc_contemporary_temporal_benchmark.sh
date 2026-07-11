@@ -104,6 +104,7 @@ cd "$FRAMEWORK_DIR"
 source scripts/reproduction_common.sh
 load_framework_paths "$FRAMEWORK_DIR"
 activate_or_create_mmfp_env
+activate_isolated_benchmark_builder_env "$FRAMEWORK_DIR" "$WORK/cafa_builder_env"
 
 echo "Staging frozen database inputs"
 if [[ -n "${UNIPROT_T0_INPUTS:-}" || -n "${UNIPROT_T1_INPUTS:-}" ]]; then
@@ -140,7 +141,7 @@ fi
 export DB_ROOT="$STAGED_DB_ROOT"
 export RUN_ROOT="$SCRATCH_RUN_ROOT"
 export WORK_DIR="$WORK/extracted"
-export PYTHON_BIN=python
+export PYTHON_BIN
 export REMOVE_ARCHIVES_AFTER_EXTRACT=1
 export CAFA_BUILDER_USE_PIGZ=1
 

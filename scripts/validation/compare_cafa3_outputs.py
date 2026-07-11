@@ -103,10 +103,10 @@ def load_csv(path: Path) -> tuple[pd.DataFrame, list[str], str]:
     return df, terms, protein_col
 
 
-def grouped_labels(df: pd.DataFrame, terms: list[str]) -> pd.DataFrame:
+def grouped_labels(df: pd.DataFrame, terms: list[str], key: str = "proteins") -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=terms)
-    return df[["proteins", *terms]].groupby("proteins", sort=False)[terms].max()
+    return df[[key, *terms]].groupby(key, sort=False)[terms].max()
 
 
 def compare_csvs(generated_dir: Path, reference_dir: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
@@ -135,12 +135,21 @@ def compare_csvs(generated_dir: Path, reference_dir: Path) -> tuple[list[dict[st
         common_terms = sorted(gen_term_set & ref_term_set)
         common_proteins = sorted(gen_proteins & ref_proteins)
 
-        gen_matrix = grouped_labels(gen_df, common_terms)
-        ref_matrix = grouped_labels(ref_df, common_terms)
-        gen_common = gen_matrix.reindex(common_proteins).fillna(0).astype(int)
-        ref_common = ref_matrix.reindex(common_proteins).fillna(0).astype(int)
+        gen_sequences = set(gen_df["sequences"].astype(str)) if "sequences" in gen_df else set()
+        ref_sequences = set(ref_df["sequences"].astype(str)) if "sequences" in ref_df else set()
+        common_sequences = sorted(gen_sequences & ref_sequences)
+        align_by_sequence = name.endswith("-test.csv") and bool(gen_sequences) and bool(ref_sequences)
+        alignment_key = "sequences" if align_by_sequence else "proteins"
+        generated_entities = gen_sequences if align_by_sequence else gen_proteins
+        reference_entities = ref_sequences if align_by_sequence else ref_proteins
+        common_entities = common_sequences if align_by_sequence else common_proteins
 
-        if common_terms and common_proteins:
+        gen_matrix = grouped_labels(gen_df, common_terms, alignment_key)
+        ref_matrix = grouped_labels(ref_df, common_terms, alignment_key)
+        gen_common = gen_matrix.reindex(common_entities).fillna(0).astype(int)
+        ref_common = ref_matrix.reindex(common_entities).fillna(0).astype(int)
+
+        if common_terms and common_entities:
             g = gen_common.to_numpy(dtype=int)
             r = ref_common.to_numpy(dtype=int)
             total_cells = int(g.size)
@@ -185,6 +194,13 @@ def compare_csvs(generated_dir: Path, reference_dir: Path) -> tuple[list[dict[st
             "reference_proteins": len(ref_proteins),
             "protein_overlap": len(gen_proteins & ref_proteins),
             "protein_jaccard": jaccard(gen_proteins, ref_proteins),
+            "generated_sequences": len(gen_sequences),
+            "reference_sequences": len(ref_sequences),
+            "sequence_overlap": len(gen_sequences & ref_sequences),
+            "sequence_jaccard": jaccard(gen_sequences, ref_sequences),
+            "label_alignment": "exact_sequence" if align_by_sequence else "protein_id",
+            "aligned_entity_overlap": len(common_entities),
+            "aligned_entity_jaccard": jaccard(generated_entities, reference_entities),
             "generated_go_terms": len(gen_term_set),
             "reference_go_terms": len(ref_term_set),
             "go_term_overlap": len(gen_term_set & ref_term_set),
@@ -194,7 +210,7 @@ def compare_csvs(generated_dir: Path, reference_dir: Path) -> tuple[list[dict[st
             "matrix_cells_compared": total_cells,
             "matrix_agreement": matrix_agreement,
             "exact_row_agreement_count": exact_rows,
-            "exact_row_agreement_rate": exact_rows / len(common_proteins) if common_proteins else None,
+            "exact_row_agreement_rate": exact_rows / len(common_entities) if common_entities else None,
             "true_positives": tp,
             "false_positives": fp,
             "false_negatives": fn,
@@ -336,6 +352,27 @@ def compare_pickles(generated_dir: Path, reference_dir: Path | None) -> tuple[li
                     row["annotation_row_agreement_count"] = ann_equal
                     row["annotation_row_agreement_rate"] = ann_equal / len(common)
 
+                if "sequences" in gen_obj.columns and "sequences" in ref_obj.columns:
+                    gen_sequences = set(gen_obj["sequences"].astype(str))
+                    ref_sequences = set(ref_obj["sequences"].astype(str))
+                    common_sequences = sorted(gen_sequences & ref_sequences)
+                    row["generated_sequences"] = len(gen_sequences)
+                    row["reference_sequences"] = len(ref_sequences)
+                    row["sequence_overlap"] = len(common_sequences)
+                    row["sequence_jaccard"] = jaccard(gen_sequences, ref_sequences)
+                    if "annotations" in gen_obj.columns and "annotations" in ref_obj.columns and common_sequences:
+                        gen_seq_idx = gen_obj.drop_duplicates("sequences").set_index("sequences")
+                        ref_seq_idx = ref_obj.drop_duplicates("sequences").set_index("sequences")
+                        sequence_ann_equal = sum(
+                            normalise_annotation(gen_seq_idx.loc[seq, "annotations"])
+                            == normalise_annotation(ref_seq_idx.loc[seq, "annotations"])
+                            for seq in common_sequences
+                        )
+                        row["sequence_annotation_row_agreement_count"] = sequence_ann_equal
+                        row["sequence_annotation_row_agreement_rate"] = (
+                            sequence_ann_equal / len(common_sequences)
+                        )
+
             gen_terms = pickle_terms(gen_obj)
             ref_terms = pickle_terms(ref_obj)
             row["generated_annotation_or_term_count"] = len(gen_terms)
@@ -363,9 +400,12 @@ def status_from_csv_rows(rows: list[dict[str, Any]]) -> str:
     if any(not row.get("generated_exists") or not row.get("reference_exists") for row in rows):
         return "FAIL"
     f1s = [row.get("f1") for row in rows if row.get("f1") is not None]
-    protein_js = [row.get("protein_jaccard") for row in rows if row.get("protein_jaccard") is not None]
+    entity_js = [
+        row.get("aligned_entity_jaccard")
+        for row in rows if row.get("aligned_entity_jaccard") is not None
+    ]
     term_js = [row.get("go_term_jaccard") for row in rows if row.get("go_term_jaccard") is not None]
-    if f1s and min(f1s) >= 0.9999 and min(protein_js or [1.0]) >= 0.9999 and min(term_js or [1.0]) >= 0.9999:
+    if f1s and min(f1s) >= 0.9999 and min(entity_js or [1.0]) >= 0.9999 and min(term_js or [1.0]) >= 0.9999:
         return "PASS"
     if f1s and min(f1s) >= 0.95:
         return "PASS WITH MINOR DIFFERENCES"
@@ -386,7 +426,7 @@ def write_report(path: Path, status: str, manifest_md: Path | None, csv_rows: li
     lines.append(f"Final status: **{status}**")
     lines.append("")
     lines.append("Status thresholds:")
-    lines.append("- PASS: every CSV exists, minimum label F1/protein Jaccard/GO-term Jaccard >= 0.9999.")
+    lines.append("- PASS: every CSV exists, minimum label F1/aligned-entity Jaccard/GO-term Jaccard >= 0.9999.")
     lines.append("- PASS WITH MINOR DIFFERENCES: every CSV exists and minimum label F1 >= 0.95.")
     lines.append("- FAIL: missing required CSVs or larger discrepancies.")
     lines.append("")
@@ -399,7 +439,8 @@ def write_report(path: Path, status: str, manifest_md: Path | None, csv_rows: li
     lines.append("")
     lines.append(markdown_table(csv_rows, [
         "file", "generated_rows", "reference_rows", "row_diff",
-        "protein_jaccard", "go_term_jaccard", "matrix_agreement", "precision", "recall", "f1",
+        "label_alignment", "aligned_entity_jaccard", "go_term_jaccard",
+        "matrix_agreement", "precision", "recall", "f1",
     ]))
     lines.append("## Pickle Summary")
     lines.append("")
@@ -413,6 +454,8 @@ def write_report(path: Path, status: str, manifest_md: Path | None, csv_rows: li
     lines.append("- CGD Candida backfill removal may be undocumented outside official materials.")
     lines.append("- MF protein-binding-only removal for GO:0005515 may not be implemented by the public Python path.")
     lines.append("- GO ontology release choice and obsolete/alternate GO handling may affect propagated labels.")
+    lines.append("- Official CAFA3 test IDs and generated UniProt accessions are aligned by exact sequence for test-label comparison.")
+    lines.append("- CAFA3 training sequences were frozen in September 2016, earlier than the February 2017 target t0 baseline used by the raw-snapshot experiment.")
     lines.append("- Reference CSVs may include preprocessing decisions made outside the public benchmark-construction code.")
     lines.append("")
     path.write_text("\n".join(lines))
@@ -436,7 +479,9 @@ def main() -> None:
     write_tsv(args.reports_dir / "csv_comparison.tsv", csv_rows, [
         "file", "generated_exists", "reference_exists", "generated_rows", "reference_rows", "row_diff",
         "generated_columns", "reference_columns", "generated_proteins", "reference_proteins",
-        "protein_overlap", "protein_jaccard", "generated_go_terms", "reference_go_terms",
+        "protein_overlap", "protein_jaccard", "generated_sequences", "reference_sequences",
+        "sequence_overlap", "sequence_jaccard", "label_alignment", "aligned_entity_overlap",
+        "aligned_entity_jaccard", "generated_go_terms", "reference_go_terms",
         "go_term_overlap", "go_term_jaccard", "generated_label_density", "reference_label_density",
         "matrix_cells_compared", "matrix_agreement", "exact_row_agreement_count", "exact_row_agreement_rate",
         "true_positives", "false_positives", "false_negatives", "precision", "recall", "f1",
@@ -451,6 +496,8 @@ def main() -> None:
         "column_overlap", "columns_equal", "generated_proteins", "reference_proteins",
         "protein_overlap", "protein_jaccard", "sequence_agreement_count", "sequence_agreement_rate",
         "annotation_row_agreement_count", "annotation_row_agreement_rate",
+        "generated_sequences", "reference_sequences", "sequence_overlap", "sequence_jaccard",
+        "sequence_annotation_row_agreement_count", "sequence_annotation_row_agreement_rate",
         "generated_annotation_or_term_count", "reference_annotation_or_term_count",
         "annotation_or_term_overlap", "annotation_or_term_jaccard",
     ])
