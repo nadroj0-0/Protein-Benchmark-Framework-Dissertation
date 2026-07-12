@@ -22,12 +22,37 @@ from .builder import (
 from .config import BuildConfig, PREFIX_TO_NAMESPACE
 from .goa import load_normalized_annotation_map
 from .models import AnnotationLoadResult, IdentityMatch, ProteinCatalog
+from .official_targets import load_official_target_catalog
 from .ontology import Ontology
 from .parsers import load_protein_catalog
+from .training_annotations import load_released_training_annotations
 
 
 LOGGER = logging.getLogger(__name__)
 PROTEIN_BINDING = "GO:0005515"
+SOURCE_DIAGNOSTIC_FIELDS = [
+    "snapshot", "raw_protein_identifier", "canonical_protein_identifier", "raw_go_id",
+    "evidence_code", "qualifier", "assigned_annotation_date", "source_database", "taxon",
+    "gaf_line_number", "source_ontology_file", "source_ontology_date",
+    "frozen_benchmark_ontology_file", "frozen_benchmark_ontology_date",
+    "exists_in_other_ontology", "other_ontology_canonical_id", "alt_id_mapping",
+    "obsolete_status", "replaced_by", "consider", "exists_in_frozen_ontology",
+    "frozen_canonical_id", "final_classification", "final_action",
+]
+OUTSIDE_FROZEN_FIELDS = [
+    "snapshot", "raw_protein_identifier", "canonical_protein_identifier", "raw_go_id",
+    "source_canonical_go_id", "evidence_code", "qualifier", "assigned_annotation_date",
+    "source_database", "taxon", "gaf_line_number", "source_ontology_file",
+    "source_ontology_date", "frozen_benchmark_ontology_file",
+    "frozen_benchmark_ontology_date", "exists_in_other_ontology", "alt_id_mapping",
+    "obsolete_status", "replaced_by", "consider", "final_classification", "final_action",
+]
+OFFICIAL_TARGET_FIELDS = [
+    "snapshot", "target_id", "source_identifiers", "mapping_files", "taxon_id",
+    "sequence_length", "special_or_custom_source", "status", "reason", "mapping_method",
+    "uniprot_accession", "uniprot_entry_name", "reviewed", "source_candidate_count",
+    "exact_sequence_candidate_count", "present_in_snapshot",
+]
 
 
 def _catalog_from_records(catalog: ProteinCatalog, protein_ids: set[str]) -> ProteinCatalog:
@@ -266,6 +291,119 @@ def _write_tsv(path: Path, fieldnames: list[str], rows: list[dict[str, object]])
         writer.writerows(rows)
 
 
+def _diagnostic_markdown(t0_result: AnnotationLoadResult, t1_result: AnnotationLoadResult) -> str:
+    rows = t0_result.source_diagnostics + t1_result.source_diagnostics
+    grouped: dict[tuple[object, object], list[dict[str, object]]] = defaultdict(list)
+    for row in rows:
+        grouped[(row["snapshot"], row["raw_go_id"])].append(row)
+    lines = [
+        "## GO source-resolution diagnostics",
+        "",
+        f"- Source-unresolvable rows observed before policy handling: {len(rows)}",
+        f"- Rows resolved through an exact raw-ID match in the frozen graph: "
+        f"{sum(row['final_action'] == 'use_frozen_term' for row in rows)}",
+        f"- Rows remaining as strict-QC failures: "
+        f"{sum(row['final_action'] == 'fail_strict_qc' for row in rows)}",
+        f"- Valid source rows excluded outside the frozen graph: "
+        f"{len(t0_result.outside_frozen_diagnostics) + len(t1_result.outside_frozen_diagnostics)}",
+        "",
+    ]
+    if grouped:
+        lines.extend([
+            "|snapshot|GO ID|annotations|proteins|classification|action|",
+            "|---|---|---:|---:|---|---|",
+        ])
+        for (snapshot, go_id), group in sorted(grouped.items()):
+            proteins = {row["canonical_protein_identifier"] for row in group}
+            classifications = "<br>".join(sorted({str(row["final_classification"]) for row in group}))
+            actions = "<br>".join(sorted({str(row["final_action"]) for row in group}))
+            lines.append(
+                f"|{snapshot}|{go_id}|{len(group)}|{len(proteins)}|{classifications}|{actions}|"
+            )
+        lines.append("")
+    lines.append(
+        "No `consider` term is selected automatically; only primary/alt IDs, a unique "
+        "`replaced_by`, or an exact raw-ID match in the frozen benchmark graph can resolve a row."
+    )
+    return "\n".join(lines) + "\n"
+
+
+def _official_target_markdown(rows: list[dict[str, object]]) -> str:
+    if not rows:
+        return ""
+    status = Counter(str(row["status"]) for row in rows)
+    reasons = Counter(str(row["reason"]) for row in rows if row["status"] != "mapped")
+    reviewed = Counter(
+        "unknown" if row["reviewed"] == "" else "reviewed" if row["reviewed"] == 1 else "unreviewed"
+        for row in rows
+    )
+    special = sum(int(row["special_or_custom_source"]) for row in rows)
+    absent = sum(not int(row["present_in_snapshot"]) for row in rows)
+    lines = [
+        "## Official CAFA3 target mapping",
+        "",
+        f"- Mapping rows (t0 and t1): {len(rows)}",
+        f"- Mapped: {status['mapped']}",
+        f"- Unmapped: {status['unmapped']}",
+        f"- Ambiguous: {status['ambiguous']}",
+        f"- Special/custom-source rows: {special}",
+        f"- Targets absent from the available UniProt mapping snapshot: {absent}",
+        f"- Reviewed mappings: {reviewed['reviewed']}",
+        f"- Unreviewed mappings: {reviewed['unreviewed']}",
+        f"- Mapping status unknown: {reviewed['unknown']}",
+        "",
+    ]
+    if reasons:
+        lines.extend(["|unmapped/ambiguous reason|rows|", "|---|---:|"])
+        lines.extend(f"|{reason}|{count}|" for reason, count in sorted(reasons.items()))
+        lines.append("")
+    lines.append(
+        "The released CAFA IDs and exact FASTA sequences remain authoritative even when "
+        "a UniProt mapping is absent or ambiguous; no target is silently discarded."
+    )
+    return "\n".join(lines) + "\n"
+
+
+def _write_preflight_diagnostics(
+    config: BuildConfig,
+    t0_result: AnnotationLoadResult,
+    t1_result: AnnotationLoadResult,
+    official_target_rows: list[dict[str, object]],
+) -> dict[str, Path]:
+    config.reports.mkdir(parents=True, exist_ok=True)
+    unresolved = config.reports / "unresolved_source_go_annotations.tsv"
+    outside = config.reports / "outside_frozen_go_annotations.tsv"
+    target_report = config.reports / "official_target_mapping.tsv"
+    _write_tsv(
+        unresolved,
+        SOURCE_DIAGNOSTIC_FIELDS,
+        t0_result.source_diagnostics + t1_result.source_diagnostics,
+    )
+    _write_tsv(
+        outside,
+        OUTSIDE_FROZEN_FIELDS,
+        t0_result.outside_frozen_diagnostics + t1_result.outside_frozen_diagnostics,
+    )
+    if official_target_rows:
+        _write_tsv(target_report, OFFICIAL_TARGET_FIELDS, official_target_rows)
+    report = config.reports / "benchmark_build_report.md"
+    report.write_text(
+        "# CAFA benchmark build report\n\n"
+        "The annotation inputs were parsed. This preflight report is written before strict QC "
+        "so diagnostics survive a failed build.\n\n"
+        + _diagnostic_markdown(t0_result, t1_result)
+        + _official_target_markdown(official_target_rows)
+    )
+    written = {
+        "unresolved_source_go_annotations": unresolved,
+        "outside_frozen_go_annotations": outside,
+        "build_report": report,
+    }
+    if official_target_rows:
+        written["official_target_mapping"] = target_report
+    return written
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -361,6 +499,8 @@ def _write_reports(
     t0_result: AnnotationLoadResult,
     t1_result: AnnotationLoadResult,
     csv_stats: dict[str, dict[str, int]],
+    training_annotation_result: AnnotationLoadResult | None = None,
+    official_target_rows: list[dict[str, object]] | None = None,
 ) -> dict[str, Path]:
     report_dir = config.reports
     report_dir.mkdir(parents=True, exist_ok=True)
@@ -440,6 +580,13 @@ def _write_reports(
         "t1_unmapped_terms": _counter_dict(t1_result.unmapped_terms),
         "t0_terms_outside_frozen_ontology": _counter_dict(t0_result.out_of_benchmark_terms),
         "t1_terms_outside_frozen_t0_ontology": _counter_dict(t1_result.out_of_benchmark_terms),
+        "training_annotation_source": (
+            _counter_dict(training_annotation_result.counters)
+            if training_annotation_result else "t0_goa"
+        ),
+        "official_target_mapping": _counter_dict(Counter(
+            row["status"] for row in (official_target_rows or [])
+        )),
     }
     statistics_path = report_dir / "benchmark_statistics.json"
     statistics_path.write_text(json.dumps(statistics, indent=2, sort_keys=True) + "\n")
@@ -451,6 +598,9 @@ def _write_reports(
         "python": platform.python_version(),
         "packages": _package_versions(),
         "profile": config.profile_name,
+        "target_universe_policy": config.target_universe_policy,
+        "training_snapshot_id": config.training_snapshot_id,
+        "training_snapshot_date": config.training_snapshot_date,
         "evidence_codes": sorted(config.evidence_codes),
         "training_taxa": sorted(config.training_taxa),
         "target_taxa": sorted(config.target_taxa),
@@ -466,14 +616,28 @@ def _write_reports(
         "seed": config.seed,
         "training_reviewed_only": config.reviewed_only,
         "target_reviewed_only": config.target_reviewed_only,
+        "allow_frozen_source_fallback": config.allow_frozen_source_fallback,
         "include_relationships": config.include_rels,
         "ontology_policy": (
             "Resolve each GAF against its source product, then map labels into the frozen "
-            "t0 benchmark ontology; report and exclude terms outside that frozen graph."
+            "t0 benchmark ontology; an exact raw-ID match in the frozen graph may resolve a "
+            "nearest-source snapshot mismatch when enabled; never select consider terms; "
+            "report and exclude valid terms outside the frozen graph."
         ),
         "inputs": {
             "uniprot_t0": [str(path) for path in config.uniprot_t0],
             "uniprot_t1": [str(path) for path in config.uniprot_t1],
+            "target_uniprot_t0": [str(path) for path in config.target_uniprot_t0],
+            "target_uniprot_t1": [str(path) for path in config.target_uniprot_t1],
+            "official_target_fastas": [str(path) for path in config.official_target_fastas],
+            "official_target_mapping_dir": (
+                str(config.official_target_mapping_dir)
+                if config.official_target_mapping_dir else None
+            ),
+            "training_annotations_file": (
+                str(config.training_annotations_file)
+                if config.training_annotations_file else None
+            ),
             "goa_t0": str(config.goa_t0),
             "goa_t1": str(config.goa_t1),
             "benchmark_ontology": str(config.go_obo),
@@ -486,9 +650,16 @@ def _write_reports(
     reports["manifest"] = manifest_path
 
     if config.write_checksums:
-        input_paths = list(config.uniprot_t0) + list(config.uniprot_t1) + [
+        input_paths = (
+            list(config.uniprot_t0) + list(config.uniprot_t1)
+            + list(config.target_uniprot_t0) + list(config.target_uniprot_t1)
+            + list(config.official_target_fastas) + [
             config.goa_t0, config.goa_t1, config.go_obo, config.ontology_t0, config.ontology_t1,
-        ]
+        ])
+        if config.training_annotations_file:
+            input_paths.append(config.training_annotations_file)
+        if config.official_target_mapping_dir:
+            input_paths.extend(sorted(config.official_target_mapping_dir.glob("*")))
         input_checksums = report_dir / "input_checksums.sha256"
         _write_checksum_file(input_checksums, input_paths)
         reports["input_checksums"] = input_checksums
@@ -499,7 +670,7 @@ def _write_reports(
 
     report_path = report_dir / "benchmark_build_report.md"
     report_path.write_text(
-        "# Contemporary CAFA benchmark build report\n\n"
+        "# CAFA benchmark build report\n\n"
         f"- Profile: `{config.profile_name}`\n"
         f"- Training proteins before split: {len(train_df)}\n"
         f"- Test proteins before ontology export: {len(test_df)}\n"
@@ -507,9 +678,12 @@ def _write_reports(
         f"- t1 rows excluded as backfill: {t1_result.counters['skipped_backfill']}\n"
         f"- t1 rows after the endpoint cutoff: {t1_result.counters['skipped_after_cutoff']}\n"
         f"- Test eligibility policy: `{config.test_eligibility_policy}`\n"
+        f"- Target universe policy: `{config.target_universe_policy}`\n"
         f"- t0 terms outside the frozen benchmark ontology: {t0_result.counters['outside_frozen_ontology']}\n"
         f"- t1 terms outside the frozen t0 ontology: {t1_result.counters['outside_frozen_ontology']}\n"
-        "- All nine PFP CSVs passed schema, duplicate, binary-label and overlap checks.\n"
+        "- All nine PFP CSVs passed schema, duplicate, binary-label and overlap checks.\n\n"
+        + _diagnostic_markdown(t0_result, t1_result)
+        + _official_target_markdown(official_target_rows or [])
     )
     reports["build_report"] = report_path
     return reports
@@ -532,12 +706,27 @@ def _validate_config(config: BuildConfig) -> None:
         raise ValueError("t1_cutoff must be later than t0_cutoff")
     if not config.require_t0_presence:
         raise ValueError("This builder requires t0 presence; disabling it would violate the benchmark contract")
+    if config.target_universe_policy not in {
+        "reconstructed-all-qualifying", "official-cafa3-targets",
+    }:
+        raise ValueError("Unknown target universe policy")
+    if config.target_universe_policy == "official-cafa3-targets":
+        if config.profile_name != "cafa3-reconstructed":
+            raise ValueError("Official CAFA3 target mode is historical-validation only")
+        if not config.official_target_fastas or config.official_target_mapping_dir is None:
+            raise ValueError("Official CAFA3 target mode requires FASTA files and a mapping directory")
     for path in (
         list(config.uniprot_t0) + list(config.uniprot_t1)
+        + list(config.target_uniprot_t0) + list(config.target_uniprot_t1)
+        + list(config.official_target_fastas)
         + [config.goa_t0, config.goa_t1, config.go_obo, config.ontology_t0, config.ontology_t1]
     ):
         if not Path(path).is_file():
             raise FileNotFoundError(path)
+    if config.training_annotations_file and not config.training_annotations_file.is_file():
+        raise FileNotFoundError(config.training_annotations_file)
+    if config.official_target_mapping_dir and not config.official_target_mapping_dir.is_dir():
+        raise FileNotFoundError(config.official_target_mapping_dir)
 
 
 def build_snapshot_benchmark(config: BuildConfig) -> dict[str, Path]:
@@ -564,27 +753,60 @@ def build_snapshot_benchmark(config: BuildConfig) -> dict[str, Path]:
         training_paths, config.training_taxa, config.reviewed_only
     )
     LOGGER.info("Loaded %d canonical t0 training proteins", len(training_catalog.records))
-    t0_target_catalog = _target_catalog(
-        config.uniprot_t0,
-        training_catalog,
-        config.training_taxa,
-        config.target_taxa,
-        config.reviewed_only,
-        config.target_reviewed_only,
-    )
+    official_target_rows: list[dict[str, object]] = []
+    if config.target_universe_policy == "official-cafa3-targets":
+        t0_reference_paths = config.target_uniprot_t0 or config.uniprot_t0
+        t1_reference_paths = config.target_uniprot_t1 or config.uniprot_t1
+        t0_reference = load_protein_catalog(t0_reference_paths, frozenset(), False)
+        t1_reference = load_protein_catalog(t1_reference_paths, frozenset(), False)
+        t0_official = load_official_target_catalog(
+            config.official_target_fastas,
+            config.official_target_mapping_dir,
+            t0_reference,
+            config.target_taxa,
+            "t0",
+        )
+        t1_official = load_official_target_catalog(
+            config.official_target_fastas,
+            config.official_target_mapping_dir,
+            t1_reference,
+            config.target_taxa,
+            "t1",
+        )
+        t0_target_catalog = t0_official.catalog
+        t1_target_catalog = t1_official.catalog
+        official_target_rows = t0_official.rows + t1_official.rows
+    else:
+        reconstructed_t0_paths = config.target_uniprot_t0 or config.uniprot_t0
+        reconstructed_t1_paths = config.target_uniprot_t1 or config.uniprot_t1
+        t0_target_catalog = _target_catalog(
+            reconstructed_t0_paths,
+            training_catalog,
+            config.training_taxa,
+            config.target_taxa,
+            config.reviewed_only,
+            config.target_reviewed_only,
+        )
+        t1_target_catalog = load_protein_catalog(
+            reconstructed_t1_paths, config.target_taxa, config.target_reviewed_only
+        )
     LOGGER.info("Loaded %d canonical t0 target proteins", len(t0_target_catalog.records))
-    t1_target_catalog = load_protein_catalog(
-        config.uniprot_t1, config.target_taxa, config.target_reviewed_only
-    )
     LOGGER.info("Loaded %d canonical t1 target proteins", len(t1_target_catalog.records))
 
-    annotation_catalog = _merge_catalogs(training_catalog, t0_target_catalog)
+    annotation_catalog = (
+        t0_target_catalog
+        if config.training_annotations_file
+        else _merge_catalogs(training_catalog, t0_target_catalog)
+    )
     LOGGER.info("Loading and normalising t0 GOA annotations from %s", config.goa_t0)
     t0_result = load_normalized_annotation_map(
         config.goa_t0,
         alias_to_primary=annotation_catalog.alias_to_primary,
         source_ontology=t0_go,
         benchmark_ontology=benchmark_go,
+        other_ontology=t1_go,
+        snapshot="t0",
+        allow_frozen_source_fallback=config.allow_frozen_source_fallback,
         evidence_codes=config.evidence_codes,
         max_records=config.max_gaf_records,
     )
@@ -594,21 +816,38 @@ def build_snapshot_benchmark(config: BuildConfig) -> dict[str, Path]:
         alias_to_primary=t1_target_catalog.alias_to_primary,
         source_ontology=t1_go,
         benchmark_ontology=benchmark_go,
+        other_ontology=t0_go,
+        snapshot="t1",
+        allow_frozen_source_fallback=config.allow_frozen_source_fallback,
         evidence_codes=config.evidence_codes,
         target_taxa=config.target_taxa,
         exclude_on_or_before=config.t0_cutoff if config.exclude_t1_backfill else None,
         include_on_or_before=config.t1_cutoff,
         max_records=config.max_gaf_records,
     )
+    preflight_reports = _write_preflight_diagnostics(
+        config, t0_result, t1_result, official_target_rows
+    )
     if config.strict_qc and (t0_result.unmapped_terms or t1_result.unmapped_terms):
         raise ValueError("Strict QC found GO IDs that cannot be resolved in their source ontology")
 
     training_ids = set(training_catalog.records)
     target_t0_ids = set(t0_target_catalog.records)
-    train_annots = {
-        protein_id: terms for protein_id, terms in t0_result.annotations.items()
-        if protein_id in training_ids
-    }
+    training_annotation_result: AnnotationLoadResult | None = None
+    if config.training_annotations_file:
+        training_annotation_result = load_released_training_annotations(
+            config.training_annotations_file,
+            training_catalog.alias_to_primary,
+            benchmark_go,
+        )
+        if config.strict_qc and training_annotation_result.unmapped_terms:
+            raise ValueError("Strict QC found released training GO IDs outside the benchmark ontology")
+        train_annots = training_annotation_result.annotations
+    else:
+        train_annots = {
+            protein_id: terms for protein_id, terms in t0_result.annotations.items()
+            if protein_id in training_ids
+        }
     target_t0_annots = {
         protein_id: terms for protein_id, terms in t0_result.annotations.items()
         if protein_id in target_t0_ids
@@ -688,6 +927,9 @@ def build_snapshot_benchmark(config: BuildConfig) -> dict[str, Path]:
         t0_result,
         t1_result,
         csv_stats,
+        training_annotation_result,
+        official_target_rows,
     )
+    reports.update(preflight_reports)
     written.update(reports)
     return written

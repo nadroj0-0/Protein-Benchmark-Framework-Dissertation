@@ -232,6 +232,9 @@ def load_normalized_annotation_map(
     alias_to_primary: dict[str, str],
     source_ontology: Ontology,
     benchmark_ontology: Ontology,
+    other_ontology: Ontology | None = None,
+    snapshot: str = "",
+    allow_frozen_source_fallback: bool = True,
     evidence_codes: frozenset[str] = CAFA3_FINAL_EXP_CODES,
     target_taxa: frozenset[str] = frozenset(),
     exclude_on_or_before: str | None = None,
@@ -253,6 +256,8 @@ def load_normalized_annotation_map(
     taxon_counts = Counter()
     unmapped_terms = Counter()
     out_of_benchmark_terms = Counter()
+    source_diagnostics: list[dict[str, object]] = []
+    outside_frozen_diagnostics: list[dict[str, object]] = []
     progress_every = progress_interval_from_env() if progress_interval is None else progress_interval
 
     with open_gaf_text(path) as handle:
@@ -290,9 +295,54 @@ def load_normalized_annotation_map(
                 else:
                     source_term = source_ontology.resolve_term(cols[4])
                     if source_term is None:
-                        counters["unmapped_source_go"] += 1
-                        unmapped_terms[cols[4]] += 1
-                    else:
+                        frozen_term = benchmark_ontology.resolve_term(cols[4])
+                        source_description = source_ontology.describe_id(cols[4])
+                        frozen_description = benchmark_ontology.describe_id(cols[4])
+                        other_description = (
+                            other_ontology.describe_id(cols[4]) if other_ontology else {}
+                        )
+                        use_frozen = bool(allow_frozen_source_fallback and frozen_term)
+                        classification = (
+                            "source_snapshot_mismatch_valid_in_frozen"
+                            if use_frozen else
+                            "obsolete_without_unique_replacement"
+                            if source_description["is_obsolete"] else
+                            "absent_from_source_ontology"
+                        )
+                        source_diagnostics.append({
+                            "snapshot": snapshot,
+                            "raw_protein_identifier": cols[1],
+                            "canonical_protein_identifier": protein_id,
+                            "raw_go_id": cols[4],
+                            "evidence_code": cols[6],
+                            "qualifier": cols[3],
+                            "assigned_annotation_date": cols[13],
+                            "source_database": cols[0],
+                            "taxon": taxon_id,
+                            "gaf_line_number": line_number,
+                            "source_ontology_file": str(source_ontology.filename),
+                            "source_ontology_date": source_ontology.data_version or "",
+                            "frozen_benchmark_ontology_file": str(benchmark_ontology.filename),
+                            "frozen_benchmark_ontology_date": benchmark_ontology.data_version or "",
+                            "exists_in_other_ontology": int(bool(other_description.get("exists"))),
+                            "other_ontology_canonical_id": other_description.get("canonical_id", ""),
+                            "alt_id_mapping": source_description["canonical_id"] if source_description["is_alt_id"] else "",
+                            "obsolete_status": int(bool(source_description["is_obsolete"])),
+                            "replaced_by": "|".join(source_description["replaced_by"]),
+                            "consider": "|".join(source_description["consider"]),
+                            "exists_in_frozen_ontology": int(bool(frozen_description["exists"])),
+                            "frozen_canonical_id": frozen_term or "",
+                            "final_classification": classification,
+                            "final_action": "use_frozen_term" if use_frozen else "fail_strict_qc",
+                        })
+                        if use_frozen:
+                            source_term = frozen_term
+                            counters["resolved_in_frozen_fallback"] += 1
+                        else:
+                            counters["unmapped_source_go"] += 1
+                            unmapped_terms[cols[4]] += 1
+                            source_term = None
+                    if source_term is not None:
                         benchmark_term = benchmark_ontology.resolve_term(source_term)
                         if benchmark_term is None:
                             # If the source snapshot has replaced a t0 term,
@@ -302,6 +352,34 @@ def load_normalized_annotation_map(
                         if benchmark_term is None:
                             counters["outside_frozen_ontology"] += 1
                             out_of_benchmark_terms[source_term] += 1
+                            source_description = source_ontology.describe_id(cols[4])
+                            other_description = (
+                                other_ontology.describe_id(cols[4]) if other_ontology else {}
+                            )
+                            outside_frozen_diagnostics.append({
+                                "snapshot": snapshot,
+                                "raw_protein_identifier": cols[1],
+                                "canonical_protein_identifier": protein_id,
+                                "raw_go_id": cols[4],
+                                "source_canonical_go_id": source_term,
+                                "evidence_code": cols[6],
+                                "qualifier": cols[3],
+                                "assigned_annotation_date": cols[13],
+                                "source_database": cols[0],
+                                "taxon": taxon_id,
+                                "gaf_line_number": line_number,
+                                "source_ontology_file": str(source_ontology.filename),
+                                "source_ontology_date": source_ontology.data_version or "",
+                                "frozen_benchmark_ontology_file": str(benchmark_ontology.filename),
+                                "frozen_benchmark_ontology_date": benchmark_ontology.data_version or "",
+                                "exists_in_other_ontology": int(bool(other_description.get("exists"))),
+                                "alt_id_mapping": source_description["canonical_id"] if source_description["is_alt_id"] else "",
+                                "obsolete_status": int(bool(source_description["is_obsolete"])),
+                                "replaced_by": "|".join(source_description["replaced_by"]),
+                                "consider": "|".join(source_description["consider"]),
+                                "final_classification": "valid_source_term_outside_frozen_graph",
+                                "final_action": "exclude_from_frozen_label_space",
+                            })
                         else:
                             annots[protein_id].add(benchmark_term)
                             counters["kept_rows"] += 1
@@ -353,4 +431,6 @@ def load_normalized_annotation_map(
         taxon_counts=taxon_counts,
         unmapped_terms=unmapped_terms,
         out_of_benchmark_terms=out_of_benchmark_terms,
+        source_diagnostics=source_diagnostics,
+        outside_frozen_diagnostics=outside_frozen_diagnostics,
     )

@@ -77,6 +77,14 @@ IDs. GOA IDs are canonicalised in the source graph, including primary IDs,
 `alt_id` values and unambiguous `replaced_by` values, then mapped into the frozen
 graph. Terms absent from the frozen graph are reported and excluded.
 
+The nearest retained t0 source product (2025-03-16) postdates the frozen graph.
+If a raw GOA 225 ID is obsolete or absent there but the exact raw ID is live in
+the frozen 2025-02-06 graph, the default policy classifies this as a source
+snapshot mismatch and uses that frozen term. This is not a `consider` mapping.
+`consider` suggestions are never selected automatically. Rows absent from both
+graphs remain unresolved and fail strict QC. Use
+`--no-frozen-source-fallback` to disable this narrow compatibility rule.
+
 To represent all proteins from the target organisms, supply both Swiss-Prot and
 TrEMBL DAT files. A Swiss-Prot-only build is a diagnostic variant, not the full
 supervisor benchmark.
@@ -228,7 +236,15 @@ evidence_summary.tsv
 input_checksums.sha256
 output_checksums.sha256
 input_acquisition.tsv
+unresolved_source_go_annotations.tsv
+outside_frozen_go_annotations.tsv
 ```
+
+The GO diagnostic TSVs are written before strict QC raises, so the exact
+protein, GO ID, evidence, date, source row, ontology metadata, classification
+and action survive a failed production job. Valid t1 terms outside the frozen
+t0 graph are expected ontology drift: they are reported and excluded from the
+label space without failing the build.
 
 ## Failure gates
 
@@ -272,3 +288,38 @@ new snapshot front end:
 
 They reproduce the released pickle-to-CSV and official-file-to-pickle stages.
 They do not apply the contemporary temporal candidate policy.
+
+## Raw CAFA3 historical validation
+
+The separate repository-level historical runner supports two independent
+controls:
+
+```text
+HISTORICAL_TRAINING_SNAPSHOT=september-2016 | february-2017-legacy
+TARGET_UNIVERSE_POLICY=official-cafa3-targets | reconstructed-all-qualifying
+```
+
+The primary validation defaults to `september-2016` plus
+`official-cafa3-targets`. It uses UniProtKB release `2016_08` (07-Sep-2016), the
+last public monthly Swiss-Prot release before the official CAFA3 training
+package date of 24-Sep-2016. The runner verifies the archive against UniProt's
+published byte size and MD5 and records a SHA-256 inventory. This is the closest
+defensible public snapshot, not a claim that the organiser's private freeze is
+bit-identical.
+
+The released `data-cafa.tar.gz` supplies the official training annotation table,
+aggregate CAFA3 target FASTA, target mapping files and DeepGOPlus reference
+pickles. Official-target mode preserves released CAFA IDs and exact FASTA
+sequences. UniProt mappings are conservative and fully reported; unmapped,
+ambiguous and custom-source targets remain in the candidate catalogue. The
+February-2017/reconstructed combination remains a named legacy comparison.
+
+```bash
+HISTORICAL_TRAINING_SNAPSHOT=september-2016 \
+TARGET_UNIVERSE_POLICY=official-cafa3-targets \
+bash scripts/validation/run_cafa3_historical_validation.sh
+```
+
+Large inputs are acquired into scratch when no override is supplied. Optional
+local overrides are `HISTORICAL_TRAINING_UNIPROT_ARCHIVE` and
+`OFFICIAL_CAFA3_ARCHIVE_INPUT`.

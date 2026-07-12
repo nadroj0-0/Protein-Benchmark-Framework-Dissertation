@@ -78,6 +78,21 @@ def build_parser() -> argparse.ArgumentParser:
                         help="t0 UniProt FASTA/DAT. Repeat to combine Swiss-Prot and TrEMBL inputs.")
     parser.add_argument("--uniprot-t1", action="append", type=Path,
                         help="t1 UniProt FASTA/DAT. Repeat to combine Swiss-Prot and TrEMBL inputs.")
+    parser.add_argument("--target-uniprot-t0", action="append", type=Path,
+                        help="Optional UniProt inputs used only to map a fixed official t0 target universe.")
+    parser.add_argument("--target-uniprot-t1", action="append", type=Path,
+                        help="Optional UniProt inputs used only to map a fixed official t1 target universe.")
+    parser.add_argument(
+        "--target-universe-policy",
+        choices=("reconstructed-all-qualifying", "official-cafa3-targets"),
+        default="reconstructed-all-qualifying",
+    )
+    parser.add_argument("--official-target-fasta", action="append", type=Path, default=[])
+    parser.add_argument("--official-target-mapping-dir", type=Path)
+    parser.add_argument("--training-annotations-file", type=Path,
+                        help="Optional released direct-label file used instead of GOA for training labels.")
+    parser.add_argument("--training-snapshot-id")
+    parser.add_argument("--training-snapshot-date")
     parser.add_argument("--goa-t0", type=Path)
     parser.add_argument("--goa-t1", type=Path)
     parser.add_argument("--go-obo", type=Path, required=True,
@@ -138,6 +153,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-intermediates", action="store_true")
     parser.add_argument("--skip-input-checksums", action="store_true")
     parser.add_argument("--no-strict-qc", action="store_true")
+    parser.add_argument(
+        "--no-frozen-source-fallback",
+        action="store_true",
+        help=("Do not resolve a source-unresolvable GOA ID through the frozen graph. "
+              "The default permits this only when the raw ID is valid in that frozen graph."),
+    )
     parser.add_argument("--max-gaf-records", type=int,
                         help="Parser smoke-test limit only; never use for a production build.")
     return parser
@@ -176,6 +197,14 @@ def config_from_args(args: argparse.Namespace) -> BuildConfig:
         go_obo_t1=args.go_obo_t1,
         output_dir=args.output_dir,
         report_dir=args.report_dir,
+        target_universe_policy=args.target_universe_policy,
+        official_target_fastas=tuple(args.official_target_fasta),
+        official_target_mapping_dir=args.official_target_mapping_dir,
+        target_uniprot_t0=tuple(args.target_uniprot_t0 or ()),
+        target_uniprot_t1=tuple(args.target_uniprot_t1 or ()),
+        training_annotations_file=args.training_annotations_file,
+        training_snapshot_id=args.training_snapshot_id,
+        training_snapshot_date=args.training_snapshot_date,
         profile_name=args.profile,
         training_taxa=_taxa_for_policy(
             training_policy, args.training_taxon, args.training_taxa_file
@@ -202,6 +231,7 @@ def config_from_args(args: argparse.Namespace) -> BuildConfig:
         write_intermediates=not args.no_intermediates,
         write_checksums=not args.skip_input_checksums,
         strict_qc=not args.no_strict_qc,
+        allow_frozen_source_fallback=not args.no_frozen_source_fallback,
         max_gaf_records=args.max_gaf_records,
     )
 

@@ -67,3 +67,5 @@ class AnnotationLoadResult:
     taxon_counts: Counter = field(default_factory=Counter)
     unmapped_terms: Counter = field(default_factory=Counter)
     out_of_benchmark_terms: Counter = field(default_factory=Counter)
+    source_diagnostics: list[dict[str, object]] = field(default_factory=list)
+    outside_frozen_diagnostics: list[dict[str, object]] = field(default_factory=list)

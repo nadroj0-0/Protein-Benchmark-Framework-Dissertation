@@ -21,6 +21,8 @@ DECOMPRESS_GOA="${DECOMPRESS_GOA:-0}"
 GOA_PROGRESS_INTERVAL="${GOA_PROGRESS_INTERVAL:-1000000}"
 INCLUDE_TREMBL_TARGETS="${INCLUDE_TREMBL_TARGETS:-1}"
 PIGZ_THREADS="${PIGZ_THREADS:-1}"
+HISTORICAL_TRAINING_SNAPSHOT="${HISTORICAL_TRAINING_SNAPSHOT:-september-2016}"
+TARGET_UNIVERSE_POLICY="${TARGET_UNIVERSE_POLICY:-official-cafa3-targets}"
 
 FILTER_DAT="${REPO_ROOT}/scripts/benchmark_generation/filter_uniprot_dat.py"
 EXTRACT_MEMBER="${REPO_ROOT}/scripts/benchmark_generation/extract_tar_member.py"
@@ -39,11 +41,17 @@ GO_T1_BASIC_URL="https://release.geneontology.org/2017-11-01/ontology/go-basic.o
 CAFA3_REFERENCE_RECORD_URL="https://zenodo.org/records/7409660"
 CAFA3_REFERENCE_CSV_BASE_URL="${CAFA3_REFERENCE_RECORD_URL}/files"
 DEFAULT_DEEPGOPLUS_PICKLES_URL="https://deepgo.cbrc.kaust.edu.sa/data/data-cafa.tar.gz"
+UNIPROT_2016_08_URL="https://ftp.uniprot.org/pub/databases/uniprot/previous_releases/release-2016_08/knowledgebase/uniprot_sprot-only2016_08.tar.gz"
+UNIPROT_2016_08_METALINK_URL="https://ftp.uniprot.org/pub/databases/uniprot/previous_releases/release-2016_08/knowledgebase/RELEASE.metalink"
+UNIPROT_2016_08_SIZE="1515243865"
+UNIPROT_2016_08_MD5="bad05b535790955ddd5e0d1833915f9f"
 
 UNIPROT_T0_RELEASE_DATE="15-Feb-2017"
 UNIPROT_T1_RELEASE_DATE="22-Nov-2017"
 CAFA3_T0_DATE="2017-02-13"
 CAFA3_T1_DATE="2017-11-15"
+TRAINING_SNAPSHOT_ID=""
+TRAINING_SNAPSHOT_DATE=""
 
 CSV_FILES=(
   bp-training.csv bp-validation.csv bp-test.csv
@@ -135,6 +143,45 @@ sha256_file() {
   else
     shasum -a 256 "$file" | awk '{print $1}'
   fi
+}
+
+md5_file() {
+  local file="$1"
+  if command -v md5sum >/dev/null 2>&1; then
+    md5sum "$file" | awk '{print $1}'
+  else
+    md5 -q "$file"
+  fi
+}
+
+stage_override_or_download() {
+  local override="$1"
+  local url="$2"
+  local out="$3"
+  mkdir -p "$(dirname "$out")"
+  if [ -n "$override" ]; then
+    [ -f "$override" ] || { echo "Explicit input does not exist: $override" >&2; exit 1; }
+    echo "  staging explicit input: $override -> $out"
+    cp -a "$override" "$out"
+  else
+    download "$url" "$out"
+  fi
+}
+
+verify_size_and_md5() {
+  local file="$1"
+  local expected_size="$2"
+  local expected_md5="$3"
+  local actual_size actual_md5
+  actual_size="$(wc -c < "$file" | tr -d ' ')"
+  actual_md5="$(md5_file "$file")"
+  if [ "$actual_size" != "$expected_size" ] || [ "$actual_md5" != "$expected_md5" ]; then
+    echo "Integrity check failed for $file" >&2
+    echo "  expected size/md5: $expected_size $expected_md5" >&2
+    echo "  actual size/md5  : $actual_size $actual_md5" >&2
+    exit 1
+  fi
+  echo "  verified official size and MD5: $actual_size $actual_md5"
 }
 
 extract_tar_once() {
@@ -289,6 +336,10 @@ write_manifest() {
     echo "- GOA pre-unzip: ${DECOMPRESS_GOA}"
     echo "- GOA progress interval: ${GOA_PROGRESS_INTERVAL}"
     echo "- TrEMBL target records included: ${INCLUDE_TREMBL_TARGETS}"
+    echo "- Historical training snapshot profile: ${HISTORICAL_TRAINING_SNAPSHOT}"
+    echo "- Training snapshot identifier: ${TRAINING_SNAPSHOT_ID}"
+    echo "- Training snapshot release date: ${TRAINING_SNAPSHOT_DATE}"
+    echo "- Target universe policy: ${TARGET_UNIVERSE_POLICY}"
     echo "- CAFA3 t0 date: ${CAFA3_T0_DATE}"
     echo "- CAFA3 t1 date: ${CAFA3_T1_DATE}"
     echo "- UniProt t0 release date: ${UNIPROT_T0_RELEASE_DATE}"
@@ -301,6 +352,8 @@ write_manifest() {
     echo "- GOA t1: ${GOA_T1_URL}"
     echo "- UniProt t0: ${UNIPROT_T0_URL}"
     echo "- UniProt t1: ${UNIPROT_T1_URL}"
+    echo "- Closest public pre-freeze Swiss-Prot snapshot: ${UNIPROT_2016_08_URL}"
+    echo "- Published UniProt 2016_08 integrity metadata: ${UNIPROT_2016_08_METALINK_URL}"
     echo "- UniProt t0 complete archive used for target-taxon TrEMBL: ${UNIPROT_T0_FULL_URL}"
     echo "- UniProt t1 complete archive used for target-taxon TrEMBL: ${UNIPROT_T1_FULL_URL}"
     echo "- GO t0 go.obo: ${GO_T0_OBO_URL}"
@@ -312,9 +365,10 @@ write_manifest() {
     echo
     echo "## Historical Interpretation Boundary"
     echo
-    echo "- The official CAFA3 training package was frozen in September 2016."
-    echo "- This raw-snapshot experiment uses February 2017 GOA/Swiss-Prot for both training labels and the target t0 knowledge state."
-    echo "- CAFA3 target eligibility is reproduced per ontology (NK and LK), but exact official target IDs and curated September 2016 training inputs are compared as references rather than regenerated here."
+    echo "- The official CAFA3 training package was dated 24-Sep-2016."
+    echo "- UniProtKB 2016_08 (07-Sep-2016) is the last public monthly Swiss-Prot release before that package date; it is the closest defensible public sequence snapshot, not a claim of an exact organiser-internal freeze."
+    echo "- In official-target mode, released CAFA target IDs and exact target FASTA sequences define the candidate universe; conservative UniProt mapping is reported and is not used to replace those sequences."
+    echo "- February 2017 remains the target t0 knowledge baseline and a named legacy training-snapshot option."
     echo
     echo "## Builder Command"
     echo
@@ -352,6 +406,22 @@ fi
 export CAFA_BUILDER_USE_PIGZ="${CAFA_BUILDER_USE_PIGZ:-${USE_PIGZ}}"
 export CAFA_BUILDER_GOA_PROGRESS_INTERVAL="${GOA_PROGRESS_INTERVAL}"
 
+case "$HISTORICAL_TRAINING_SNAPSHOT" in
+  september-2016|february-2017-legacy) ;;
+  *)
+    echo "Unknown HISTORICAL_TRAINING_SNAPSHOT: $HISTORICAL_TRAINING_SNAPSHOT" >&2
+    echo "Expected september-2016 or february-2017-legacy" >&2
+    exit 1
+    ;;
+esac
+case "$TARGET_UNIVERSE_POLICY" in
+  reconstructed-all-qualifying|official-cafa3-targets) ;;
+  *)
+    echo "Unknown TARGET_UNIVERSE_POLICY: $TARGET_UNIVERSE_POLICY" >&2
+    exit 1
+    ;;
+esac
+
 echo "=============================================================="
 echo "CAFA3 Historical Validation"
 echo "=============================================================="
@@ -361,6 +431,8 @@ echo "Scratch cleanup : $([ "$KEEP_SCRATCH" = "1" ] && echo disabled || echo ena
 echo "GOA pigz stream : $([ "${CAFA_BUILDER_USE_PIGZ}" = "0" ] && echo disabled || echo enabled-if-available)"
 echo "GOA pre-unzip   : $([ "$DECOMPRESS_GOA" = "1" ] && echo enabled || echo disabled)"
 echo "GOA progress    : every ${GOA_PROGRESS_INTERVAL} parsed rows"
+echo "Training source : ${HISTORICAL_TRAINING_SNAPSHOT}"
+echo "Target universe : ${TARGET_UNIVERSE_POLICY}"
 echo
 
 echo "==> [1/8] Download historical raw snapshots into scratch"
@@ -368,10 +440,34 @@ download "$GOA_T0_URL" "${RAW}/goa/goa_uniprot_all.gaf.163.gz"
 download "$GOA_T1_URL" "${RAW}/goa/goa_uniprot_all.gaf.172.gz"
 download "$UNIPROT_T0_URL" "${RAW}/uniprot/uniprot_sprot-only2017_02.tar.gz"
 download "$UNIPROT_T1_URL" "${RAW}/uniprot/uniprot_sprot-only2017_11.tar.gz"
+case "$HISTORICAL_TRAINING_SNAPSHOT" in
+  september-2016)
+    TRAINING_SNAPSHOT_ID="UniProtKB-2016_08"
+    TRAINING_SNAPSHOT_DATE="07-Sep-2016"
+    TRAINING_ARCHIVE="${RAW}/uniprot/uniprot_sprot-only2016_08.tar.gz"
+    stage_override_or_download \
+      "${HISTORICAL_TRAINING_UNIPROT_ARCHIVE:-}" \
+      "$UNIPROT_2016_08_URL" \
+      "$TRAINING_ARCHIVE"
+    verify_size_and_md5 "$TRAINING_ARCHIVE" "$UNIPROT_2016_08_SIZE" "$UNIPROT_2016_08_MD5"
+    download_optional "$UNIPROT_2016_08_METALINK_URL" "${RAW}/metadata/uniprot_2016_08_RELEASE.metalink"
+    ;;
+  february-2017-legacy)
+    TRAINING_SNAPSHOT_ID="UniProtKB-2017_02-legacy"
+    TRAINING_SNAPSHOT_DATE="$UNIPROT_T0_RELEASE_DATE"
+    TRAINING_ARCHIVE="${RAW}/uniprot/uniprot_sprot-only2017_02.tar.gz"
+    ;;
+esac
 download "$GO_T0_OBO_URL" "${RAW}/go/2017-02-01/go.obo"
 download "$GO_T0_BASIC_URL" "${RAW}/go/2017-02-01/go-basic.obo"
 download "$GO_T1_OBO_URL" "${RAW}/go/2017-11-01/go.obo"
 download "$GO_T1_BASIC_URL" "${RAW}/go/2017-11-01/go-basic.obo"
+DEEPGOPLUS_PICKLES_URL="${DEEPGOPLUS_PICKLES_URL:-$DEFAULT_DEEPGOPLUS_PICKLES_URL}"
+OFFICIAL_CAFA3_ARCHIVE="${REFERENCE}/deepgoplus_pickles_reference.tar.gz"
+stage_override_or_download \
+  "${OFFICIAL_CAFA3_ARCHIVE_INPUT:-}" \
+  "$DEEPGOPLUS_PICKLES_URL" \
+  "$OFFICIAL_CAFA3_ARCHIVE"
 
 echo "==> [2/8] Download best-effort metadata"
 download_optional "https://ftp.uniprot.org/pub/databases/uniprot/previous_releases/release-2017_02/relnotes.txt" "${RAW}/metadata/uniprot_2017_02_relnotes.txt"
@@ -385,22 +481,46 @@ download_optional "https://release.geneontology.org/2017-11-01/summary.txt" "${R
 echo "==> [3/8] Extract UniProt tarballs in scratch"
 extract_tar_once "${RAW}/uniprot/uniprot_sprot-only2017_02.tar.gz" "${RAW}/uniprot/release_2017_02"
 extract_tar_once "${RAW}/uniprot/uniprot_sprot-only2017_11.tar.gz" "${RAW}/uniprot/release_2017_11"
-UNIPROT_T0_INPUT="$(find_uniprot_input "${RAW}/uniprot/release_2017_02")"
-UNIPROT_T1_INPUT="$(find_uniprot_input "${RAW}/uniprot/release_2017_11")"
-echo "  UniProt t0 input: ${UNIPROT_T0_INPUT}"
-echo "  UniProt t1 input: ${UNIPROT_T1_INPUT}"
+if [ "$HISTORICAL_TRAINING_SNAPSHOT" = "september-2016" ]; then
+  extract_tar_once "$TRAINING_ARCHIVE" "${RAW}/uniprot/release_2016_08"
+  TRAINING_UNIPROT_INPUT="$(find_uniprot_input "${RAW}/uniprot/release_2016_08")"
+else
+  TRAINING_UNIPROT_INPUT="$(find_uniprot_input "${RAW}/uniprot/release_2017_02")"
+fi
+TARGET_T0_SPROT_INPUT="$(find_uniprot_input "${RAW}/uniprot/release_2017_02")"
+TARGET_T1_SPROT_INPUT="$(find_uniprot_input "${RAW}/uniprot/release_2017_11")"
+echo "  Training UniProt input: ${TRAINING_UNIPROT_INPUT}"
+echo "  Target-map t0 Swiss-Prot input: ${TARGET_T0_SPROT_INPUT}"
+echo "  Target-map t1 Swiss-Prot input: ${TARGET_T1_SPROT_INPUT}"
+
+echo "==> [3a/8] Extract official CAFA3/DeepGOPlus archive"
+mkdir -p "${REFERENCE}/deepgoplus_pickles"
+extract_archive "$OFFICIAL_CAFA3_ARCHIVE" "${REFERENCE}/deepgoplus_pickles"
+OFFICIAL_TARGET_FASTA="$(find "${REFERENCE}/deepgoplus_pickles" -type f -path '*/CAFA3_targets/targets_all.fasta' | sort | head -1 || true)"
+OFFICIAL_TARGET_MAPPING_DIR="$(find "${REFERENCE}/deepgoplus_pickles" -type d -path '*/CAFA3_targets/Mapping files' | sort | head -1 || true)"
+OFFICIAL_TRAINING_ANNOTATIONS="$(find "${REFERENCE}/deepgoplus_pickles" -type f -path '*/CAFA3_training_data/uniprot_sprot_exp.txt' | sort | head -1 || true)"
+for required in "$OFFICIAL_TARGET_FASTA" "$OFFICIAL_TRAINING_ANNOTATIONS"; do
+  [ -f "$required" ] || { echo "Missing official CAFA3 file in $OFFICIAL_CAFA3_ARCHIVE" >&2; exit 1; }
+done
+[ -d "$OFFICIAL_TARGET_MAPPING_DIR" ] || {
+  echo "Missing official CAFA3 mapping directory in $OFFICIAL_CAFA3_ARCHIVE" >&2
+  exit 1
+}
+echo "  Official target FASTA: ${OFFICIAL_TARGET_FASTA}"
+echo "  Official target mappings: ${OFFICIAL_TARGET_MAPPING_DIR}"
+echo "  Official training labels: ${OFFICIAL_TRAINING_ANNOTATIONS}"
 
 UNIPROT_T0_TREMBL="${RAW}/uniprot/release_2017_02/uniprot_trembl_cafa3_targets.dat.gz"
 UNIPROT_T1_TREMBL="${RAW}/uniprot/release_2017_11/uniprot_trembl_cafa3_targets.dat.gz"
 if [ "$INCLUDE_TREMBL_TARGETS" = "1" ]; then
-  echo "==> [3a/8] Stream-filter historical TrEMBL target populations"
+  echo "==> [3b/8] Stream-filter historical TrEMBL target populations"
   filter_trembl_archive_url "UniProt 2017_02 TrEMBL" "$UNIPROT_T0_FULL_URL" "$UNIPROT_T0_TREMBL"
   filter_trembl_archive_url "UniProt 2017_11 TrEMBL" "$UNIPROT_T1_FULL_URL" "$UNIPROT_T1_TREMBL"
 else
-  echo "==> [3a/8] INCLUDE_TREMBL_TARGETS=0; running Swiss-Prot-only target diagnostic"
+  echo "==> [3b/8] INCLUDE_TREMBL_TARGETS=0; running Swiss-Prot-only target diagnostic"
 fi
 
-echo "==> [3b/8] Resolve GOA inputs"
+echo "==> [3c/8] Resolve GOA inputs"
 GOA_T0_INPUT="$(decompress_gaf_if_requested "${RAW}/goa/goa_uniprot_all.gaf.163.gz")"
 GOA_T1_INPUT="$(decompress_gaf_if_requested "${RAW}/goa/goa_uniprot_all.gaf.172.gz")"
 echo "  GOA t0 input: ${GOA_T0_INPUT}"
@@ -414,8 +534,13 @@ BUILDER_CMD=(
   "$PYTHON_BIN" -m cafa_benchmark_builder
   --source-mode snapshots
   --profile cafa3-reconstructed
-  --uniprot-t0 "$UNIPROT_T0_INPUT"
-  --uniprot-t1 "$UNIPROT_T1_INPUT"
+  --uniprot-t0 "$TRAINING_UNIPROT_INPUT"
+  --uniprot-t1 "$TARGET_T1_SPROT_INPUT"
+  --target-uniprot-t0 "$TARGET_T0_SPROT_INPUT"
+  --target-uniprot-t1 "$TARGET_T1_SPROT_INPUT"
+  --target-universe-policy "$TARGET_UNIVERSE_POLICY"
+  --training-snapshot-id "$TRAINING_SNAPSHOT_ID"
+  --training-snapshot-date "$TRAINING_SNAPSHOT_DATE"
   --goa-t0 "$GOA_T0_INPUT"
   --goa-t1 "$GOA_T1_INPUT"
   --go-obo "${RAW}/go/2017-02-01/go-basic.obo"
@@ -431,12 +556,21 @@ BUILDER_CMD=(
 )
 if [ "$INCLUDE_TREMBL_TARGETS" = "1" ]; then
   BUILDER_CMD+=(
-    --uniprot-t0 "$UNIPROT_T0_TREMBL"
-    --uniprot-t1 "$UNIPROT_T1_TREMBL"
+    --target-uniprot-t0 "$UNIPROT_T0_TREMBL"
+    --target-uniprot-t1 "$UNIPROT_T1_TREMBL"
     --include-unreviewed-targets
   )
 else
   BUILDER_CMD+=(--target-reviewed-only)
+fi
+if [ "$HISTORICAL_TRAINING_SNAPSHOT" = "september-2016" ]; then
+  BUILDER_CMD+=(--training-annotations-file "$OFFICIAL_TRAINING_ANNOTATIONS")
+fi
+if [ "$TARGET_UNIVERSE_POLICY" = "official-cafa3-targets" ]; then
+  BUILDER_CMD+=(
+    --official-target-fasta "$OFFICIAL_TARGET_FASTA"
+    --official-target-mapping-dir "$OFFICIAL_TARGET_MAPPING_DIR"
+  )
 fi
 printf '%q ' "${BUILDER_CMD[@]}" > "${LOGS}/builder_command.txt"
 echo >> "${LOGS}/builder_command.txt"
@@ -463,31 +597,8 @@ if [ -n "${DEEPGOPLUS_PICKLES_DIR:-}" ] && [ -d "${DEEPGOPLUS_PICKLES_DIR}" ]; t
   REFERENCE_PICKLE_DIR="$(locate_complete_set "${REFERENCE}/deepgoplus_pickles" "${PICKLE_FILES[@]}" || true)"
   PICKLE_STATUS="copied from DEEPGOPLUS_PICKLES_DIR=${DEEPGOPLUS_PICKLES_DIR}"
 else
-  DEEPGOPLUS_PICKLES_URL="${DEEPGOPLUS_PICKLES_URL:-$(discover_deepgoplus_url)}"
-  DEEPGOPLUS_PICKLES_URL="${DEEPGOPLUS_PICKLES_URL:-$DEFAULT_DEEPGOPLUS_PICKLES_URL}"
-  if [ -n "$DEEPGOPLUS_PICKLES_URL" ]; then
-    case "$DEEPGOPLUS_PICKLES_URL" in
-      *.tar.gz) PICKLE_SUFFIX=".tar.gz" ;;
-      *.tgz) PICKLE_SUFFIX=".tgz" ;;
-      *.zip) PICKLE_SUFFIX=".zip" ;;
-      *) PICKLE_SUFFIX=".archive" ;;
-    esac
-    PICKLE_ARCHIVE="${REFERENCE}/deepgoplus_pickles_reference${PICKLE_SUFFIX}"
-    if download "$DEEPGOPLUS_PICKLES_URL" "$PICKLE_ARCHIVE"; then
-      mkdir -p "${REFERENCE}/deepgoplus_pickles"
-      if extract_archive "$PICKLE_ARCHIVE" "${REFERENCE}/deepgoplus_pickles"; then
-        REFERENCE_PICKLE_DIR="$(locate_complete_set "${REFERENCE}/deepgoplus_pickles" "${PICKLE_FILES[@]}" || true)"
-        PICKLE_STATUS="downloaded from ${DEEPGOPLUS_PICKLES_URL}"
-      else
-        PICKLE_STATUS="downloaded but extraction failed for ${DEEPGOPLUS_PICKLES_URL}; pickle comparison skipped"
-        REFERENCE_PICKLE_DIR=""
-      fi
-    else
-      PICKLE_STATUS="download failed for ${DEEPGOPLUS_PICKLES_URL}; pickle comparison skipped"
-      rm -f "$PICKLE_ARCHIVE"
-      REFERENCE_PICKLE_DIR=""
-    fi
-  fi
+  REFERENCE_PICKLE_DIR="$(locate_complete_set "${REFERENCE}/deepgoplus_pickles" "${PICKLE_FILES[@]}" || true)"
+  PICKLE_STATUS="downloaded/staged from ${DEEPGOPLUS_PICKLES_URL}"
 fi
 if [ -z "$REFERENCE_PICKLE_DIR" ]; then
   echo "  DeepGOPlus reference pickles not found; comparison will continue CSV-only."

@@ -32,6 +32,15 @@ PICKLE_FILES = [
     "train_data_valid.pkl",
 ]
 
+PREVIOUS_7061284 = {
+    "training_proteins": 71824,
+    "test_proteins": 3060,
+    "training_defined_terms": 5311,
+    "bp_test_proteins": 2323,
+    "cc_test_proteins": 861,
+    "mf_test_proteins": 730,
+}
+
 
 def fmt(value: Any) -> str:
     if value is None:
@@ -421,7 +430,42 @@ def markdown_table(rows: list[dict[str, Any]], fields: list[str]) -> str:
     return "\n".join(out) + "\n"
 
 
-def write_report(path: Path, status: str, manifest_md: Path | None, csv_rows: list[dict[str, Any]], pickle_rows: list[dict[str, Any]]) -> None:
+def compare_previous_run(
+    generated_dir: Path, csv_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    current: dict[str, int | None] = {}
+    for metric, filename in (
+        ("training_proteins", "train_data.pkl"),
+        ("test_proteins", "test_data.pkl"),
+        ("training_defined_terms", "terms.pkl"),
+    ):
+        path = locate_file(generated_dir, filename)
+        current[metric] = len(pd.read_pickle(path)) if path else None
+    by_name = {row["file"]: row for row in csv_rows}
+    for prefix in ("bp", "cc", "mf"):
+        value = by_name.get(f"{prefix}-test.csv", {}).get("generated_rows")
+        current[f"{prefix}_test_proteins"] = int(value) if value is not None else None
+    return [
+        {
+            "metric": metric,
+            "previous_7061284": previous,
+            "current": current.get(metric),
+            "delta": (
+                current[metric] - previous if current.get(metric) is not None else None
+            ),
+        }
+        for metric, previous in PREVIOUS_7061284.items()
+    ]
+
+
+def write_report(
+    path: Path,
+    status: str,
+    manifest_md: Path | None,
+    csv_rows: list[dict[str, Any]],
+    pickle_rows: list[dict[str, Any]],
+    previous_rows: list[dict[str, Any]],
+) -> None:
     lines = ["# CAFA3 Historical Validation Report", ""]
     lines.append(f"Final status: **{status}**")
     lines.append("")
@@ -448,6 +492,11 @@ def write_report(path: Path, status: str, manifest_md: Path | None, csv_rows: li
         "file", "status", "generated_exists", "reference_exists", "generated_shape", "reference_shape",
         "protein_jaccard", "annotation_or_term_jaccard",
     ]))
+    lines.append("## Difference From Raw-Snapshot Run 7061284")
+    lines.append("")
+    lines.append(markdown_table(previous_rows, [
+        "metric", "previous_7061284", "current", "delta",
+    ]))
     lines.append("## Known Policy Gaps To Consider")
     lines.append("")
     lines.append("- CAFA3 README includes TAS and IC while some public benchmark code keeps only EXP, IDA, IPI, IMP, IGI, IEP.")
@@ -455,7 +504,7 @@ def write_report(path: Path, status: str, manifest_md: Path | None, csv_rows: li
     lines.append("- MF protein-binding-only removal for GO:0005515 may not be implemented by the public Python path.")
     lines.append("- GO ontology release choice and obsolete/alternate GO handling may affect propagated labels.")
     lines.append("- Official CAFA3 test IDs and generated UniProt accessions are aligned by exact sequence for test-label comparison.")
-    lines.append("- CAFA3 training sequences were frozen in September 2016, earlier than the February 2017 target t0 baseline used by the raw-snapshot experiment.")
+    lines.append("- The official CAFA3 training package was dated September 2016; the manifest records whether this run used the closest public pre-freeze snapshot or the February-2017 legacy option.")
     lines.append("- Reference CSVs may include preprocessing decisions made outside the public benchmark-construction code.")
     lines.append("")
     path.write_text("\n".join(lines))
@@ -475,6 +524,7 @@ def main() -> None:
     pickle_rows, pickle_protein_rows, pickle_term_rows = compare_pickles(args.generated_dir, args.reference_pickle_dir)
     protein_rows.extend(pickle_protein_rows)
     term_rows.extend(pickle_term_rows)
+    previous_rows = compare_previous_run(args.generated_dir, csv_rows)
 
     write_tsv(args.reports_dir / "csv_comparison.tsv", csv_rows, [
         "file", "generated_exists", "reference_exists", "generated_rows", "reference_rows", "row_diff",
@@ -511,8 +561,18 @@ def main() -> None:
         "generated_only_count", "reference_only_count", "jaccard",
         "generated_only_preview", "reference_only_preview",
     ])
+    write_tsv(args.reports_dir / "previous_7061284_comparison.tsv", previous_rows, [
+        "metric", "previous_7061284", "current", "delta",
+    ])
     status = status_from_csv_rows(csv_rows)
-    write_report(args.reports_dir / "cafa3_historical_validation_report.md", status, args.manifest_md, csv_rows, pickle_rows)
+    write_report(
+        args.reports_dir / "cafa3_historical_validation_report.md",
+        status,
+        args.manifest_md,
+        csv_rows,
+        pickle_rows,
+        previous_rows,
+    )
     print(f"CAFA3 historical validation status: {status}")
     print(f"Reports written to: {args.reports_dir}")
 

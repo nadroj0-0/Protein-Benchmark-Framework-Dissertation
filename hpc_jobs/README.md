@@ -62,11 +62,23 @@ For benchmark validation:
 - `hpc_cafa3_deepgoplus_validation.sh` validates the released DeepGOPlus/TEMPROT
   intermediate path and is the preferred lightweight historical validation.
 - `hpc_cafa3_historical_validation.sh` runs the heavier raw-snapshot audit and
-  stream-filters reviewed and unreviewed CAFA3 target-taxon records, applies
-  ontology-specific NK/LK eligibility, and retains its regenerated nine CSVs
-  and five pickle intermediates with the comparison reports. Its manifest also
-  records that the official September 2016 training package predates the
-  February 2017 target baseline used by this raw-snapshot approximation.
+  defaults to the closest public pre-freeze training source (UniProtKB 2016_08)
+  and the released CAFA3 target FASTA/mappings. It stream-filters historical
+  TrEMBL for conservative target-to-UniProt mapping, applies ontology-specific
+  NK/LK eligibility, and retains its regenerated nine CSVs and five pickle
+  intermediates with comparison and target-mapping reports. The previous
+  February-2017/reconstructed route remains selectable as a legacy comparison.
+
+The primary historical submission is:
+
+```bash
+qsub -v HISTORICAL_TRAINING_SNAPSHOT=september-2016,TARGET_UNIVERSE_POLICY=official-cafa3-targets \
+  hpc_jobs/active/hpc_cafa3_historical_validation.sh
+```
+
+Missing historical sources are downloaded into scratch. Optional local archive
+overrides are `HISTORICAL_TRAINING_UNIPROT_ARCHIVE` and
+`OFFICIAL_CAFA3_ARCHIVE_INPUT`.
 
 Validation wrappers remove scratch after completion. The lightweight validation
 jobs copy reports/logs; the raw-snapshot audit additionally retains its generated

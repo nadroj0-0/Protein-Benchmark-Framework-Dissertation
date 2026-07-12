@@ -21,6 +21,9 @@ CAFA-file to DeepGOPlus-pickle to TEMPROT/PFP-CSV paths remain intact.
   alternatives.
 - GO IDs are resolved against their matching source ontology and then mapped
   into the frozen `t0` prediction graph.
+- Source-resolution diagnostics are persisted before strict QC. A raw ID that
+  is unresolved only in the nearest retained source product may use an exact
+  live match in the frozen graph; `consider` terms are never selected.
 - Final CAFA3 protein-binding-only MFO targets are removed under the default
   profile policy.
 
@@ -48,6 +51,13 @@ ontology/split outputs. The builder writes input/output checksums, a complete
 policy/environment manifest, per-target flow, exclusion reasons, evidence and
 taxon summaries, and aggregate statistics.
 
+The same package now supports a historical-only official-target catalogue.
+Released CAFA target IDs and sequences remain authoritative, while conservative
+UniProt mappings are reported as mapped, unmapped or ambiguous. The historical
+runner selects UniProtKB 2016_08 as the nearest public pre-freeze Swiss-Prot
+snapshot and retains the former February-2017 route as an explicit legacy
+comparison. These controls do not change either contemporary profile.
+
 ## Operations
 
 The reusable runner is:
@@ -73,6 +83,11 @@ The public GO archive does not contain a standalone product directory for the
 preceding release (2025-02-06) and uses 2025-03-16 only for source-ID
 normalisation. This explicit approximation is recorded in the build manifest
 and must be stated in the dissertation methodology.
+
+The exact GOA 225 rows affected by that archive gap, plus valid t1-only terms
+outside the frozen graph, are written to dedicated TSVs before any strict-QC
+failure. Production outputs remain incomplete until the full cluster rerun
+finishes and validates all CSVs.
 
 ## Remaining scientific decision
 

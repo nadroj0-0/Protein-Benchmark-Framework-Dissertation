@@ -106,6 +106,14 @@ class BuildConfig:
     go_obo_t0: Path | None = None
     go_obo_t1: Path | None = None
     report_dir: Path | None = None
+    target_universe_policy: str = "reconstructed-all-qualifying"
+    official_target_fastas: tuple[Path, ...] = ()
+    official_target_mapping_dir: Path | None = None
+    target_uniprot_t0: tuple[Path, ...] = ()
+    target_uniprot_t1: tuple[Path, ...] = ()
+    training_annotations_file: Path | None = None
+    training_snapshot_id: str | None = None
+    training_snapshot_date: str | None = None
     profile_name: str = "contemporary-cafa3-style"
     training_taxa: frozenset[str] = field(default_factory=frozenset)
     target_taxa: frozenset[str] = field(default_factory=frozenset)
@@ -126,6 +134,7 @@ class BuildConfig:
     write_intermediates: bool = True
     write_checksums: bool = True
     strict_qc: bool = True
+    allow_frozen_source_fallback: bool = True
     max_gaf_records: int | None = None
 
     @property

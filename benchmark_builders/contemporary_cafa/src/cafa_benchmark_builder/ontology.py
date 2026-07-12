@@ -23,9 +23,12 @@ class Ontology(object):
 
     def __init__(self, filename: str | Path, with_rels: bool = False):
         self.filename = Path(filename)
+        self.data_version: str | None = None
         self.canonical_ids: dict[str, str] = {}
         self.obsolete_replacements: dict[str, str] = {}
         self.primary_terms: set[str] = set()
+        self.term_metadata: dict[str, dict] = {}
+        self.raw_alias_to_term: dict[str, str] = {}
         self.ont = self.load(filename, with_rels)
         self.ic = None
 
@@ -50,6 +53,20 @@ class Ontology(object):
         canonical = self.resolve_term(term_id)
         return self.ont.get(canonical) if canonical else None
 
+    def describe_id(self, term_id: str) -> dict[str, object]:
+        primary = self.raw_alias_to_term.get(term_id, term_id)
+        metadata = self.term_metadata.get(primary)
+        canonical = self.resolve_term(term_id)
+        return {
+            "exists": metadata is not None,
+            "primary_id": primary if metadata is not None else "",
+            "is_alt_id": bool(metadata is not None and term_id != primary),
+            "canonical_id": canonical or "",
+            "is_obsolete": bool(metadata and metadata.get("is_obsolete")),
+            "replaced_by": tuple(metadata.get("replaced_by", ())) if metadata else (),
+            "consider": tuple(metadata.get("consider", ())) if metadata else (),
+        }
+
     def calculate_ic(self, annots):
         cnt = Counter()
         for x in annots:
@@ -72,6 +89,9 @@ class Ontology(object):
             for raw_line in handle:
                 line = raw_line.strip()
                 if not line:
+                    continue
+                if line.startswith("data-version:"):
+                    self.data_version = line.split(":", 1)[1].strip()
                     continue
                 if line == "[Term]":
                     if obj is not None and "id" in obj:
@@ -114,6 +134,12 @@ class Ontology(object):
                     obj["consider"].append(value)
             if obj is not None and "id" in obj:
                 objects[obj["id"]] = obj
+
+        self.term_metadata = objects
+        for term_id, term in objects.items():
+            self.raw_alias_to_term[term_id] = term_id
+            for alt_id in term["alt_ids"]:
+                self.raw_alias_to_term[alt_id] = term_id
 
         ont: dict[str, dict] = {}
         for term_id, term in objects.items():
