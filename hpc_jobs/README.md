@@ -34,10 +34,9 @@ qsub hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh
 The active wrappers clone the full framework into node-local scratch and
 then call the normal entrypoints under `scripts/`.
 
-The historical and contemporary benchmark-generation wrappers activate the
-shared `mmfp` environment only as a bootstrap, then install the pinned NumPy and
-pandas versions into an isolated scratch virtual environment. This keeps the
-model environment unchanged while making benchmark generation reproducible.
+The historical and contemporary benchmark-generation wrappers activate and use
+the shared `mmfp` environment directly. They do not create another virtual
+environment or replace its NumPy and pandas installations.
 
 `hpc_contemporary_temporal_benchmark.sh` stages any locally available frozen
 2025/2026 UniProt, GOA and GO inputs, downloads missing inputs into scratch,

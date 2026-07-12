@@ -358,15 +358,7 @@ require_file "$FILTER_DAT"
 require_file "$EXTRACT_MEMBER"
 require_file "$TARGET_TAXA"
 
-if [[ "$ALLOW_DEPENDENCY_MISMATCH" != "1" ]]; then
-    "$PYTHON_BIN" -c '
-import importlib.metadata
-expected = {"numpy": "2.0.2", "pandas": "2.3.3"}
-actual = {name: importlib.metadata.version(name) for name in expected}
-if actual != expected:
-    raise SystemExit(f"Builder dependency mismatch: expected {expected}, found {actual}")
-'
-fi
+"$PYTHON_BIN" -c 'import numpy, pandas'
 
 ensure_ontologies
 ensure_goa

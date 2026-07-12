@@ -110,7 +110,7 @@ split so Python hash randomisation cannot change the outputs.
 
 ## Direct CLI use
 
-Install the pinned builder environment:
+Install the builder and its compatible dependencies for direct CLI use:
 
 ```bash
 python -m pip install -e benchmark_builders/contemporary_cafa
@@ -176,8 +176,7 @@ qsub -v PROFILE=supervisor hpc_jobs/active/hpc_contemporary_temporal_benchmark.s
 
 The wrapper requests 64 GB RAM and 200 GB scratch. It copies any available
 frozen inputs from `${PROTEIN_DATABASE_ROOT:-$HOME/protein_databases}`, downloads
-anything missing directly into scratch, activates `mmfp`, creates an isolated
-scratch virtual environment containing the pinned builder versions, invokes the
+anything missing directly into scratch, activates and uses `mmfp`, invokes the
 normal runner, and copies outputs/reports/logs to
 `$HOME/contemporary_cafa_benchmark_results`, and removes its scratch directory
 on success, error, interruption or `qdel` termination.

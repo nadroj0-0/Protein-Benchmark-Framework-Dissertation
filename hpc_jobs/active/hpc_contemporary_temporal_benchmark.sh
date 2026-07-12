@@ -104,7 +104,7 @@ cd "$FRAMEWORK_DIR"
 source scripts/reproduction_common.sh
 load_framework_paths "$FRAMEWORK_DIR"
 activate_or_create_mmfp_env
-activate_isolated_benchmark_builder_env "$FRAMEWORK_DIR" "$WORK/cafa_builder_env"
+export PYTHON_BIN="$(command -v python)"
 
 echo "Staging frozen database inputs"
 if [[ -n "${UNIPROT_T0_INPUTS:-}" || -n "${UNIPROT_T1_INPUTS:-}" ]]; then

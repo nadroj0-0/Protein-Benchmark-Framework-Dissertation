@@ -48,7 +48,7 @@ cd "$FRAMEWORK_DIR"
 source scripts/reproduction_common.sh
 load_framework_paths "$FRAMEWORK_DIR"
 activate_or_create_mmfp_env
-activate_isolated_benchmark_builder_env "$FRAMEWORK_DIR" "$WORK/cafa_builder_env"
+export PYTHON_BIN="$(command -v python)"
 
 echo
 echo "Running CAFA3 historical validation workflow"
