@@ -165,7 +165,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def config_from_args(args: argparse.Namespace) -> BuildConfig:
-    require_args(args, ["uniprot_t0", "uniprot_t1", "goa_t0", "goa_t1"])
+    required = ["uniprot_t0"]
+    if args.test_annotations_file is None:
+        required.extend(["uniprot_t1", "goa_t0", "goa_t1"])
+    elif args.training_annotations_file is None:
+        required.append("goa_t0")
+    require_args(args, required)
     profile = BENCHMARK_PROFILES[args.profile]
     training_policy = args.training_taxon_policy or profile.training_taxon_policy
     target_policy = args.target_taxon_policy or profile.target_taxon_policy
@@ -189,7 +194,7 @@ def config_from_args(args: argparse.Namespace) -> BuildConfig:
 
     return BuildConfig(
         uniprot_t0=tuple(args.uniprot_t0),
-        uniprot_t1=tuple(args.uniprot_t1),
+        uniprot_t1=tuple(args.uniprot_t1 or ()),
         goa_t0=args.goa_t0,
         goa_t1=args.goa_t1,
         go_obo=args.go_obo,
@@ -203,6 +208,7 @@ def config_from_args(args: argparse.Namespace) -> BuildConfig:
         target_uniprot_t0=tuple(args.target_uniprot_t0 or ()),
         target_uniprot_t1=tuple(args.target_uniprot_t1 or ()),
         training_annotations_file=args.training_annotations_file,
+        test_annotations_file=args.test_annotations_file,
         training_snapshot_id=args.training_snapshot_id,
         training_snapshot_date=args.training_snapshot_date,
         profile_name=args.profile,

@@ -99,8 +99,8 @@ NAMESPACE_TO_PREFIX = {v: k for k, v in PREFIX_TO_NAMESPACE.items()}
 class BuildConfig:
     uniprot_t0: tuple[Path, ...]
     uniprot_t1: tuple[Path, ...]
-    goa_t0: Path
-    goa_t1: Path
+    goa_t0: Path | None
+    goa_t1: Path | None
     go_obo: Path
     output_dir: Path
     go_obo_t0: Path | None = None
@@ -112,6 +112,7 @@ class BuildConfig:
     target_uniprot_t0: tuple[Path, ...] = ()
     target_uniprot_t1: tuple[Path, ...] = ()
     training_annotations_file: Path | None = None
+    test_annotations_file: Path | None = None
     training_snapshot_id: str | None = None
     training_snapshot_date: str | None = None
     profile_name: str = "contemporary-cafa3-style"

@@ -36,6 +36,7 @@ echo "Working dir : $WORK"
 echo "Output dir  : $OUTDIR/$RUN_TAG"
 echo "Training    : ${HISTORICAL_TRAINING_SNAPSHOT:-september-2016}"
 echo "Targets     : ${TARGET_UNIVERSE_POLICY:-official-cafa3-targets}"
+echo "Test source : ${HISTORICAL_TEST_SOURCE:-official-groundtruth}"
 echo "Started at  : $(date)"
 echo
 
@@ -67,6 +68,7 @@ export DECOMPRESS_GOA=1
 export USE_PIGZ=1
 export HISTORICAL_TRAINING_SNAPSHOT="${HISTORICAL_TRAINING_SNAPSHOT:-september-2016}"
 export TARGET_UNIVERSE_POLICY="${TARGET_UNIVERSE_POLICY:-official-cafa3-targets}"
+export HISTORICAL_TEST_SOURCE="${HISTORICAL_TEST_SOURCE:-official-groundtruth}"
 
 bash scripts/validation/run_cafa3_historical_validation.sh
 STATUS=$?

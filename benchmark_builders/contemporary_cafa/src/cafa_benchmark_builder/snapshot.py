@@ -13,8 +13,10 @@ import subprocess
 import pandas as pd
 
 from .builder import (
+    build_deepgoplus_dataframe_from_fasta,
     build_training_dataframe,
     export_pfp_csvs,
+    load_deepgoplus_annotation_file,
     make_terms_dataframe,
     propagate_annotations,
     split_train_valid,
@@ -281,6 +283,68 @@ def _build_test_dataframe(
     if not frame.empty:
         frame = frame.sort_values("proteins", kind="stable").reset_index(drop=True)
     return frame, flow
+
+
+def _build_released_test_dataframe(
+    go: Ontology,
+    fasta_paths: tuple[Path, ...],
+    annotations_path: Path,
+    target_catalog: ProteinCatalog,
+) -> tuple[pd.DataFrame, list[dict[str, object]], AnnotationLoadResult]:
+    """Recreate DeepGOPlus test_data.pkl from released CAFA ground truth."""
+    direct_annotations = load_deepgoplus_annotation_file(annotations_path)
+    frames = []
+    for fasta_path in fasta_paths:
+        frame, _ = build_deepgoplus_dataframe_from_fasta(
+            go=go,
+            sequences_file=fasta_path,
+            annots=direct_annotations,
+            count_terms=False,
+        )
+        frames.append(frame)
+    test_df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(
+        columns=["proteins", "sequences", "annotations"]
+    )
+    if test_df["proteins"].duplicated().any():
+        duplicates = sorted(test_df.loc[test_df["proteins"].duplicated(), "proteins"].unique())
+        raise ValueError(f"Duplicate released CAFA test IDs: {duplicates[:10]}")
+
+    selected_ids = set(test_df["proteins"])
+    unknown_ids = selected_ids - set(target_catalog.records)
+    if unknown_ids:
+        raise ValueError(f"Released test labels reference unknown CAFA targets: {sorted(unknown_ids)[:10]}")
+    flow = []
+    for protein_id in test_df["proteins"]:
+        record = target_catalog.records[protein_id]
+        flow.append({
+            "t0_id": protein_id,
+            "t1_id": protein_id,
+            "taxon_id": record.taxon_id or "",
+            "sequence_changed": 0,
+            "t0_annotation_count": 0,
+            "t1_annotation_count": len(direct_annotations[protein_id]),
+            "blocked_ontologies": "",
+            "eligible_ontologies": "released-groundtruth",
+            "status": "selected",
+            "reason": "released_official_groundtruth",
+        })
+
+    kept_rows = sum(len(direct_annotations[protein_id]) for protein_id in selected_ids)
+    skipped_rows = sum(
+        len(terms) for protein_id, terms in direct_annotations.items()
+        if protein_id not in selected_ids
+    )
+    result = AnnotationLoadResult(
+        annotations={protein_id: set(direct_annotations[protein_id]) for protein_id in selected_ids},
+        counters=Counter({
+            "processed": kept_rows + skipped_rows,
+            "kept_rows": kept_rows,
+            "proteins": len(selected_ids),
+            "skipped_outside_sequences": skipped_rows,
+            "released_groundtruth": kept_rows,
+        }),
+    )
+    return test_df, flow, result
 
 
 def _write_tsv(path: Path, fieldnames: list[str], rows: list[dict[str, object]]) -> None:
@@ -584,6 +648,9 @@ def _write_reports(
             _counter_dict(training_annotation_result.counters)
             if training_annotation_result else "t0_goa"
         ),
+        "test_annotation_source": (
+            "released_official_groundtruth" if config.test_annotations_file else "temporal_goa"
+        ),
         "official_target_mapping": _counter_dict(Counter(
             row["status"] for row in (official_target_rows or [])
         )),
@@ -638,8 +705,12 @@ def _write_reports(
                 str(config.training_annotations_file)
                 if config.training_annotations_file else None
             ),
-            "goa_t0": str(config.goa_t0),
-            "goa_t1": str(config.goa_t1),
+            "test_annotations_file": (
+                str(config.test_annotations_file)
+                if config.test_annotations_file else None
+            ),
+            "goa_t0": str(config.goa_t0) if config.goa_t0 else None,
+            "goa_t1": str(config.goa_t1) if config.goa_t1 else None,
             "benchmark_ontology": str(config.go_obo),
             "t0_ontology": str(config.ontology_t0),
             "t1_ontology": str(config.ontology_t1),
@@ -654,10 +725,13 @@ def _write_reports(
             list(config.uniprot_t0) + list(config.uniprot_t1)
             + list(config.target_uniprot_t0) + list(config.target_uniprot_t1)
             + list(config.official_target_fastas) + [
-            config.goa_t0, config.goa_t1, config.go_obo, config.ontology_t0, config.ontology_t1,
+            config.go_obo, config.ontology_t0, config.ontology_t1,
         ])
+        input_paths.extend(path for path in (config.goa_t0, config.goa_t1) if path)
         if config.training_annotations_file:
             input_paths.append(config.training_annotations_file)
+        if config.test_annotations_file:
+            input_paths.append(config.test_annotations_file)
         if config.official_target_mapping_dir:
             input_paths.extend(sorted(config.official_target_mapping_dir.glob("*")))
         input_checksums = report_dir / "input_checksums.sha256"
@@ -675,6 +749,7 @@ def _write_reports(
         f"- Training proteins before split: {len(train_df)}\n"
         f"- Test proteins before ontology export: {len(test_df)}\n"
         f"- Training-defined GO terms: {len(terms_df)}\n"
+        f"- Test annotation source: `{'released-official-groundtruth' if config.test_annotations_file else 'temporal-goa'}`\n"
         f"- t1 rows excluded as backfill: {t1_result.counters['skipped_backfill']}\n"
         f"- t1 rows after the endpoint cutoff: {t1_result.counters['skipped_after_cutoff']}\n"
         f"- Test eligibility policy: `{config.test_eligibility_policy}`\n"
@@ -713,14 +788,29 @@ def _validate_config(config: BuildConfig) -> None:
     if config.target_universe_policy == "official-cafa3-targets":
         if config.profile_name != "cafa3-reconstructed":
             raise ValueError("Official CAFA3 target mode is historical-validation only")
-        if not config.official_target_fastas or config.official_target_mapping_dir is None:
-            raise ValueError("Official CAFA3 target mode requires FASTA files and a mapping directory")
-    for path in (
+        if not config.official_target_fastas:
+            raise ValueError("Official CAFA3 target mode requires FASTA files")
+        if config.test_annotations_file is None and config.official_target_mapping_dir is None:
+            raise ValueError("Raw-GOA official target mode requires a mapping directory")
+    if config.test_annotations_file:
+        if config.profile_name != "cafa3-reconstructed":
+            raise ValueError("Released CAFA3 test ground truth is historical-validation only")
+        if config.target_universe_policy != "official-cafa3-targets":
+            raise ValueError("Released CAFA3 test ground truth requires the official target universe")
+        if not config.test_annotations_file.is_file():
+            raise FileNotFoundError(config.test_annotations_file)
+    if config.training_annotations_file is None and config.goa_t0 is None:
+        raise ValueError("A t0 GOA is required when released training annotations are not supplied")
+    if config.test_annotations_file is None and (config.goa_t0 is None or config.goa_t1 is None):
+        raise ValueError("Both GOA snapshots are required for temporal test construction")
+    paths = (
         list(config.uniprot_t0) + list(config.uniprot_t1)
         + list(config.target_uniprot_t0) + list(config.target_uniprot_t1)
         + list(config.official_target_fastas)
-        + [config.goa_t0, config.goa_t1, config.go_obo, config.ontology_t0, config.ontology_t1]
-    ):
+        + [config.go_obo, config.ontology_t0, config.ontology_t1]
+        + [path for path in (config.goa_t0, config.goa_t1) if path]
+    )
+    for path in paths:
         if not Path(path).is_file():
             raise FileNotFoundError(path)
     if config.training_annotations_file and not config.training_annotations_file.is_file():
@@ -755,10 +845,17 @@ def build_snapshot_benchmark(config: BuildConfig) -> dict[str, Path]:
     LOGGER.info("Loaded %d canonical t0 training proteins", len(training_catalog.records))
     official_target_rows: list[dict[str, object]] = []
     if config.target_universe_policy == "official-cafa3-targets":
+        released_groundtruth = config.test_annotations_file is not None
         t0_reference_paths = config.target_uniprot_t0 or config.uniprot_t0
         t1_reference_paths = config.target_uniprot_t1 or config.uniprot_t1
-        t0_reference = load_protein_catalog(t0_reference_paths, frozenset(), False)
-        t1_reference = load_protein_catalog(t1_reference_paths, frozenset(), False)
+        t0_reference = (
+            ProteinCatalog() if released_groundtruth
+            else load_protein_catalog(t0_reference_paths, frozenset(), False)
+        )
+        t1_reference = (
+            ProteinCatalog() if released_groundtruth
+            else load_protein_catalog(t1_reference_paths, frozenset(), False)
+        )
         t0_official = load_official_target_catalog(
             config.official_target_fastas,
             config.official_target_mapping_dir,
@@ -775,7 +872,8 @@ def build_snapshot_benchmark(config: BuildConfig) -> dict[str, Path]:
         )
         t0_target_catalog = t0_official.catalog
         t1_target_catalog = t1_official.catalog
-        official_target_rows = t0_official.rows + t1_official.rows
+        if not released_groundtruth:
+            official_target_rows = t0_official.rows + t1_official.rows
     else:
         reconstructed_t0_paths = config.target_uniprot_t0 or config.uniprot_t0
         reconstructed_t1_paths = config.target_uniprot_t1 or config.uniprot_t1
@@ -798,33 +896,49 @@ def build_snapshot_benchmark(config: BuildConfig) -> dict[str, Path]:
         if config.training_annotations_file
         else _merge_catalogs(training_catalog, t0_target_catalog)
     )
-    LOGGER.info("Loading and normalising t0 GOA annotations from %s", config.goa_t0)
-    t0_result = load_normalized_annotation_map(
-        config.goa_t0,
-        alias_to_primary=annotation_catalog.alias_to_primary,
-        source_ontology=t0_go,
-        benchmark_ontology=benchmark_go,
-        other_ontology=t1_go,
-        snapshot="t0",
-        allow_frozen_source_fallback=config.allow_frozen_source_fallback,
-        evidence_codes=config.evidence_codes,
-        max_records=config.max_gaf_records,
-    )
-    LOGGER.info("Loading and normalising t1 GOA annotations from %s", config.goa_t1)
-    t1_result = load_normalized_annotation_map(
-        config.goa_t1,
-        alias_to_primary=t1_target_catalog.alias_to_primary,
-        source_ontology=t1_go,
-        benchmark_ontology=benchmark_go,
-        other_ontology=t0_go,
-        snapshot="t1",
-        allow_frozen_source_fallback=config.allow_frozen_source_fallback,
-        evidence_codes=config.evidence_codes,
-        target_taxa=config.target_taxa,
-        exclude_on_or_before=config.t0_cutoff if config.exclude_t1_backfill else None,
-        include_on_or_before=config.t1_cutoff,
-        max_records=config.max_gaf_records,
-    )
+    if config.goa_t0:
+        LOGGER.info("Loading and normalising t0 GOA annotations from %s", config.goa_t0)
+        t0_result = load_normalized_annotation_map(
+            config.goa_t0,
+            alias_to_primary=annotation_catalog.alias_to_primary,
+            source_ontology=t0_go,
+            benchmark_ontology=benchmark_go,
+            other_ontology=t1_go,
+            snapshot="t0",
+            allow_frozen_source_fallback=config.allow_frozen_source_fallback,
+            evidence_codes=config.evidence_codes,
+            max_records=config.max_gaf_records,
+        )
+    else:
+        LOGGER.info("Bypassing t0 GOA because released training and test annotations were supplied")
+        t0_result = AnnotationLoadResult(annotations={})
+
+    released_test_df: pd.DataFrame | None = None
+    released_test_flow: list[dict[str, object]] | None = None
+    if config.test_annotations_file:
+        LOGGER.info("Loading released CAFA3 test ground truth from %s", config.test_annotations_file)
+        released_test_df, released_test_flow, t1_result = _build_released_test_dataframe(
+            benchmark_go,
+            config.official_target_fastas,
+            config.test_annotations_file,
+            t0_target_catalog,
+        )
+    else:
+        LOGGER.info("Loading and normalising t1 GOA annotations from %s", config.goa_t1)
+        t1_result = load_normalized_annotation_map(
+            config.goa_t1,
+            alias_to_primary=t1_target_catalog.alias_to_primary,
+            source_ontology=t1_go,
+            benchmark_ontology=benchmark_go,
+            other_ontology=t0_go,
+            snapshot="t1",
+            allow_frozen_source_fallback=config.allow_frozen_source_fallback,
+            evidence_codes=config.evidence_codes,
+            target_taxa=config.target_taxa,
+            exclude_on_or_before=config.t0_cutoff if config.exclude_t1_backfill else None,
+            include_on_or_before=config.t1_cutoff,
+            max_records=config.max_gaf_records,
+        )
     preflight_reports = _write_preflight_diagnostics(
         config, t0_result, t1_result, official_target_rows
     )
@@ -864,30 +978,37 @@ def build_snapshot_benchmark(config: BuildConfig) -> dict[str, Path]:
         len(train_all_df), len(terms_df), len(train_df), len(valid_df),
     )
 
-    matches, t1_to_t0 = _build_identity_crosswalk(
-        t0_target_catalog, t1_target_catalog, config.sequence_change_policy
-    )
-    test_df, flow = _build_test_dataframe(
-        benchmark_go,
-        t0_target_catalog,
-        t1_target_catalog,
-        matches,
-        t1_to_t0,
-        target_t0_annots,
-        t1_result.annotations,
-        config.protein_binding_policy,
-        config.test_eligibility_policy,
-    )
+    if released_test_df is not None and released_test_flow is not None:
+        test_df, flow = released_test_df, released_test_flow
+    else:
+        matches, t1_to_t0 = _build_identity_crosswalk(
+            t0_target_catalog, t1_target_catalog, config.sequence_change_policy
+        )
+        test_df, flow = _build_test_dataframe(
+            benchmark_go,
+            t0_target_catalog,
+            t1_target_catalog,
+            matches,
+            t1_to_t0,
+            target_t0_annots,
+            t1_result.annotations,
+            config.protein_binding_policy,
+            config.test_eligibility_policy,
+        )
 
     test_ids = set(test_df["proteins"].tolist())
     if not test_ids <= target_t0_ids:
         raise ValueError("Test contains a protein absent from the t0 target snapshot")
     if (
+        config.test_annotations_file is None
+        and
         config.test_eligibility_policy == "global-no-knowledge"
         and test_ids & set(target_t0_annots)
     ):
         raise ValueError("Test contains a protein with a qualifying t0 annotation")
     if (
+        config.test_annotations_file is None
+        and
         config.test_eligibility_policy == "global-no-knowledge"
         and test_ids & set(train_all_df["proteins"].tolist())
     ):

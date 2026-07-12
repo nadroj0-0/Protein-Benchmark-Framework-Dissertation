@@ -289,7 +289,7 @@ new snapshot front end:
 They reproduce the released pickle-to-CSV and official-file-to-pickle stages.
 They do not apply the contemporary temporal candidate policy.
 
-## Raw CAFA3 historical validation
+## CAFA3 historical validation
 
 The separate repository-level historical runner supports two independent
 controls:
@@ -297,6 +297,7 @@ controls:
 ```text
 HISTORICAL_TRAINING_SNAPSHOT=september-2016 | february-2017-legacy
 TARGET_UNIVERSE_POLICY=official-cafa3-targets | reconstructed-all-qualifying
+HISTORICAL_TEST_SOURCE=official-groundtruth | raw-goa
 ```
 
 The primary validation defaults to `september-2016` plus
@@ -308,17 +309,32 @@ defensible public snapshot, not a claim that the organiser's private freeze is
 bit-identical.
 
 The released `data-cafa.tar.gz` supplies the official training annotation table,
-aggregate CAFA3 target FASTA, target mapping files and DeepGOPlus reference
-pickles. Official-target mode preserves released CAFA IDs and exact FASTA
-sequences. UniProt mappings are conservative and fully reported; unmapped,
-ambiguous and custom-source targets remain in the candidate catalogue. The
-February-2017/reconstructed combination remains a named legacy comparison.
+aggregate CAFA3 target FASTA, aggregate ground truth, exact ontology, target
+mapping files, and DeepGOPlus reference pickles. `official-groundtruth` preserves
+the released CAFA IDs and exact FASTA sequences without requiring a UniProt
+mapping. In `raw-goa` official-target mode, UniProt mappings remain conservative
+and fully reported; unmapped, ambiguous and custom-source targets remain in the
+candidate catalogue. The February-2017/reconstructed combination remains a
+named legacy comparison for raw-GOA runs.
 
 ```bash
 HISTORICAL_TRAINING_SNAPSHOT=september-2016 \
 TARGET_UNIVERSE_POLICY=official-cafa3-targets \
+HISTORICAL_TEST_SOURCE=official-groundtruth \
 bash scripts/validation/run_cafa3_historical_validation.sh
 ```
+
+`official-groundtruth` is the default and recreates the DeepGOPlus test pickle
+from the released CAFA3 `targets_all.fasta`, `leafonly_all.txt`, and packaged
+`go.obo`. It hard-gates the 3,328 test proteins and the 2,392 BP / 1,265 CC /
+1,137 MF CSV populations against the released artifacts. This validates the
+artifact path consumed by PFP; it does not claim raw reconstruction of the
+unavailable 15-Nov-2017 GOA snapshot.
+
+`raw-goa` preserves the forensic reconstruction using public GAF 163 and GAF
+172. It remains useful for quantifying the public-snapshot boundary, but GAF 172
+was generated on 21-Nov-2017 and cannot be converted exactly into the organizer
+t1 snapshot by filtering GAF annotation dates.
 
 Large inputs are acquired into scratch when no override is supplied. Optional
 local overrides are `HISTORICAL_TRAINING_UNIPROT_ARCHIVE` and

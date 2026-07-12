@@ -61,20 +61,25 @@ For benchmark validation:
   official CAFA3/DeepGOPlus file-to-pickle layer.
 - `hpc_cafa3_deepgoplus_validation.sh` validates the released DeepGOPlus/TEMPROT
   intermediate path and is the preferred lightweight historical validation.
-- `hpc_cafa3_historical_validation.sh` runs the heavier raw-snapshot audit and
-  defaults to the closest public pre-freeze training source (UniProtKB 2016_08)
-  and the released CAFA3 target FASTA/mappings. It stream-filters historical
-  TrEMBL for conservative target-to-UniProt mapping, applies ontology-specific
-  NK/LK eligibility, and retains its regenerated nine CSVs and five pickle
-  intermediates with comparison and target-mapping reports. The previous
-  February-2017/reconstructed route remains selectable as a legacy comparison.
+- `hpc_cafa3_historical_validation.sh` defaults to the released-groundtruth
+  historical artifact audit, the closest public pre-freeze training source
+  (UniProtKB 2016_08), and the released CAFA3 target FASTA, aggregate ground
+  truth, and DeepGOPlus ontology. It retains its regenerated nine CSVs and five
+  pickle intermediates with comparison reports. `raw-goa` enables the heavier
+  archived-GOA and TrEMBL mapping audit when that distinct forensic question is
+  required.
 
 The primary historical submission is:
 
 ```bash
-qsub -v HISTORICAL_TRAINING_SNAPSHOT=september-2016,TARGET_UNIVERSE_POLICY=official-cafa3-targets \
+qsub -v HISTORICAL_TRAINING_SNAPSHOT=september-2016,TARGET_UNIVERSE_POLICY=official-cafa3-targets,HISTORICAL_TEST_SOURCE=official-groundtruth \
   hpc_jobs/active/hpc_cafa3_historical_validation.sh
 ```
+
+Set `HISTORICAL_TEST_SOURCE=raw-goa` to rerun the heavier public-snapshot
+forensic reconstruction instead. The released-groundtruth default bypasses the
+large GOA/TrEMBL downloads because the curated CAFA test labels and target FASTA
+are authoritative for that validation claim.
 
 Missing historical sources are downloaded into scratch. Optional local archive
 overrides are `HISTORICAL_TRAINING_UNIPROT_ARCHIVE` and

@@ -181,6 +181,50 @@ class BenchmarkBuilderSmokeTest(unittest.TestCase):
                 {"GO:0009987", "GO:0008150", "GO:0005488", "GO:0003674"},
             )
 
+    def test_snapshot_build_can_use_released_cafa3_test_groundtruth(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out = root / "out"
+            mapping_dir = root / "mappings"
+            mapping_dir.mkdir()
+            training_annotations = root / "training.tsv"
+            test_fasta = root / "targets.fasta"
+            test_annotations = root / "leafonly_all.txt"
+            training_annotations.write_text(
+                "P00001\tGO:0009987\tP\n"
+                "P00002\tGO:0005488\tF\n"
+                "P00003\tGO:0005886\tC\n"
+            )
+            test_fasta.write_text(">T96060000001 TARGET_HUMAN\nMCCC\n")
+            test_annotations.write_text("T96060000001\tGO:0005886\n")
+
+            written = build_benchmark(BuildConfig(
+                uniprot_t0=(FIXTURES / "uniprot-t0.fasta",),
+                uniprot_t1=(),
+                goa_t0=None,
+                goa_t1=None,
+                go_obo=FIXTURES / "go-mini.obo",
+                output_dir=out,
+                target_universe_policy="official-cafa3-targets",
+                official_target_fastas=(test_fasta,),
+                official_target_mapping_dir=mapping_dir,
+                training_annotations_file=training_annotations,
+                test_annotations_file=test_annotations,
+                profile_name="cafa3-reconstructed",
+                target_taxa=frozenset({"9606"}),
+                min_count=1,
+                write_checksums=False,
+                strict_qc=False,
+            ))
+
+            test_df = pd.read_pickle(out / "test_data.pkl")
+            self.assertEqual(test_df["proteins"].tolist(), ["T96060000001"])
+            self.assertEqual(test_df["sequences"].tolist(), ["MCCC"])
+            self.assertEqual(set(test_df.loc[0, "annotations"]), {"GO:0005886", "GO:0005575"})
+            stats = json.loads((out / "reports" / "benchmark_statistics.json").read_text())
+            self.assertEqual(stats["test_annotation_source"], "released_official_groundtruth")
+            self.assertIn("cc-test", written)
+
     def test_named_evidence_policies_are_available(self):
         self.assertIn("TAS", EVIDENCE_POLICIES["cafa3-final"])
         self.assertIn("IC", EVIDENCE_POLICIES["cafa3-final"])
