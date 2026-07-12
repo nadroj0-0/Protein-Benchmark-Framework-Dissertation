@@ -81,6 +81,18 @@ forensic reconstruction instead. The released-groundtruth default bypasses the
 large GOA/TrEMBL downloads because the curated CAFA test labels and target FASTA
 are authoritative for that validation claim.
 
+The bounded raw-GOA policy matrix is submitted with:
+
+```bash
+bash hpc_jobs/submit_cafa3_raw_experiment_matrix.sh
+```
+
+It submits four independent jobs. Together with the completed date-proxy /
+backfill / February-ontology baseline, they isolate t1 snapshot membership,
+pre-t0 backfill removal, and use of the packaged DeepGOPlus ontology. The
+launcher deliberately does not resubmit the baseline. SGE schedules each job
+normally; the script does not force simultaneous execution.
+
 Missing historical sources are downloaded into scratch. Optional local archive
 overrides are `HISTORICAL_TRAINING_UNIPROT_ARCHIVE` and
 `OFFICIAL_CAFA3_ARCHIVE_INPUT`.

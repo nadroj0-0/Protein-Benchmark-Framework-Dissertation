@@ -121,6 +121,7 @@ class BuildConfig:
     evidence_codes: frozenset[str] = CAFA3_FINAL_EXP_CODES
     t0_cutoff: str | None = "20250308"
     t1_cutoff: str | None = "20260617"
+    t1_endpoint_policy: str = "assigned-date-proxy"
     test_eligibility_policy: str = "ontology-no-knowledge"
     exclude_t1_backfill: bool = True
     require_t0_presence: bool = True

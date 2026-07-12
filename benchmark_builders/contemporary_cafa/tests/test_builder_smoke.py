@@ -280,6 +280,33 @@ class BenchmarkBuilderSmokeTest(unittest.TestCase):
                     filename,
                 )
 
+    def test_snapshot_membership_policy_does_not_apply_t1_date_ceiling(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            outputs = {}
+            for policy in ("assigned-date-proxy", "snapshot-membership"):
+                out = root / policy
+                build_benchmark(BuildConfig(
+                    uniprot_t0=(FIXTURES / "uniprot-t0.fasta",),
+                    uniprot_t1=(FIXTURES / "uniprot-t1.fasta",),
+                    goa_t0=FIXTURES / "goa-t0.gaf",
+                    goa_t1=FIXTURES / "goa-t1.gaf",
+                    go_obo=FIXTURES / "go-mini.obo",
+                    output_dir=out,
+                    training_taxa=frozenset({"9606"}),
+                    target_taxa=frozenset({"9606"}),
+                    min_count=1,
+                    t0_cutoff="20250131",
+                    t1_cutoff="20251231",
+                    t1_endpoint_policy=policy,
+                    write_checksums=False,
+                    strict_qc=False,
+                ))
+                outputs[policy] = set(pd.read_csv(out / "bp-test.csv")["proteins"])
+
+            self.assertEqual(outputs["assigned-date-proxy"], set())
+            self.assertEqual(outputs["snapshot-membership"], {"P00004"})
+
 
 if __name__ == "__main__":
     unittest.main()

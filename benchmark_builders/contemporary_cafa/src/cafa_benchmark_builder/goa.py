@@ -258,6 +258,7 @@ def load_normalized_annotation_map(
     out_of_benchmark_terms = Counter()
     source_diagnostics: list[dict[str, object]] = []
     outside_frozen_diagnostics: list[dict[str, object]] = []
+    date_filter_counts: dict[tuple[str, str], Counter] = defaultdict(Counter)
     progress_every = progress_interval_from_env() if progress_interval is None else progress_interval
 
     with open_gaf_text(path) as handle:
@@ -288,11 +289,15 @@ def load_normalized_annotation_map(
                     not cols[13].isdigit() or len(cols[13]) != 8
                 ):
                     counters["invalid_date"] += 1
+                    date_filter_counts[(protein_id, cols[8])]["invalid_date"] += 1
                 elif exclude_on_or_before is not None and cols[13] <= exclude_on_or_before:
                     counters["skipped_backfill"] += 1
+                    date_filter_counts[(protein_id, cols[8])]["skipped_backfill"] += 1
                 elif include_on_or_before is not None and cols[13] > include_on_or_before:
                     counters["skipped_after_cutoff"] += 1
+                    date_filter_counts[(protein_id, cols[8])]["skipped_after_cutoff"] += 1
                 else:
+                    date_filter_counts[(protein_id, cols[8])]["passed_date_filter"] += 1
                     source_term = source_ontology.resolve_term(cols[4])
                     if source_term is None:
                         frozen_term = benchmark_ontology.resolve_term(cols[4])
@@ -433,4 +438,5 @@ def load_normalized_annotation_map(
         out_of_benchmark_terms=out_of_benchmark_terms,
         source_diagnostics=source_diagnostics,
         outside_frozen_diagnostics=outside_frozen_diagnostics,
+        date_filter_counts={key: Counter(value) for key, value in date_filter_counts.items()},
     )

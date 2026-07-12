@@ -69,3 +69,4 @@ class AnnotationLoadResult:
     out_of_benchmark_terms: Counter = field(default_factory=Counter)
     source_diagnostics: list[dict[str, object]] = field(default_factory=list)
     outside_frozen_diagnostics: list[dict[str, object]] = field(default_factory=list)
+    date_filter_counts: dict[tuple[str, str], Counter] = field(default_factory=dict)

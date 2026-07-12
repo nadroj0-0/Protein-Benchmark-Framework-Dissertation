@@ -13,6 +13,15 @@
 
 set -euo pipefail
 
+HISTORICAL_TEST_SOURCE="${HISTORICAL_TEST_SOURCE:-official-groundtruth}"
+if [ -z "${HISTORICAL_BENCHMARK_ONTOLOGY:-}" ]; then
+    if [ "$HISTORICAL_TEST_SOURCE" = "official-groundtruth" ]; then
+        HISTORICAL_BENCHMARK_ONTOLOGY="deepgoplus-packaged"
+    else
+        HISTORICAL_BENCHMARK_ONTOLOGY="february-go-basic"
+    fi
+fi
+
 WORK=/scratch0/cafa3_historical_validation_${JOB_ID}
 OUTDIR="$HOME/cafa3_historical_validation_reports"
 FRAMEWORK_REPO_URL="${FRAMEWORK_REPO_URL:-https://github.com/nadroj0-0/Protein-Benchmark-Framework-Dissertation.git}"
@@ -36,7 +45,10 @@ echo "Working dir : $WORK"
 echo "Output dir  : $OUTDIR/$RUN_TAG"
 echo "Training    : ${HISTORICAL_TRAINING_SNAPSHOT:-september-2016}"
 echo "Targets     : ${TARGET_UNIVERSE_POLICY:-official-cafa3-targets}"
-echo "Test source : ${HISTORICAL_TEST_SOURCE:-official-groundtruth}"
+echo "Test source : ${HISTORICAL_TEST_SOURCE}"
+echo "t1 endpoint : ${HISTORICAL_T1_ENDPOINT_POLICY:-assigned-date-proxy}"
+echo "Backfill    : ${HISTORICAL_BACKFILL_POLICY:-exclude-pre-t0}"
+echo "Ontology    : ${HISTORICAL_BENCHMARK_ONTOLOGY:-february-go-basic}"
 echo "Started at  : $(date)"
 echo
 
@@ -68,7 +80,10 @@ export DECOMPRESS_GOA=1
 export USE_PIGZ=1
 export HISTORICAL_TRAINING_SNAPSHOT="${HISTORICAL_TRAINING_SNAPSHOT:-september-2016}"
 export TARGET_UNIVERSE_POLICY="${TARGET_UNIVERSE_POLICY:-official-cafa3-targets}"
-export HISTORICAL_TEST_SOURCE="${HISTORICAL_TEST_SOURCE:-official-groundtruth}"
+export HISTORICAL_TEST_SOURCE
+export HISTORICAL_T1_ENDPOINT_POLICY="${HISTORICAL_T1_ENDPOINT_POLICY:-assigned-date-proxy}"
+export HISTORICAL_BACKFILL_POLICY="${HISTORICAL_BACKFILL_POLICY:-exclude-pre-t0}"
+export HISTORICAL_BENCHMARK_ONTOLOGY
 
 bash scripts/validation/run_cafa3_historical_validation.sh
 STATUS=$?

@@ -194,6 +194,25 @@ class TemporalContractTest(unittest.TestCase):
             self.assertEqual(result.annotations, {"P00001": {"GO:0009987"}})
             self.assertEqual(result.counters["skipped_backfill"], 1)
             self.assertEqual(result.counters["skipped_after_cutoff"], 1)
+            date_counts = result.date_filter_counts[("P00001", "P")]
+            self.assertEqual(date_counts["passed_date_filter"], 1)
+            self.assertEqual(date_counts["skipped_backfill"], 1)
+            self.assertEqual(date_counts["skipped_after_cutoff"], 1)
+
+            membership_result = load_normalized_annotation_map(
+                gaf,
+                alias_to_primary={"P00001": "P00001"},
+                source_ontology=go,
+                benchmark_ontology=go,
+                exclude_on_or_before="20170213",
+                include_on_or_before=None,
+            )
+            self.assertEqual(membership_result.counters["skipped_backfill"], 1)
+            self.assertEqual(membership_result.counters["skipped_after_cutoff"], 0)
+            self.assertEqual(
+                membership_result.date_filter_counts[("P00001", "P")]["passed_date_filter"],
+                2,
+            )
 
 
 if __name__ == "__main__":

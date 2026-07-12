@@ -596,6 +596,23 @@ def _write_reports(
     _write_tsv(evidence_path, ["timepoint", "evidence_code", "kept_rows"], evidence_rows)
     reports["evidence_report"] = evidence_path
 
+    date_filter_path = report_dir / "t1_date_filter_by_protein.tsv"
+    date_filter_rows = []
+    for (protein_id, aspect), counts in sorted(t1_result.date_filter_counts.items()):
+        date_filter_rows.append({
+            "protein_id": protein_id,
+            "aspect": aspect,
+            "passed_date_filter": counts["passed_date_filter"],
+            "skipped_backfill": counts["skipped_backfill"],
+            "skipped_after_cutoff": counts["skipped_after_cutoff"],
+            "invalid_date": counts["invalid_date"],
+        })
+    _write_tsv(date_filter_path, [
+        "protein_id", "aspect", "passed_date_filter", "skipped_backfill",
+        "skipped_after_cutoff", "invalid_date",
+    ], date_filter_rows)
+    reports["t1_date_filter_report"] = date_filter_path
+
     taxon_rows = []
     train_ids = set(train_df["proteins"].tolist())
     test_ids = set(test_df["proteins"].tolist())
@@ -673,6 +690,7 @@ def _write_reports(
         "target_taxa": sorted(config.target_taxa),
         "t0_cutoff": config.t0_cutoff,
         "t1_cutoff": config.t1_cutoff,
+        "t1_endpoint_policy": config.t1_endpoint_policy,
         "test_eligibility_policy": config.test_eligibility_policy,
         "exclude_t1_backfill": config.exclude_t1_backfill,
         "require_t0_presence": config.require_t0_presence,
@@ -750,6 +768,7 @@ def _write_reports(
         f"- Test proteins before ontology export: {len(test_df)}\n"
         f"- Training-defined GO terms: {len(terms_df)}\n"
         f"- Test annotation source: `{'released-official-groundtruth' if config.test_annotations_file else 'temporal-goa'}`\n"
+        f"- t1 endpoint policy: `{config.t1_endpoint_policy}`\n"
         f"- t1 rows excluded as backfill: {t1_result.counters['skipped_backfill']}\n"
         f"- t1 rows after the endpoint cutoff: {t1_result.counters['skipped_after_cutoff']}\n"
         f"- Test eligibility policy: `{config.test_eligibility_policy}`\n"
@@ -777,6 +796,8 @@ def _validate_config(config: BuildConfig) -> None:
         raise ValueError(
             "test_eligibility_policy must be global-no-knowledge or ontology-no-knowledge"
         )
+    if config.t1_endpoint_policy not in {"assigned-date-proxy", "snapshot-membership"}:
+        raise ValueError("Unknown t1 endpoint policy")
     if config.t0_cutoff and config.t1_cutoff and config.t1_cutoff <= config.t0_cutoff:
         raise ValueError("t1_cutoff must be later than t0_cutoff")
     if not config.require_t0_presence:
@@ -936,7 +957,11 @@ def build_snapshot_benchmark(config: BuildConfig) -> dict[str, Path]:
             evidence_codes=config.evidence_codes,
             target_taxa=config.target_taxa,
             exclude_on_or_before=config.t0_cutoff if config.exclude_t1_backfill else None,
-            include_on_or_before=config.t1_cutoff,
+            include_on_or_before=(
+                config.t1_cutoff
+                if config.t1_endpoint_policy == "assigned-date-proxy"
+                else None
+            ),
             max_records=config.max_gaf_records,
         )
     preflight_reports = _write_preflight_diagnostics(

@@ -119,6 +119,13 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Backfill cutoff in YYYYMMDD or YYYY-MM-DD form.")
     parser.add_argument("--t1-cutoff",
                         help="Latest accepted t1 annotation date in YYYYMMDD or YYYY-MM-DD form.")
+    parser.add_argument(
+        "--t1-endpoint-policy",
+        choices=("assigned-date-proxy", "snapshot-membership"),
+        default="assigned-date-proxy",
+        help=("assigned-date-proxy applies --t1-cutoff to GAF column 14; "
+              "snapshot-membership uses every qualifying row present in the t1 file."),
+    )
     backfill = parser.add_mutually_exclusive_group()
     backfill.add_argument("--exclude-t1-backfill", dest="exclude_t1_backfill",
                           action="store_true")
@@ -221,6 +228,7 @@ def config_from_args(args: argparse.Namespace) -> BuildConfig:
         evidence_codes=evidence,
         t0_cutoff=normalise_gaf_date(args.t0_cutoff or profile.t0_cutoff),
         t1_cutoff=normalise_gaf_date(args.t1_cutoff or profile.t1_cutoff),
+        t1_endpoint_policy=args.t1_endpoint_policy,
         test_eligibility_policy=(
             args.test_eligibility_policy or profile.test_eligibility_policy
         ),

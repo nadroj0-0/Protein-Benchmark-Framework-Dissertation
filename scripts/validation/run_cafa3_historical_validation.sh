@@ -24,6 +24,9 @@ PIGZ_THREADS="${PIGZ_THREADS:-1}"
 HISTORICAL_TRAINING_SNAPSHOT="${HISTORICAL_TRAINING_SNAPSHOT:-september-2016}"
 TARGET_UNIVERSE_POLICY="${TARGET_UNIVERSE_POLICY:-official-cafa3-targets}"
 HISTORICAL_TEST_SOURCE="${HISTORICAL_TEST_SOURCE:-official-groundtruth}"
+HISTORICAL_T1_ENDPOINT_POLICY="${HISTORICAL_T1_ENDPOINT_POLICY:-assigned-date-proxy}"
+HISTORICAL_BACKFILL_POLICY="${HISTORICAL_BACKFILL_POLICY:-exclude-pre-t0}"
+HISTORICAL_BENCHMARK_ONTOLOGY="${HISTORICAL_BENCHMARK_ONTOLOGY:-}"
 
 FILTER_DAT="${REPO_ROOT}/scripts/benchmark_generation/filter_uniprot_dat.py"
 EXTRACT_MEMBER="${REPO_ROOT}/scripts/benchmark_generation/extract_tar_member.py"
@@ -342,6 +345,9 @@ write_manifest() {
     echo "- Training snapshot release date: ${TRAINING_SNAPSHOT_DATE}"
     echo "- Target universe policy: ${TARGET_UNIVERSE_POLICY}"
     echo "- Historical test source: ${HISTORICAL_TEST_SOURCE}"
+    echo "- Historical t1 endpoint policy: ${HISTORICAL_T1_ENDPOINT_POLICY}"
+    echo "- Historical backfill policy: ${HISTORICAL_BACKFILL_POLICY}"
+    echo "- Historical benchmark ontology: ${HISTORICAL_BENCHMARK_ONTOLOGY}"
     echo "- CAFA3 t0 date: ${CAFA3_T0_DATE}"
     echo "- CAFA3 t1 date: ${CAFA3_T1_DATE}"
     echo "- UniProt t0 release date: ${UNIPROT_T0_RELEASE_DATE}"
@@ -437,6 +443,25 @@ case "$HISTORICAL_TEST_SOURCE" in
     exit 1
     ;;
 esac
+if [ -z "$HISTORICAL_BENCHMARK_ONTOLOGY" ]; then
+  if [ "$HISTORICAL_TEST_SOURCE" = "official-groundtruth" ]; then
+    HISTORICAL_BENCHMARK_ONTOLOGY="deepgoplus-packaged"
+  else
+    HISTORICAL_BENCHMARK_ONTOLOGY="february-go-basic"
+  fi
+fi
+case "$HISTORICAL_T1_ENDPOINT_POLICY" in
+  assigned-date-proxy|snapshot-membership) ;;
+  *) echo "Unknown HISTORICAL_T1_ENDPOINT_POLICY: $HISTORICAL_T1_ENDPOINT_POLICY" >&2; exit 1 ;;
+esac
+case "$HISTORICAL_BACKFILL_POLICY" in
+  exclude-pre-t0|allow) ;;
+  *) echo "Unknown HISTORICAL_BACKFILL_POLICY: $HISTORICAL_BACKFILL_POLICY" >&2; exit 1 ;;
+esac
+case "$HISTORICAL_BENCHMARK_ONTOLOGY" in
+  february-go-basic|deepgoplus-packaged) ;;
+  *) echo "Unknown HISTORICAL_BENCHMARK_ONTOLOGY: $HISTORICAL_BENCHMARK_ONTOLOGY" >&2; exit 1 ;;
+esac
 if [ "$HISTORICAL_TEST_SOURCE" = "official-groundtruth" ] \
   && [ "$TARGET_UNIVERSE_POLICY" != "official-cafa3-targets" ]; then
   echo "official-groundtruth requires TARGET_UNIVERSE_POLICY=official-cafa3-targets" >&2
@@ -460,6 +485,9 @@ echo "GOA progress    : every ${GOA_PROGRESS_INTERVAL} parsed rows"
 echo "Training source : ${HISTORICAL_TRAINING_SNAPSHOT}"
 echo "Target universe : ${TARGET_UNIVERSE_POLICY}"
 echo "Test source     : ${HISTORICAL_TEST_SOURCE}"
+echo "t1 endpoint    : ${HISTORICAL_T1_ENDPOINT_POLICY}"
+echo "Backfill       : ${HISTORICAL_BACKFILL_POLICY}"
+echo "Label ontology : ${HISTORICAL_BENCHMARK_ONTOLOGY}"
 echo
 
 echo "==> [1/8] Download historical raw snapshots into scratch"
@@ -559,6 +587,15 @@ echo "  Official training labels: ${OFFICIAL_TRAINING_ANNOTATIONS}"
 echo "  Official test labels: ${OFFICIAL_TEST_ANNOTATIONS}"
 echo "  DeepGOPlus ontology: ${OFFICIAL_GO_OBO}"
 
+case "$HISTORICAL_BENCHMARK_ONTOLOGY" in
+  february-go-basic)
+    RAW_BENCHMARK_GO_OBO="${RAW}/go/2017-02-01/go-basic.obo"
+    ;;
+  deepgoplus-packaged)
+    RAW_BENCHMARK_GO_OBO="$OFFICIAL_GO_OBO"
+    ;;
+esac
+
 UNIPROT_T0_TREMBL="${RAW}/uniprot/release_2017_02/uniprot_trembl_cafa3_targets.dat.gz"
 UNIPROT_T1_TREMBL="${RAW}/uniprot/release_2017_11/uniprot_trembl_cafa3_targets.dat.gz"
 if [ "$HISTORICAL_TEST_SOURCE" = "official-groundtruth" ]; then
@@ -615,12 +652,18 @@ else
     --target-uniprot-t1 "$TARGET_T1_SPROT_INPUT"
     --goa-t0 "$GOA_T0_INPUT"
     --goa-t1 "$GOA_T1_INPUT"
-    --go-obo "${RAW}/go/2017-02-01/go-basic.obo"
+    --go-obo "$RAW_BENCHMARK_GO_OBO"
     --go-obo-t0 "${RAW}/go/2017-02-01/go-basic.obo"
     --go-obo-t1 "${RAW}/go/2017-11-01/go-basic.obo"
     --t0-cutoff 20170213
     --t1-cutoff 20171115
+    --t1-endpoint-policy "$HISTORICAL_T1_ENDPOINT_POLICY"
   )
+  if [ "$HISTORICAL_BACKFILL_POLICY" = "exclude-pre-t0" ]; then
+    BUILDER_CMD+=(--exclude-t1-backfill)
+  else
+    BUILDER_CMD+=(--allow-t1-backfill)
+  fi
   if [ "$INCLUDE_TREMBL_TARGETS" = "1" ]; then
     BUILDER_CMD+=(
       --target-uniprot-t0 "$UNIPROT_T0_TREMBL"

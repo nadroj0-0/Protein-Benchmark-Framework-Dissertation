@@ -336,6 +336,20 @@ unavailable 15-Nov-2017 GOA snapshot.
 was generated on 21-Nov-2017 and cannot be converted exactly into the organizer
 t1 snapshot by filtering GAF annotation dates.
 
+Raw-GOA audits expose three independent controls:
+
+```text
+HISTORICAL_T1_ENDPOINT_POLICY=assigned-date-proxy | snapshot-membership
+HISTORICAL_BACKFILL_POLICY=exclude-pre-t0 | allow
+HISTORICAL_BENCHMARK_ONTOLOGY=february-go-basic | deepgoplus-packaged
+```
+
+Every raw run writes `t1_date_filter_by_protein.tsv`, recording qualifying rows
+that passed the date policy or were rejected as backfill, after-cutoff, or
+invalid. The four-job matrix in `hpc_jobs/submit_cafa3_raw_experiment_matrix.sh`
+changes one major policy axis at a time around the existing baseline; it does
+not resubmit that completed baseline or change the contemporary profile.
+
 Large inputs are acquired into scratch when no override is supplied. Optional
 local overrides are `HISTORICAL_TRAINING_UNIPROT_ARCHIVE` and
 `OFFICIAL_CAFA3_ARCHIVE_INPUT`.
