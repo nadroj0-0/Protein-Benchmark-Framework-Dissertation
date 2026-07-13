@@ -28,6 +28,8 @@ SEED="${SEED:-0}"
 NO_STRICT_QC="${NO_STRICT_QC:-0}"
 SKIP_INPUT_CHECKSUMS="${SKIP_INPUT_CHECKSUMS:-0}"
 ALLOW_DEPENDENCY_MISMATCH="${ALLOW_DEPENDENCY_MISMATCH:-0}"
+T1_ENDPOINT_POLICY="${T1_ENDPOINT_POLICY:-snapshot-membership}"
+T1_BACKFILL_POLICY="${T1_BACKFILL_POLICY:-allow}"
 
 T0_UNIPROT_DIR="$DB_ROOT/uniprot/release_2025_01"
 T1_UNIPROT_DIR="$DB_ROOT/uniprot/release_2026_02"
@@ -348,6 +350,21 @@ case "$PROFILE" in
         ;;
 esac
 
+case "$T1_ENDPOINT_POLICY" in
+    assigned-date-proxy|snapshot-membership) ;;
+    *)
+        echo "Unknown T1_ENDPOINT_POLICY: $T1_ENDPOINT_POLICY" >&2
+        exit 1
+        ;;
+esac
+case "$T1_BACKFILL_POLICY" in
+    exclude-pre-t0|allow) ;;
+    *)
+        echo "Unknown T1_BACKFILL_POLICY: $T1_BACKFILL_POLICY" >&2
+        exit 1
+        ;;
+esac
+
 for command in "$PYTHON_BIN" gzip grep tee wget zgrep; do
     if ! command -v "$command" >/dev/null 2>&1; then
         echo "Missing required command: $command" >&2
@@ -404,7 +421,13 @@ COMMAND=(
     --min-count "$MIN_COUNT"
     --split "$SPLIT"
     --seed "$SEED"
+    --t1-endpoint-policy "$T1_ENDPOINT_POLICY"
 )
+if [[ "$T1_BACKFILL_POLICY" == "allow" ]]; then
+    COMMAND+=(--allow-t1-backfill)
+else
+    COMMAND+=(--exclude-t1-backfill)
+fi
 for path in "${T0_INPUTS[@]}"; do
     COMMAND+=(--uniprot-t0 "$path")
 done
@@ -432,11 +455,15 @@ printf '\n' >> "$LOG_DIR/command.txt"
     echo "min_count=$MIN_COUNT"
     echo "split=$SPLIT"
     echo "seed=$SEED"
+    echo "t1_endpoint_policy=$T1_ENDPOINT_POLICY"
+    echo "t1_backfill_policy=$T1_BACKFILL_POLICY"
     echo "strict_qc=$((1 - NO_STRICT_QC))"
 } > "$LOG_DIR/environment.txt"
 
 echo "Running contemporary CAFA benchmark builder"
 echo "Profile : $PROFILE"
+echo "Endpoint: $T1_ENDPOINT_POLICY"
+echo "Backfill: $T1_BACKFILL_POLICY"
 echo "Outputs : $OUTPUT_DIR"
 echo "Reports : $REPORT_DIR"
 echo

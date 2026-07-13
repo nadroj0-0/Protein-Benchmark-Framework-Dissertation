@@ -45,6 +45,19 @@ stream-filters full TrEMBL sources to the CAFA3 taxa, and invokes
 the complete benchmark run to durable storage and clears scratch. It builds the
 benchmark only; it does not launch PFP.
 
+The production contemporary defaults compare the two frozen GOA files by direct
+snapshot membership and do not remove t1-only rows using their assigned date:
+
+```text
+T1_ENDPOINT_POLICY=snapshot-membership
+T1_BACKFILL_POLICY=allow
+```
+
+Previously filtered TrEMBL products can be supplied with
+`T0_TREMBL_FILTERED_INPUT` and `T1_TREMBL_FILTERED_INPUT`. The wrapper copies
+them into scratch under the expected release layout, avoiding another download
+and stream-filter of the complete TrEMBL releases.
+
 The wrapper is a `.sh` file because that is the repository convention. Grid
 Engine does not require `.qsub`; the `qsub` command uses the embedded `#$`
 directives regardless of the filename suffix.

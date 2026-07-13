@@ -63,6 +63,24 @@ stage_if_present() {
     fi
 }
 
+stage_explicit_file() {
+    local variable_name="$1"
+    local relative="$2"
+    local source="${!variable_name:-}"
+    if [[ -z "$source" ]]; then
+        stage_if_present "$relative"
+        return
+    fi
+    if [[ ! -f "$source" ]]; then
+        echo "Explicit $variable_name input does not exist: $source" >&2
+        exit 1
+    fi
+    local destination="$STAGED_DB_ROOT/$relative"
+    mkdir -p "$(dirname "$destination")"
+    cp -a "$source" "$destination"
+    printf 'staged-custom\t%s\n' "$source" >> "$SCRATCH_RUN_ROOT/logs/local_staging.tsv"
+}
+
 stage_input_list() {
     local variable_name="$1"
     local label="$2"
@@ -92,6 +110,8 @@ stage_input_list() {
 echo "Host        : $(hostname)"
 echo "Job ID      : ${JOB_ID:-manual}"
 echo "Profile     : ${PROFILE:-contemporary-cafa3-style}"
+echo "t1 endpoint : ${T1_ENDPOINT_POLICY:-snapshot-membership}"
+echo "Backfill    : ${T1_BACKFILL_POLICY:-allow}"
 echo "Scratch     : $WORK"
 echo "Final output: $FINAL_RUN_ROOT"
 
@@ -117,9 +137,9 @@ if [[ -n "${UNIPROT_T0_INPUTS:-}" || -n "${UNIPROT_T1_INPUTS:-}" ]]; then
 else
     stage_if_present "uniprot/release_2025_01/uniprot_sprot.dat.gz"
     stage_if_present "uniprot/release_2025_01/uniprot_sprot-only2025_01.tar.gz"
-    stage_if_present "uniprot/release_2025_01/uniprot_trembl_cafa3_targets.dat.gz"
+    stage_explicit_file T0_TREMBL_FILTERED_INPUT "uniprot/release_2025_01/uniprot_trembl_cafa3_targets.dat.gz"
     stage_if_present "uniprot/release_2026_02/uniprot_sprot.dat.gz"
-    stage_if_present "uniprot/release_2026_02/uniprot_trembl_cafa3_targets.dat.gz"
+    stage_explicit_file T1_TREMBL_FILTERED_INPUT "uniprot/release_2026_02/uniprot_trembl_cafa3_targets.dat.gz"
 fi
 stage_if_present "goa/release_2025_01/goa_uniprot_all.gaf.225.gz"
 stage_if_present "goa/release_2026_02/goa_uniprot_all.gaf.234.gz"
@@ -144,6 +164,8 @@ export WORK_DIR="$WORK/extracted"
 export PYTHON_BIN
 export REMOVE_ARCHIVES_AFTER_EXTRACT=1
 export CAFA_BUILDER_USE_PIGZ=1
+export T1_ENDPOINT_POLICY="${T1_ENDPOINT_POLICY:-snapshot-membership}"
+export T1_BACKFILL_POLICY="${T1_BACKFILL_POLICY:-allow}"
 
 bash scripts/benchmark_generation/run_contemporary_temporal_benchmark.sh
 copy_results
