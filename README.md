@@ -22,6 +22,7 @@ contracts before expensive training is launched.
 .
 ├── benchmark_builders/
 │   └── contemporary_cafa/                 # 2025→2026 CAFA-style benchmark builder
+├── embedding_inventory/                    # CSV-native embedding inventory/reuse planner
 ├── scripts/
 │   ├── reproduction/                      # Main PFP reproduction entrypoints
 │   ├── embeddings/                        # Embedding wrappers and FASTA builder
@@ -36,12 +37,44 @@ contracts before expensive training is launched.
 │   └── archive/                           # Historical reproduction attempts
 ├── configs/
 │   ├── cafa3.json                         # Default CAFA3 verification config
+│   ├── embedding_inventory.cafa3_published.json
+│   ├── embedding_inventory.future.example.json
 │   └── paths.example.sh                   # Example local/HPC path configuration
 ```
 
 Generated data, model checkpoints, cloned upstream repositories, and
 embedding caches are intentionally not committed. See `.gitignore` for
 the excluded paths.
+
+## Embedding inventory and reuse planning
+
+`embedding_inventory/` provides a benchmark-agnostic planner that reads the
+nine PFP-compatible CSVs directly, validates existing arrays, applies
+modality-specific scientific reuse rules, and emits reuse/generation/masking
+manifests without copying or generating embeddings.
+
+It supports both `paper-faithful` and `maximize-coverage` action policies,
+requires an explicit source benchmark and explicit text directory, permits
+cross-ID ProtT5 reuse only for identical complete sequence SHA-256 values, and
+uses only explicit alias mappings. Structure, text, and PPI provenance
+uncertainty is routed to manual review.
+
+Run it from the repository root:
+
+```bash
+python scripts/verification/inventory_embeddings.py \
+  --benchmark-dir /path/to/nine-csv-benchmark \
+  --source-benchmark-dir /path/to/cache-source-benchmark \
+  --embedding-cache /path/to/embedding_cache \
+  --config configs/embedding_inventory.future.example.json \
+  --policy maximize-coverage \
+  --output-dir results/embedding_inventory/my_benchmark
+```
+
+See [`embedding_inventory/README.md`](embedding_inventory/README.md) for the
+decision model, canonical CAFA3 configuration, output contract, alias format,
+integration tests, future temporal/homology commands, and scientific
+limitations.
 
 ## Local path configuration
 

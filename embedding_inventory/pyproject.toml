@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pfp-embedding-inventory"
+version = "0.1.0"
+description = "Benchmark-agnostic embedding inventory and reuse planner for PFP-compatible CSVs"
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.26"]
+
+[project.scripts]
+pfp-embedding-inventory = "pfp_embedding_inventory.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
