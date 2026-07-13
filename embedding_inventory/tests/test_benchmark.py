@@ -10,6 +10,8 @@ sys.path.insert(0, str(SRC))
 
 from pfp_embedding_inventory.benchmark import (  # noqa: E402
     BenchmarkError,
+    duplicate_row_digest,
+    load_aliases,
     parse_benchmark,
     temporal_text_role,
 )
@@ -98,6 +100,100 @@ class BenchmarkParsingTests(unittest.TestCase):
                     make_contract("per-ontology-disjoint", "per-ontology-disjoint"),
                 )
 
+    def test_cross_ontology_target_id_leakage_is_rejected_globally(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            rows = unique_rows_by_file()
+            rows[("cc", "test")].append(rows[("bp", "training")][0])
+            write_nine_csvs(directory, rows_by_file=rows)
+            with self.assertRaisesRegex(BenchmarkError, "global-evaluation.*protein IDs"):
+                parse_benchmark(
+                    directory,
+                    make_contract("global-evaluation-disjoint", "allow"),
+                )
+
+    def test_homology_contract_rejects_exact_sequence_under_different_ids(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            rows = unique_rows_by_file()
+            rows[("bp", "training")] = [("TRAIN_ID", "ACDEFG", "1")]
+            rows[("mf", "test")] = [("TEST_ID", "ACDEFG", "1")]
+            write_nine_csvs(directory, rows_by_file=rows)
+            with self.assertRaisesRegex(BenchmarkError, "global-evaluation.*exact sequences"):
+                parse_benchmark(
+                    directory,
+                    make_contract("global-evaluation-disjoint", "global-evaluation-disjoint"),
+                )
+
+    def test_permissive_source_can_parse_overlap_rejected_for_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            rows = unique_rows_by_file()
+            rows[("cc", "test")].append(rows[("bp", "training")][0])
+            write_nine_csvs(directory, rows_by_file=rows)
+            source = parse_benchmark(directory, make_contract("allow", "allow"))
+            self.assertIn("P1", source.proteins)
+            with self.assertRaises(BenchmarkError):
+                parse_benchmark(
+                    directory,
+                    make_contract("global-evaluation-disjoint", "allow"),
+                )
+
+    def test_non_binary_label_is_rejected_incrementally(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            write_nine_csvs(directory)
+            path = directory / "bp-training.csv"
+            with path.open() as source:
+                rows = list(csv.reader(source))
+            rows[1][-1] = "2"
+            with path.open("w", newline="") as handle:
+                csv.writer(handle).writerows(rows)
+            with self.assertRaisesRegex(BenchmarkError, "non-binary GO label"):
+                parse_benchmark(directory, make_contract())
+
+    def test_duplicate_digest_is_fixed_size_for_wide_labels(self):
+        digest = duplicate_row_digest("P1", "ACDE", ("1" for _ in range(10000)))
+        self.assertIsInstance(digest, bytes)
+        self.assertEqual(len(digest), 32)
+
+    def test_wide_csv_streams_through_parser(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            go_terms = ["GO:%07d" % number for number in range(1, 5001)]
+            for ontology in ("bp", "cc", "mf"):
+                for split in ("training", "validation", "test"):
+                    with (directory / ("%s-%s.csv" % (ontology, split))).open(
+                        "w", newline=""
+                    ) as handle:
+                        writer = csv.writer(handle)
+                        writer.writerow(["proteins", "sequences", *go_terms])
+                        writer.writerow(["P1", "ACDE", *("0" for _ in go_terms)])
+            benchmark = parse_benchmark(directory, make_contract())
+            self.assertEqual(len(benchmark.proteins), 1)
+
+    def test_fingerprint_is_order_independent_but_membership_sensitive(self):
+        with tempfile.TemporaryDirectory() as first_tmp, tempfile.TemporaryDirectory() as second_tmp:
+            first, second = Path(first_tmp), Path(second_tmp)
+            rows = {
+                (o, s): [("Z", "ACDE", "1"), ("A", "FGHI", "0")]
+                for o in ("bp", "cc", "mf") for s in ("training", "validation", "test")
+            }
+            write_nine_csvs(first, rows_by_file=rows)
+            reversed_rows = {key: list(reversed(value)) for key, value in rows.items()}
+            write_nine_csvs(second, rows_by_file=reversed_rows)
+            self.assertEqual(
+                parse_benchmark(first, make_contract()).fingerprint,
+                parse_benchmark(second, make_contract()).fingerprint,
+            )
+            changed = dict(reversed_rows)
+            changed[("bp", "training")] = [("Z", "ACDE", "1")]
+            write_nine_csvs(second, rows_by_file=changed)
+            self.assertNotEqual(
+                parse_benchmark(first, make_contract()).fingerprint,
+                parse_benchmark(second, make_contract()).fingerprint,
+            )
+
     def test_custom_regex_cannot_enable_path_traversal(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
@@ -113,6 +209,44 @@ class BenchmarkParsingTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(BenchmarkError, "malformed protein ID"):
                 parse_benchmark(directory, contract)
+
+    def test_alias_uses_separate_target_and_source_patterns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "aliases.tsv"
+            path.write_text(
+                "protein_id\tsource_protein_id\tmodality\tmapping_route\tsource_identity\tmapping_evidence\n"
+                "TARGET1\tSOURCE1\tprott5\tcurated\tmodel\tsequence-sha256:abc\n"
+            )
+            aliases = load_aliases(path, r"^TARGET[0-9]+$", r"^SOURCE[0-9]+$")
+            self.assertIn(("TARGET1", "prott5"), aliases)
+            with self.assertRaisesRegex(BenchmarkError, "unsafe or malformed"):
+                load_aliases(path, r"^TARGET[0-9]+$", r"^UNRELATED[0-9]+$")
+
+    def test_malformed_csv_is_translated_to_benchmark_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            write_nine_csvs(directory)
+            (directory / "bp-training.csv").write_text(
+                'proteins,sequences,GO:0000001\n"P1,ACDE,1\n'
+            )
+            with self.assertRaisesRegex(BenchmarkError, "Malformed CSV"):
+                parse_benchmark(directory, make_contract())
+
+    def test_control_character_in_id_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            rows = unique_rows_by_file()
+            rows[("bp", "training")] = [("P1\x00X", "ACDE", "1")]
+            write_nine_csvs(directory, rows_by_file=rows)
+            permissive = make_contract()
+            permissive = type(permissive)(
+                id_overlap=permissive.id_overlap,
+                sequence_overlap=permissive.sequence_overlap,
+                protein_id_pattern=r"^.*$",
+                sequence_pattern=permissive.sequence_pattern,
+            )
+            with self.assertRaisesRegex(BenchmarkError, "Malformed CSV|malformed protein ID"):
+                parse_benchmark(directory, permissive)
 
 
 if __name__ == "__main__":

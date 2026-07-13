@@ -38,7 +38,8 @@ contracts before expensive training is launched.
 ├── configs/
 │   ├── cafa3.json                         # Default CAFA3 verification config
 │   ├── embedding_inventory.cafa3_published.json
-│   ├── embedding_inventory.future.example.json
+│   ├── embedding_inventory.contemporary.json
+│   ├── embedding_inventory.homology.example.json
 │   └── paths.example.sh                   # Example local/HPC path configuration
 ```
 
@@ -53,11 +54,11 @@ nine PFP-compatible CSVs directly, validates existing arrays, applies
 modality-specific scientific reuse rules, and emits reuse/generation/masking
 manifests without copying or generating embeddings.
 
-It supports both `paper-faithful` and `maximize-coverage` action policies,
-requires an explicit source benchmark and explicit text directory, permits
-cross-ID ProtT5 reuse only for identical complete sequence SHA-256 values, and
-uses only explicit alias mappings. Structure, text, and PPI provenance
-uncertainty is routed to manual review.
+It supports `paper-faithful` and `maximize-coverage`, separate strict target
+and permissive source contracts, exact-sequence-only cross-ID ProtT5 reuse, and
+explicit aliases. Exact canonical text/structure/PPI reuse additionally
+requires deterministic benchmark, cache, archive, and PFP-reference proof;
+cross-benchmark uncertainty remains manual review.
 
 Run it from the repository root:
 
@@ -66,9 +67,10 @@ python scripts/verification/inventory_embeddings.py \
   --benchmark-dir /path/to/nine-csv-benchmark \
   --source-benchmark-dir /path/to/cache-source-benchmark \
   --embedding-cache /path/to/embedding_cache \
-  --config configs/embedding_inventory.future.example.json \
+  --config configs/embedding_inventory.contemporary.json \
   --policy maximize-coverage \
-  --output-dir results/embedding_inventory/my_benchmark
+  --report-level compact \
+  --output-dir /path/to/non-repository-results/my_benchmark
 ```
 
 See [`embedding_inventory/README.md`](embedding_inventory/README.md) for the

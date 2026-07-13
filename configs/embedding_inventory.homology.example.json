@@ -1,0 +1,61 @@
+{
+  "schema_version": 2,
+  "name": "homology-benchmark-conservative",
+  "target_benchmark_contract": {
+    "id_overlap": "global-evaluation-disjoint",
+    "sequence_overlap": "global-evaluation-disjoint",
+    "protein_id_pattern": "^[^\\s/\\\\]+$",
+    "sequence_pattern": "^[A-Za-z*.-]+$"
+  },
+  "source_benchmark_contract": {
+    "id_overlap": "allow",
+    "sequence_overlap": "allow",
+    "protein_id_pattern": "^[^\\s/\\\\]+$",
+    "sequence_pattern": "^[A-Za-z*.-]+$"
+  },
+  "artifact_scope": {"mode": "none"},
+  "modalities": {
+    "prott5": {
+      "directory": "prott5", "expected_dim": 1024,
+      "sequence_dependent": true, "allow_sequence_hash_reuse": true,
+      "missing_action": "generate", "invalid_action": "generate",
+      "provenance": {
+        "compatibility": "compatible", "label": "published-prott5-xl-uniref50",
+        "source_identity": "Rostlab/prot_t5_xl_half_uniref50-enc|PFP-published-extraction|1024",
+        "target_identity": "Rostlab/prot_t5_xl_half_uniref50-enc|PFP-published-extraction|1024",
+        "evidence": "Exact model/extraction identity plus exact complete-sequence SHA-256",
+        "requires_mapping_evidence": false
+      }
+    },
+    "text": {
+      "directory": "exp_text_embeddings_temporal", "expected_dim": 768,
+      "sequence_dependent": false, "allow_sequence_hash_reuse": false,
+      "missing_action": "manual-review", "invalid_action": "manual-review",
+      "provenance": {
+        "compatibility": "unknown", "label": "homology-target-text-context-unresolved",
+        "source_identity": "", "target_identity": "", "evidence": "",
+        "text_role_policy": "none", "requires_mapping_evidence": true
+      }
+    },
+    "structure": {
+      "directory": "IF1", "expected_dim": 512,
+      "sequence_dependent": true, "allow_sequence_hash_reuse": false,
+      "missing_action": "manual-review", "invalid_action": "manual-review",
+      "provenance": {
+        "compatibility": "unknown", "label": "homology-target-structure-provenance-unresolved",
+        "source_identity": "", "target_identity": "", "evidence": "",
+        "requires_mapping_evidence": true
+      }
+    },
+    "ppi": {
+      "directory": "ppi", "expected_dim": 512,
+      "sequence_dependent": false, "allow_sequence_hash_reuse": false,
+      "missing_action": "manual-review", "invalid_action": "manual-review",
+      "provenance": {
+        "compatibility": "unknown", "label": "homology-target-string-mapping-unresolved",
+        "source_identity": "", "target_identity": "", "evidence": "",
+        "requires_mapping_evidence": true
+      }
+    }
+  }
+}

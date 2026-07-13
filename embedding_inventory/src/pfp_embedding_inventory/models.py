@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 
 MODALITIES = ("prott5", "text", "structure", "ppi")
@@ -26,6 +26,7 @@ class BenchmarkData:
     proteins: Dict[str, ProteinRecord]
     file_members: Dict[Tuple[str, str], Set[str]]
     duplicate_rows: int = 0
+    fingerprint: str = ""
 
 
 @dataclass(frozen=True)
@@ -63,8 +64,81 @@ class BenchmarkContract:
 class PlannerConfig:
     schema_version: int
     name: str
-    benchmark_contract: BenchmarkContract
+    target_benchmark_contract: BenchmarkContract
+    source_benchmark_contract: BenchmarkContract
     modalities: Dict[str, ModalitySpec]
+    artifact_scope: "ArtifactScopeSpec"
+
+
+@dataclass(frozen=True)
+class ArchiveSpec:
+    path: str
+    sha256: str
+
+
+@dataclass(frozen=True)
+class ReferenceFileSpec:
+    path: str
+    sha256: str
+
+
+@dataclass(frozen=True)
+class ArtifactScopeSpec:
+    mode: str
+    artifact_id: str
+    metadata_url: str
+    expected_benchmark_fingerprint: str
+    expected_cache_catalog_fingerprint: str
+    expected_modality_counts: Dict[str, int]
+    expected_total_files: int
+    expected_total_bytes: int
+    archives: Tuple[ArchiveSpec, ...]
+    expected_reference_commit: str
+    reference_files: Tuple[ReferenceFileSpec, ...]
+
+
+@dataclass
+class CacheCatalog:
+    schema: str
+    fingerprint: str
+    modality_fingerprints: Dict[str, str]
+    modality_counts: Dict[str, int]
+    modality_bytes: Dict[str, int]
+    total_files: int
+    total_bytes: int
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "schema": self.schema,
+            "fingerprint": self.fingerprint,
+            "modality_fingerprints": dict(self.modality_fingerprints),
+            "modality_counts": dict(self.modality_counts),
+            "modality_bytes": dict(self.modality_bytes),
+            "total_files": self.total_files,
+            "total_bytes": self.total_bytes,
+        }
+
+
+@dataclass
+class ArtifactVerification:
+    configured: bool
+    verified: bool
+    artifact_id: str
+    checks: Dict[str, bool]
+    reasons: List[str]
+    expected: Dict[str, Any]
+    observed: Dict[str, Any]
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "configured": self.configured,
+            "verified": self.verified,
+            "artifact_id": self.artifact_id,
+            "checks": dict(self.checks),
+            "reasons": list(self.reasons),
+            "expected": self.expected,
+            "observed": self.observed,
+        }
 
 
 @dataclass(frozen=True)
@@ -143,6 +217,7 @@ class InventoryResult:
     used_source_ids: Dict[str, Set[str]]
     policy: str
     config: PlannerConfig
+    artifact_verification: ArtifactVerification
 
 
 def _bool_text(value: bool) -> str:

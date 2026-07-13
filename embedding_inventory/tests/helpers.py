@@ -5,6 +5,7 @@ from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 import numpy as np
 
 from pfp_embedding_inventory.models import (
+    ArtifactScopeSpec,
     BenchmarkContract,
     MODALITIES,
     ModalitySpec,
@@ -37,12 +38,13 @@ def make_contract(
 
 def make_config(
     compatibility: Optional[Mapping[str, str]] = None,
-    contract: Optional[BenchmarkContract] = None,
+    target_contract: Optional[BenchmarkContract] = None,
+    source_contract: Optional[BenchmarkContract] = None,
 ) -> PlannerConfig:
     compatibility = compatibility or {}
     modalities: Dict[str, ModalitySpec] = {}
     for modality in MODALITIES:
-        state = compatibility.get(modality, "artifact-scoped")
+        state = compatibility.get(modality, "compatible")
         identity = "test-%s|v1" % modality if modality == "structure" else "test-%s-v1" % modality
         modalities[modality] = ModalitySpec(
             name=modality,
@@ -63,10 +65,24 @@ def make_config(
             ),
         )
     return PlannerConfig(
-        schema_version=1,
+        schema_version=2,
         name="synthetic",
-        benchmark_contract=contract or make_contract(),
+        target_benchmark_contract=target_contract or make_contract(),
+        source_benchmark_contract=source_contract or make_contract(),
         modalities=modalities,
+        artifact_scope=ArtifactScopeSpec(
+            mode="none",
+            artifact_id="",
+            metadata_url="",
+            expected_benchmark_fingerprint="",
+            expected_cache_catalog_fingerprint="",
+            expected_modality_counts={},
+            expected_total_files=0,
+            expected_total_bytes=0,
+            archives=(),
+            expected_reference_commit="",
+            reference_files=(),
+        ),
     )
 
 

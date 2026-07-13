@@ -27,8 +27,8 @@ class InventoryTests(unittest.TestCase):
         write_nine_csvs(source_dir, shared_rows=source_rows or target_rows or [("P1", "ACDE", "1")])
         config = make_config()
         return (
-            parse_benchmark(target_dir, config.benchmark_contract),
-            parse_benchmark(source_dir, config.benchmark_contract),
+            parse_benchmark(target_dir, config.target_benchmark_contract),
+            parse_benchmark(source_dir, config.source_benchmark_contract),
             config,
         )
 
@@ -210,6 +210,22 @@ class InventoryTests(unittest.TestCase):
             with self.assertRaisesRegex(BenchmarkError, "unsafe or malformed"):
                 load_aliases(path)
 
+    def test_embedding_file_symlink_cannot_escape_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target, source, config = self._benchmarks(root)
+            cache = root / "cache"
+            directory = cache / DIRS["prott5"]
+            directory.mkdir(parents=True)
+            outside = root / "outside.npy"
+            np.save(outside, np.zeros(DIMS["prott5"], dtype=np.float32))
+            (directory / "P1.npy").symlink_to(outside)
+            record = self._records(
+                build_inventory(target, source, cache, config, "maximize-coverage")
+            )[("P1", "prott5")]
+            self.assertEqual(record.factual_status, "unreadable")
+            self.assertNotEqual(record.requested_action, "reuse")
+
     def test_alias_release_evidence_requires_exact_identity_token(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -364,14 +380,15 @@ class InventoryTests(unittest.TestCase):
             output = root / "reports"
             summary = write_reports(result, output, cache)
             required = {
-                "benchmark_proteins.tsv",
-                "protein_embedding_summary.tsv",
-                "embedding_inventory.tsv",
+                "benchmark_proteins.tsv.gz",
+                "protein_embedding_summary.tsv.gz",
                 "embedding_summary.json",
                 "embedding_summary.md",
-                "reuse_manifest.tsv",
+                "run_provenance.json",
+                "run_provenance.md",
+                "reuse_manifest.tsv.gz",
                 "generation_manifest.tsv",
-                "manual_review.tsv",
+                "manual_review.tsv.gz",
                 "reuse_prott5.txt",
                 "generate_prott5.fasta",
                 "reuse_text.txt",
@@ -383,12 +400,13 @@ class InventoryTests(unittest.TestCase):
                 "reuse_ppi.txt",
                 "extract_ppi.txt",
                 "ppi_unavailable.txt",
-                "cache_extras.tsv",
+                "cache_extras.tsv.gz",
             }
             self.assertTrue(required.issubset({path.name for path in output.iterdir()}))
             self.assertEqual(summary["cache_extras"], {modality: 1 for modality in MODALITIES})
             self.assertEqual(summary["coverage"]["global"]["at_least_one_modality"]["count"], 1)
-            with (output / "protein_embedding_summary.tsv").open() as handle:
+            import gzip
+            with gzip.open(output / "protein_embedding_summary.tsv.gz", "rt") as handle:
                 row = next(csv.DictReader(handle, delimiter="\t"))
             self.assertEqual(row["has_any_embedding"], "true")
             self.assertEqual(row["reusable_modalities"], "prott5")

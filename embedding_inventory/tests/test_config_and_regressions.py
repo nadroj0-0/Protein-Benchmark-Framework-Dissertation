@@ -14,6 +14,7 @@ REPO_ROOT = PACKAGE_ROOT.parent
 sys.path.insert(0, str(SRC))
 
 from pfp_embedding_inventory.config import ConfigError, load_config  # noqa: E402
+from helpers import unique_rows_by_file, write_nine_csvs  # noqa: E402
 
 
 class ConfigTests(unittest.TestCase):
@@ -42,11 +43,60 @@ class ConfigTests(unittest.TestCase):
                 },
             }
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "name": "test",
-            "benchmark_contract": {},
+            "target_benchmark_contract": {
+                "id_overlap": "allow", "sequence_overlap": "allow",
+                "protein_id_pattern": "^[^\\s/\\\\]+$",
+                "sequence_pattern": "^[A-Za-z*.-]+$",
+            },
+            "source_benchmark_contract": {
+                "id_overlap": "allow", "sequence_overlap": "allow",
+                "protein_id_pattern": "^[^\\s/\\\\]+$",
+                "sequence_pattern": "^[A-Za-z*.-]+$",
+            },
+            "artifact_scope": {"mode": "none"},
             "modalities": modalities,
         }
+
+    def test_schema_one_is_rejected_instead_of_silently_reinterpreted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            payload = self._base_config()
+            payload["schema_version"] = 1
+            payload["benchmark_contract"] = payload.pop("target_benchmark_contract")
+            path.write_text(json.dumps(payload))
+            with self.assertRaisesRegex(ConfigError, "schema_version 1 is not accepted"):
+                load_config(path)
+
+    def test_non_object_config_root_is_rejected_cleanly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            path.write_text("[]")
+            with self.assertRaisesRegex(ConfigError, "root must be a JSON object"):
+                load_config(path)
+
+    def test_source_and_target_contracts_are_independent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            payload = self._base_config()
+            payload["target_benchmark_contract"]["id_overlap"] = "global-evaluation-disjoint"
+            payload["source_benchmark_contract"]["id_overlap"] = "allow"
+            path.write_text(json.dumps(payload))
+            config = load_config(path)
+            self.assertEqual(config.target_benchmark_contract.id_overlap, "global-evaluation-disjoint")
+            self.assertEqual(config.source_benchmark_contract.id_overlap, "allow")
+
+    def test_contract_typo_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            payload = self._base_config()
+            payload["target_benchmark_contract"]["id_overalp"] = payload[
+                "target_benchmark_contract"
+            ].pop("id_overlap")
+            path.write_text(json.dumps(payload))
+            with self.assertRaisesRegex(ConfigError, "missing required keys: id_overlap"):
+                load_config(path)
 
     def test_text_source_must_be_singular(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -96,6 +146,47 @@ class ConfigTests(unittest.TestCase):
 
 
 class LegacyRegressionTests(unittest.TestCase):
+    def test_inventory_cli_writes_compact_provenance_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "target"
+            source = root / "source"
+            write_nine_csvs(target, rows_by_file=unique_rows_by_file())
+            write_nine_csvs(source, rows_by_file=unique_rows_by_file())
+            cache = root / "cache"
+            cache.mkdir()
+            artifact_root = root / "artifact"
+            artifact_root.mkdir()
+            output = root / "output"
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "verification" / "inventory_embeddings.py"),
+                    "--benchmark-dir", str(target),
+                    "--source-benchmark-dir", str(source),
+                    "--embedding-cache", str(cache),
+                    "--artifact-root", str(artifact_root),
+                    "--config", str(REPO_ROOT / "configs" / "embedding_inventory.contemporary.json"),
+                    "--policy", "maximize-coverage",
+                    "--report-level", "compact",
+                    "--output-dir", str(output),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr + completed.stdout)
+            provenance = json.loads((output / "run_provenance.json").read_text())
+            self.assertEqual(provenance["run"]["report_level"], "compact")
+            self.assertEqual(len(provenance["inputs"]["target_csvs"]), 9)
+            self.assertEqual(len(provenance["inputs"]["source_csvs"]), 9)
+            self.assertIn("--benchmark-dir", provenance["command"])
+            self.assertIs(provenance["software"]["dirty_worktree"], True)
+            self.assertEqual(provenance["software"]["git_status_error"], "")
+            self.assertTrue((output / "embedding_inventory.tsv.gz").exists())
+            self.assertFalse((output / "benchmark_proteins_full.tsv.gz").exists())
+            self.assertTrue(json.loads((output / "RUN_COMPLETE.json").read_text())["complete"])
+
     def test_generate_embeddings_fasta_still_works(self):
         with tempfile.TemporaryDirectory() as tmp:
             data = Path(tmp)

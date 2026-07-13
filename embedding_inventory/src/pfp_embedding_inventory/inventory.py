@@ -9,6 +9,7 @@ from .benchmark import sequence_index, temporal_text_role
 from .models import (
     AliasEntry,
     ArrayInfo,
+    ArtifactVerification,
     BenchmarkData,
     InventoryRecord,
     InventoryResult,
@@ -17,6 +18,7 @@ from .models import (
     PlannerConfig,
     ProteinRecord,
 )
+from .paths import PathSafetyError, require_resolved_within, resolve_within
 
 
 class InventoryError(ValueError):
@@ -45,10 +47,23 @@ def build_inventory(
     policy: str,
     aliases: Optional[Dict[Tuple[str, str], List[AliasEntry]]] = None,
     array_cache: Optional[ArrayCache] = None,
+    artifact_verification: Optional[ArtifactVerification] = None,
 ) -> InventoryResult:
     if policy not in {"paper-faithful", "maximize-coverage"}:
         raise InventoryError("Unsupported action policy: %s" % policy)
     aliases = aliases or {}
+    artifact_verification = artifact_verification or ArtifactVerification(
+        configured=False,
+        verified=False,
+        artifact_id="",
+        checks={},
+        reasons=["artifact verification was not performed"],
+        expected={},
+        observed={},
+    )
+    _validate_artifact_verification_binding(
+        artifact_verification, benchmark, source_benchmark, config, policy
+    )
     array_cache = array_cache if array_cache is not None else {}
     embedding_cache = embedding_cache.resolve()
     unknown_alias_targets = sorted(
@@ -62,7 +77,14 @@ def build_inventory(
 
     cache_ids: Dict[str, Set[str]] = {}
     for modality in MODALITIES:
-        source_dir = embedding_cache / config.modalities[modality].directory
+        try:
+            source_dir = resolve_within(
+                embedding_cache,
+                Path(config.modalities[modality].directory),
+                "%s modality directory" % modality,
+            )
+        except PathSafetyError as exc:
+            raise InventoryError(str(exc)) from exc
         cache_ids[modality] = {
             path.stem for path in source_dir.glob("*.npy") if path.is_file()
         } if source_dir.is_dir() else set()
@@ -74,7 +96,13 @@ def build_inventory(
         target = benchmark.proteins[protein_id]
         for modality in MODALITIES:
             spec = config.modalities[modality]
-            source_dir = embedding_cache / spec.directory
+            try:
+                source_dir = resolve_within(
+                    embedding_cache, Path(spec.directory),
+                    "%s modality directory" % modality,
+                )
+            except PathSafetyError as exc:
+                raise InventoryError(str(exc)) from exc
             record = _inventory_one(
                 target=target,
                 modality=modality,
@@ -85,6 +113,7 @@ def build_inventory(
                 alias_entries=aliases.get((protein_id, modality), []),
                 array_cache=array_cache,
                 policy=policy,
+                artifact_verification=artifact_verification,
             )
             records.append(record)
             if record.requested_action == "reuse" and record.source_protein_id:
@@ -98,7 +127,43 @@ def build_inventory(
         used_source_ids=used_source_ids,
         policy=policy,
         config=config,
+        artifact_verification=artifact_verification,
     )
+
+
+def _validate_artifact_verification_binding(
+    verification: ArtifactVerification,
+    benchmark: BenchmarkData,
+    source_benchmark: BenchmarkData,
+    config: PlannerConfig,
+    policy: str,
+) -> None:
+    """Refuse a successful proof computed for any other run inputs.
+
+    This closes an integration-error route where a caller might accidentally
+    reuse a canonical proof object while planning a changed target.
+    """
+    if not verification.verified:
+        return
+    observed_catalog = verification.observed.get("cache_catalog", {})
+    bound = (
+        config.artifact_scope.mode == "verified-published-cache"
+        and verification.artifact_id == config.artifact_scope.artifact_id
+        and policy == "paper-faithful"
+        and bool(verification.checks)
+        and all(verification.checks.values())
+        and verification.observed.get("target_benchmark_fingerprint")
+        == benchmark.fingerprint
+        and verification.observed.get("source_benchmark_fingerprint")
+        == source_benchmark.fingerprint
+        and observed_catalog.get("fingerprint")
+        == config.artifact_scope.expected_cache_catalog_fingerprint
+    )
+    if not bound:
+        raise InventoryError(
+            "successful artifact verification is not bound to this target, source, "
+            "cache catalog, configuration, and paper-faithful policy"
+        )
 
 
 def validate_array(path: Path, expected_dim: int, cache: ArrayCache) -> ArrayInfo:
@@ -112,6 +177,12 @@ def validate_array(path: Path, expected_dim: int, cache: ArrayCache) -> ArrayInf
         return info
     if not path.is_file():
         info = ArrayInfo(exists=True, error="path is not a regular file")
+        cache[key] = info
+        return info
+    try:
+        require_resolved_within(path.parent, path, "embedding array")
+    except PathSafetyError as exc:
+        info = ArrayInfo(exists=True, error=str(exc))
         cache[key] = info
         return info
     try:
@@ -153,6 +224,7 @@ def _inventory_one(
     alias_entries: List[AliasEntry],
     array_cache: ArrayCache,
     policy: str,
+    artifact_verification: ArtifactVerification,
 ) -> InventoryRecord:
     candidate = _select_candidate(
         target,
@@ -163,6 +235,7 @@ def _inventory_one(
         source_by_sequence,
         alias_entries,
         array_cache,
+        artifact_verification.verified and policy == "paper-faithful",
     )
     if candidate.ambiguity:
         candidate_paths = sorted(
@@ -244,6 +317,26 @@ def _inventory_one(
     elif modality == "text" and not _text_roles_compatible(target, source, spec):
         status = "provenance-incompatible"
         factual_reason = "source and target temporal text roles differ"
+    elif spec.provenance.compatibility == "artifact-scoped":
+        if (
+            artifact_verification.verified
+            and policy == "paper-faithful"
+            and route == "exact-id"
+            and source_id == target.protein_id
+        ):
+            status = "present-valid"
+            eligible = True
+            provenance = "verified-artifact:%s" % artifact_verification.artifact_id
+            factual_reason = (
+                "valid direct-ID array is owned by the cryptographically verified "
+                "published benchmark/cache artifact"
+            )
+        else:
+            status = "provenance-unknown"
+            factual_reason = (
+                "artifact-scoped reuse is not proven for this target/source/cache/policy "
+                "combination; config labels and aliases are not proof"
+            )
     elif spec.provenance.compatibility == "unknown":
         status = "provenance-unknown"
         factual_reason = "configuration does not establish compatible provenance"
@@ -279,7 +372,9 @@ def _inventory_one(
             eligible = True
             factual_reason = "valid array eligible under declared %s provenance evidence" % route
 
-    action = _requested_action(status, policy, spec)
+    action = _requested_action(
+        status, policy, spec, artifact_verification.verified
+    )
     reason_parts = [factual_reason]
     if candidate.note:
         reason_parts.append(candidate.note)
@@ -318,12 +413,21 @@ def _select_candidate(
     source_by_sequence: Dict[str, List[str]],
     alias_entries: List[AliasEntry],
     array_cache: ArrayCache,
+    verified_artifact: bool,
 ) -> Candidate:
     direct_file = source_dir / (target.protein_id + ".npy")
     direct_source = source_benchmark.proteins.get(target.protein_id)
     direct_sequence_ok = (
         direct_source is not None and direct_source.sequence_sha256 == target.sequence_sha256
     )
+
+    if verified_artifact and direct_file.is_file() and direct_source is not None:
+        if not spec.sequence_dependent or direct_sequence_ok:
+            direct_info = validate_array(direct_file, spec.expected_dim, array_cache)
+            if direct_info.valid:
+                # Exact artifact ownership is deliberately stronger than an
+                # alias. This route prevents aliases from manufacturing scope.
+                return Candidate(target.protein_id, "exact-id", direct_file)
 
     if modality == "prott5" and direct_file.is_file() and direct_sequence_ok:
         direct_info = validate_array(direct_file, spec.expected_dim, array_cache)
@@ -476,12 +580,19 @@ def _identity_tokens(identity: str) -> Set[str]:
     return {token.strip().lower() for token in identity.split("|") if token.strip()}
 
 
-def _requested_action(status: str, policy: str, spec: ModalitySpec) -> str:
+def _requested_action(
+    status: str,
+    policy: str,
+    spec: ModalitySpec,
+    artifact_verified: bool = False,
+) -> str:
     if status == "present-valid":
         return "reuse"
     if policy == "paper-faithful":
         if status in {"missing", "unreadable"}:
             return "leave-masked"
+        return "manual-review"
+    if spec.provenance.compatibility == "artifact-scoped" and not artifact_verified:
         return "manual-review"
     if spec.provenance.compatibility in {"unknown", "incompatible"}:
         return "manual-review"

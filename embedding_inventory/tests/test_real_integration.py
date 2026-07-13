@@ -1,6 +1,7 @@
 import csv
 import os
 import sys
+import tempfile
 import unittest
 from collections import defaultdict
 from pathlib import Path
@@ -17,6 +18,13 @@ from pfp_embedding_inventory.config import load_config  # noqa: E402
 from pfp_embedding_inventory.inventory import ArrayCache, build_inventory  # noqa: E402
 from pfp_embedding_inventory.models import MODALITIES, ONTOLOGIES, SPLITS  # noqa: E402
 from pfp_embedding_inventory.reports import write_reports  # noqa: E402
+from pfp_embedding_inventory.provenance import (  # noqa: E402
+    HashCache,
+    assert_cache_catalog_unchanged,
+    build_run_provenance,
+    compute_cache_catalog,
+    verify_artifact_scope,
+)
 
 
 CANONICAL = Path(
@@ -55,35 +63,60 @@ class RealDataIntegrationTests(unittest.TestCase):
         for path in (CANONICAL, CACHE) + HISTORICAL:
             self.assertTrue(path.exists(), str(path))
         config = load_config(CONFIG)
-        source = parse_benchmark(CANONICAL, config.benchmark_contract)
+        source = parse_benchmark(CANONICAL, config.source_benchmark_contract)
+        canonical_target = parse_benchmark(CANONICAL, config.target_benchmark_contract)
+        self.assertEqual(canonical_target.fingerprint, source.fingerprint)
         independent_source = independent_parse(CANONICAL)
         self.assertEqual(set(source.proteins), set(independent_source["sequences"]))
         self.assertEqual(len(source.proteins), 69811)
 
-        output_root = Path(
-            os.environ.get(
-                "PFP_INVENTORY_REAL_OUTPUT_ROOT",
-                str(REPO_ROOT / "results" / "embedding_inventory" / "real_integration"),
-            )
-        )
+        configured_output = os.environ.get("PFP_INVENTORY_REAL_OUTPUT_ROOT")
+        temporary_output = tempfile.TemporaryDirectory() if not configured_output else None
+        output_root = Path(configured_output or temporary_output.name)
         array_cache: ArrayCache = {}
+        hash_cache = HashCache()
+        catalog = compute_cache_catalog(CACHE, config, hash_cache)
+        self.assertEqual(catalog.total_files, 265570)
+        self.assertEqual(catalog.modality_counts, {
+            "prott5": 69811, "text": 69517, "structure": 67948, "ppi": 58294,
+        })
         cache_ids = {
             modality: {path.stem for path in (CACHE / directory).glob("*.npy")}
             for modality, directory in DIRS.items()
         }
 
+        canonical_proof = verify_artifact_scope(
+            config, canonical_target, source, catalog, CACHE.parent.parent,
+            "paper-faithful", hash_cache,
+        )
+        self.assertTrue(canonical_proof.verified, canonical_proof.reasons)
         canonical_result = build_inventory(
-            source, source, CACHE, config, "paper-faithful", array_cache=array_cache
+            canonical_target, source, CACHE, config, "paper-faithful", array_cache=array_cache,
+            artifact_verification=canonical_proof,
+        )
+        assert_cache_catalog_unchanged(
+            catalog, compute_cache_catalog(CACHE, config)
+        )
+        canonical_provenance = self._provenance(
+            config, canonical_target, source, catalog, canonical_proof, hash_cache,
+            "paper-faithful", output_root / "canonical_paper_faithful",
         )
         canonical_summary = write_reports(
-            canonical_result, output_root / "canonical_paper_faithful", CACHE
+            canonical_result, output_root / "canonical_paper_faithful", CACHE,
+            report_level="compact", provenance=canonical_provenance,
+            protected_roots=(CACHE.parent.parent, REPO_ROOT),
         )
         self._assert_golden(canonical_result, canonical_summary, independent_source, cache_ids)
 
         for historical_dir in HISTORICAL:
             with self.subTest(historical=historical_dir.parent.name):
-                target = parse_benchmark(historical_dir, config.benchmark_contract)
+                target = parse_benchmark(historical_dir, config.target_benchmark_contract)
                 independent_target = independent_parse(historical_dir)
+                proof = verify_artifact_scope(
+                    config, target, source, catalog, CACHE.parent.parent,
+                    "maximize-coverage", hash_cache,
+                )
+                self.assertFalse(proof.verified)
                 result = build_inventory(
                     target,
                     source,
@@ -91,11 +124,20 @@ class RealDataIntegrationTests(unittest.TestCase):
                     config,
                     "maximize-coverage",
                     array_cache=array_cache,
+                    artifact_verification=proof,
+                )
+                assert_cache_catalog_unchanged(
+                    catalog, compute_cache_catalog(CACHE, config)
+                )
+                destination = output_root / (historical_dir.parent.name + "_maximize_coverage")
+                provenance = self._provenance(
+                    config, target, source, catalog, proof, hash_cache,
+                    "maximize-coverage", destination,
                 )
                 summary = write_reports(
-                    result,
-                    output_root / (historical_dir.parent.name + "_maximize_coverage"),
-                    CACHE,
+                    result, destination, CACHE,
+                    report_level="compact", provenance=provenance,
+                    protected_roots=(CACHE.parent.parent, REPO_ROOT),
                 )
                 self._assert_historical(
                     result,
@@ -104,6 +146,23 @@ class RealDataIntegrationTests(unittest.TestCase):
                     independent_target,
                     cache_ids,
                 )
+        if temporary_output is not None:
+            temporary_output.cleanup()
+
+    def _provenance(self, config, target, source, catalog, proof, hash_cache, policy, output):
+        return build_run_provenance(
+            command=("python", "-m", "unittest", "tests/test_real_integration.py"),
+            repository=REPO_ROOT, config_path=CONFIG, alias_path=None,
+            target=target, source=source, embedding_cache=CACHE,
+            artifact_root=CACHE.parent.parent, catalog=catalog, verification=proof,
+            policy=policy, report_level="compact",
+            runtime_options={
+                "output_dir": str(output),
+                "real_integration": True,
+                "cache_catalog_reverified_after_array_validation": True,
+            },
+            hash_cache=hash_cache,
+        )
 
     def _assert_golden(self, result, summary, independent, cache_ids):
         records = {(record.protein_id, record.modality): record for record in result.records}
@@ -119,12 +178,8 @@ class RealDataIntegrationTests(unittest.TestCase):
                 if protein_id in cache_ids[modality]:
                     self.assertTrue(record.valid)
                     self.assertTrue(record.finite)
-                    if modality == "prott5":
-                        self.assertEqual(record.factual_status, "present-valid")
-                        self.assertEqual(record.requested_action, "reuse")
-                    else:
-                        self.assertEqual(record.factual_status, "provenance-unknown")
-                        self.assertEqual(record.requested_action, "manual-review")
+                    self.assertEqual(record.factual_status, "present-valid")
+                    self.assertEqual(record.requested_action, "reuse")
                 else:
                     self.assertEqual(record.factual_status, "missing")
                     self.assertEqual(record.requested_action, "leave-masked")
@@ -147,8 +202,10 @@ class RealDataIntegrationTests(unittest.TestCase):
         self.assertEqual(summary["coverage"]["global"]["at_least_one_modality"]["count"], at_least_one)
         self.assertEqual(
             summary["coverage"]["global"]["complete_four_modalities_reusable"]["count"],
-            0,
+            sum(all(protein_id in cache_ids[m] for m in MODALITIES) for protein_id in all_ids),
         )
+        self.assertFalse(any(record.requested_action == "manual-review" for record in result.records))
+        self.assertEqual(sum(record.valid for record in result.records), 265570)
         self.assertIn("zero vectors with mask 0.0", summary["pfp_missing_behavior"])
 
     def _assert_historical(self, result, summary, source, target, cache_ids):
@@ -178,6 +235,22 @@ class RealDataIntegrationTests(unittest.TestCase):
             if record.modality == "prott5" and record.requested_action == "reuse"
         }
         self.assertEqual(actual_prott5_reuse, expected_prott5_reuse)
+        expected_generation = target_ids - expected_prott5_reuse
+        actual_generation = {
+            r.protein_id for r in result.records
+            if r.modality == "prott5" and r.requested_action == "generate"
+        }
+        self.assertEqual(actual_generation, expected_generation)
+        expected_cross_id_new = {
+            protein_id for protein_id in new
+            if protein_id in expected_prott5_reuse
+        }
+        actual_cross_id_new = {
+            r.protein_id for r in result.records
+            if r.modality == "prott5" and r.requested_action == "reuse"
+            and r.match_route == "sequence-sha256" and r.protein_id in new
+        }
+        self.assertEqual(actual_cross_id_new, expected_cross_id_new)
         for protein_id in new:
             record = records[(protein_id, "prott5")]
             if target["sequences"][protein_id] in source_by_sequence:

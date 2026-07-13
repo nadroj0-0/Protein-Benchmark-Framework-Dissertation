@@ -1,5 +1,6 @@
 import csv
 import hashlib
+import json
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -43,13 +44,12 @@ def parse_benchmark(directory: Path, contract: BenchmarkContract) -> BenchmarkDa
             filename = "%s-%s.csv" % (ontology.lower(), split)
             path = directory / filename
             members: Set[str] = set()
-            seen_rows: Dict[str, Tuple[str, Tuple[str, ...]]] = {}
+            # A fixed-size digest is sufficient to distinguish identical from
+            # contradictory duplicates.  Never retain wide GO label vectors.
+            seen_rows: Dict[str, Tuple[bytes, int]] = {}
             with path.open("r", newline="", encoding="utf-8-sig") as handle:
-                reader = csv.reader(handle)
-                try:
-                    header = next(reader)
-                except StopIteration as exc:
-                    raise BenchmarkError("Required CSV is empty: %s" % path) from exc
+                reader = csv.reader(handle, strict=True)
+                header = _read_header(reader, path)
                 if len(header) < 3 or header[:2] != ["proteins", "sequences"]:
                     raise BenchmarkError(
                         "%s must begin with proteins,sequences and contain GO columns" % filename
@@ -60,7 +60,7 @@ def parse_benchmark(directory: Path, contract: BenchmarkContract) -> BenchmarkDa
                 if any(not value.startswith("GO:") for value in go_columns):
                     raise BenchmarkError("%s contains malformed GO columns" % filename)
 
-                for line_number, row in enumerate(reader, start=2):
+                for line_number, row in _read_rows(reader, filename):
                     if len(row) != len(header):
                         raise BenchmarkError(
                             "%s:%d has %d columns; expected %d"
@@ -81,22 +81,31 @@ def parse_benchmark(directory: Path, contract: BenchmarkContract) -> BenchmarkDa
                             "%s:%d has an empty or malformed sequence for %s"
                             % (filename, line_number, protein_id)
                         )
-                    labels = tuple(row[2:])
-                    if any(value not in {"0", "1"} for value in labels):
-                        raise BenchmarkError(
-                            "%s:%d has non-binary GO labels for %s"
-                            % (filename, line_number, protein_id)
-                        )
+                    row_hasher = hashlib.sha256()
+                    row_hasher.update(protein_id.encode("utf-8"))
+                    row_hasher.update(b"\0")
+                    row_hasher.update(sequence.encode("utf-8"))
+                    row_hasher.update(b"\0")
+                    for column_number in range(2, len(row)):
+                        value = row[column_number]
+                        if value not in {"0", "1"}:
+                            raise BenchmarkError(
+                                "%s:%d has non-binary GO label in column %d for %s"
+                                % (filename, line_number, column_number + 1, protein_id)
+                            )
+                        row_hasher.update(value.encode("ascii"))
+                    row_digest = row_hasher.digest()
 
                     previous_row = seen_rows.get(protein_id)
                     if previous_row is not None:
-                        if previous_row != (sequence, labels):
+                        if previous_row[0] != row_digest:
                             raise BenchmarkError(
-                                "%s has contradictory duplicate rows for %s" % (filename, protein_id)
+                                "%s has contradictory duplicate rows for %s (lines %d and %d)"
+                                % (filename, protein_id, previous_row[1], line_number)
                             )
                         duplicate_rows += 1
                         continue
-                    seen_rows[protein_id] = (sequence, labels)
+                    seen_rows[protein_id] = (row_digest, line_number)
 
                     existing = proteins.get(protein_id)
                     if existing is not None and existing.sequence != sequence:
@@ -122,18 +131,91 @@ def parse_benchmark(directory: Path, contract: BenchmarkContract) -> BenchmarkDa
     if not proteins:
         raise BenchmarkError("Benchmark contains no proteins")
     _validate_overlap(proteins, file_members, contract)
-    return BenchmarkData(
+    benchmark = BenchmarkData(
         directory=directory,
         proteins=proteins,
         file_members=file_members,
         duplicate_rows=duplicate_rows,
     )
+    benchmark.fingerprint = benchmark_fingerprint(benchmark)
+    return benchmark
+
+
+def benchmark_fingerprint(benchmark: BenchmarkData) -> str:
+    """Return a row-order-independent semantic benchmark identity.
+
+    The canonical JSON-lines stream contains each exact protein ID, complete
+    sequence SHA-256, sequence length, and every ontology/split membership.
+    GO label values are intentionally excluded: they are prediction targets,
+    not embedding identity or temporal-role evidence.
+    """
+    digest = hashlib.sha256()
+    for protein_id in sorted(benchmark.proteins):
+        protein = benchmark.proteins[protein_id]
+        payload = {
+            "memberships": [list(item) for item in sorted(protein.memberships)],
+            "protein_id": protein.protein_id,
+            "sequence_length": protein.sequence_length,
+            "sequence_sha256": protein.sequence_sha256,
+        }
+        digest.update(
+            (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode(
+                "utf-8"
+            )
+        )
+    return digest.hexdigest()
+
+
+def duplicate_row_digest(protein_id: str, sequence: str, labels: Iterable[str]) -> bytes:
+    """Testing/documentation helper for the fixed-size duplicate state."""
+    digest = hashlib.sha256()
+    digest.update(protein_id.encode("utf-8"))
+    digest.update(b"\0")
+    digest.update(sequence.encode("utf-8"))
+    digest.update(b"\0")
+    for value in labels:
+        if value not in {"0", "1"}:
+            raise BenchmarkError("non-binary GO label")
+        digest.update(value.encode("ascii"))
+    return digest.digest()
+
+
+def _read_header(reader: Iterable[List[str]], path: Path) -> List[str]:
+    try:
+        return next(reader)  # type: ignore[arg-type]
+    except StopIteration as exc:
+        raise BenchmarkError("Required CSV is empty: %s" % path) from exc
+    except csv.Error as exc:
+        raise BenchmarkError("Malformed CSV %s: %s" % (path.name, exc)) from exc
+
+
+def _read_rows(
+    reader: Iterable[List[str]], filename: str
+) -> Iterable[Tuple[int, List[str]]]:
+    iterator = iter(reader)
+    line_number = 1
+    while True:
+        try:
+            row = next(iterator)
+        except StopIteration:
+            return
+        except csv.Error as exc:
+            raise BenchmarkError(
+                "Malformed CSV %s near record %d: %s"
+                % (filename, line_number + 1, exc)
+            ) from exc
+        line_number += 1
+        yield line_number, row
 
 
 def load_aliases(
-    path: Path, protein_id_pattern: str = r"^[^\s/\\]+$"
+    path: Path,
+    target_protein_id_pattern: str = r"^[^\s/\\]+$",
+    source_protein_id_pattern: str = r"^[^\s/\\]+$",
 ) -> Dict[Tuple[str, str], List[AliasEntry]]:
     aliases: DefaultDict[Tuple[str, str], List[AliasEntry]] = defaultdict(list)
+    target_id_re = re.compile(target_protein_id_pattern)
+    source_id_re = re.compile(source_protein_id_pattern)
     with path.open("r", newline="", encoding="utf-8-sig") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
         required = {
@@ -157,12 +239,11 @@ def load_aliases(
             mapping_evidence = (row.get("mapping_evidence") or "").strip()
             if not protein_id or not source_id or not route or not source_identity or not mapping_evidence:
                 raise BenchmarkError("Alias TSV line %d contains an empty required value" % line_number)
-            id_re = re.compile(protein_id_pattern)
             if (
                 not _safe_protein_id(protein_id)
                 or not _safe_protein_id(source_id)
-                or id_re.fullmatch(protein_id) is None
-                or id_re.fullmatch(source_id) is None
+                or target_id_re.fullmatch(protein_id) is None
+                or source_id_re.fullmatch(source_id) is None
             ):
                 raise BenchmarkError(
                     "Alias TSV line %d contains an unsafe or malformed protein ID" % line_number
@@ -192,6 +273,7 @@ def _safe_protein_id(protein_id: str) -> bool:
     return (
         protein_id not in {".", ".."}
         and not any(character.isspace() for character in protein_id)
+        and not any(ord(character) < 32 or ord(character) == 127 for character in protein_id)
         and "/" not in protein_id
         and "\\" not in protein_id
     )
@@ -246,11 +328,28 @@ def _check_overlap_kind(
                 },
             )
         )
-    else:
+    elif policy == "global-evaluation-disjoint":
+        groups.append(
+            (
+                "global-evaluation",
+                {
+                    "train-validation": set().union(
+                        *(file_members[(ontology, split)] for ontology in ONTOLOGIES for split in ("training", "validation"))
+                    ),
+                    "test": set().union(
+                        *(file_members[(ontology, "test")] for ontology in ONTOLOGIES)
+                    ),
+                },
+            )
+        )
+        pairs = (("train-validation", "test"),)
+    elif policy == "per-ontology-disjoint":
         for ontology in ONTOLOGIES:
             groups.append(
                 (ontology, {split: set(file_members[(ontology, split)]) for split in SPLITS})
             )
+    else:
+        raise BenchmarkError("Unsupported benchmark overlap policy: %s" % policy)
 
     for group_name, split_ids in groups:
         values: Dict[str, Set[str]] = {}
