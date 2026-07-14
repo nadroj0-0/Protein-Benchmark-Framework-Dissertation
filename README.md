@@ -78,6 +78,20 @@ decision model, canonical CAFA3 configuration, output contract, alias format,
 integration tests, future temporal/homology commands, and scientific
 limitations.
 
+To exercise the planner against a completed contemporary benchmark and
+Zijian's real published cache on UCL Grid Engine:
+
+```bash
+qsub -v BENCHMARK_DIR=/path/to/contemporary/run/outputs \
+  hpc_jobs/active/hpc_contemporary_embedding_inventory.sh
+```
+
+This downloads the published embedding archives only into scratch and returns
+compact reuse, missing, generation, and manual-review manifests. It does not
+generate embeddings. The scheduler-neutral implementation is
+`scripts/verification/run_contemporary_embedding_inventory.sh`; both a single
+benchmark directory and per-CSV path overrides are supported.
+
 ## Local path configuration
 
 Machine-specific paths should live outside committed scripts. Use
@@ -90,8 +104,8 @@ cp configs/paths.example.sh configs/paths.local.sh
 Then edit `configs/paths.local.sh` for the current machine. Typical
 variables include `PFP_DIR`, `CAFA_ASSESSMENT_DIR`, `CAFA3_RAW_DIR`,
 `PROTEIN_DATABASES_DIR`, `STRING_H5_FILE`, `STRING_ALIAS_FILE`,
-`CONDA_EXE`, `MMFP_ENV`, `MMFP_ENV_DIR`, `PFP_GIT_URL`,
-`PFP_CLONE_DIR`, `PFP_EXTERNAL_DIR`, `PFP_DATA_DIR`,
+`CONDA_EXE`, `MMFP_ENV`, `MMFP_ENV_DIR`, `MMFP_PYTHON`,
+`PFP_GIT_URL`, `PFP_CLONE_DIR`, `PFP_EXTERNAL_DIR`, `PFP_DATA_DIR`,
 `DEPENDENCY_ENV`, and `VERIFY_CSV_WORKDIR`.
 
 ## Contemporary benchmark builder
@@ -138,6 +152,12 @@ bash scripts/reproduction/reproduce_embeddings_retrain_eval.sh
 
 The final route clones/builds the upstream PFP environment before
 invoking `scripts/embeddings/generate_embeddings_run_all.sh`.
+
+New `mmfp` environments use Python `3.9.23` and the package versions supplied
+by Zijian for the MMFP/PFP paper environment. Those versions are pinned
+directly in `scripts/reproduction_common.sh`. Dependencies for which no version
+was supplied, including `fair-esm` and the PyTorch-Geometric stack, remain
+unpinned. An existing `mmfp` environment is reused without modification.
 
 ## HPC jobs
 

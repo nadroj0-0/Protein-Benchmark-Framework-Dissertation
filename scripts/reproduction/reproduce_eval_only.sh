@@ -20,24 +20,9 @@ cd "${REPO_ROOT}"
 #        no MMFP subdir exists, and that path errors on Linux). ----------
 clone_or_reuse_pfp
 
-# --- 1. Environment: micromamba, Python 3.11 --------------------------
-#micromamba create -y -n mmfp python=3.11
-#eval "$(micromamba shell hook --shell bash)"
-#micromamba activate mmfp
-#eval "$(/share/apps/miniforge3_mamba/bin/conda shell.bash hook)"
-#conda create -y -n mmfp python=3.11
-#conda activate mmfp
-#
-## --- 2. Dependencies. requirements.txt is INCOMPLETE: the eval script
-##        imports extract_uniprot_text.py (needs `requests`); structure/PPI
-##        paths need h5py and fair-esm. Those three are the only missing ones.
-##pip install -r requirements.txt
-##pip install requests h5py fair-esm
-#python -m pip install --upgrade pip setuptools wheel
-#pip install -r requirements.txt --prefer-binary
-#pip install requests fair-esm
-#pip install --only-binary=:all: h5py
-
+# --- 1. Environment: author-supplied Python 3.9.23 --------------------
+# Creation and constrained dependency installation are centralised in the
+# shared helper. Existing environments are activated without modification.
 activate_or_create_mmfp_env
 
 # --- 3. Data. README's single bundle (mmfp_cafa3_data.tar.gz) 404s; it was

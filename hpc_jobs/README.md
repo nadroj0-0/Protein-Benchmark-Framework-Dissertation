@@ -30,6 +30,8 @@ qsub hpc_jobs/active/hpc_cafa3_deepgoplus_pickle_generation_validation.sh
 qsub hpc_jobs/active/hpc_cafa3_deepgoplus_validation.sh
 qsub hpc_jobs/active/hpc_cafa3_historical_validation.sh
 qsub hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh
+qsub -v BENCHMARK_DIR=/path/to/contemporary/run/outputs \
+  hpc_jobs/active/hpc_contemporary_embedding_inventory.sh
 ```
 
 The active wrappers clone the full framework into node-local scratch and
@@ -38,6 +40,31 @@ then call the normal entrypoints under `scripts/`.
 The historical and contemporary benchmark-generation wrappers activate and use
 the shared `mmfp` environment directly. They do not create another virtual
 environment or replace its NumPy and pandas installations.
+
+`hpc_contemporary_embedding_inventory.sh` is a CPU-only integration test for
+the completed nine contemporary CSVs against Zijian's published embeddings.
+The benchmark path is supplied at submission time, never embedded in the
+wrapper. The job downloads Zenodo records 7409660 and 19498341 into scratch,
+authenticates the nine source CSVs and three embedding archives, validates the
+published cache, and runs the existing provenance-aware planner. Only compact
+reports, manifests, ID lists, and `generate_prott5.fasta` are copied to
+`$HOME/contemporary_embedding_inventory_results`; archive/cache bytes are not.
+Scratch is removed after success, failure, or termination.
+
+The common submission form is:
+
+```bash
+qsub -v BENCHMARK_DIR="$HOME/contemporary_cafa_benchmark_results/<run>/outputs" \
+  hpc_jobs/active/hpc_contemporary_embedding_inventory.sh
+```
+
+Any role can be overridden with `BP_TRAINING_CSV`, `BP_VALIDATION_CSV`,
+`BP_TEST_CSV`, and corresponding `CC_*`/`MF_*` variables. With no
+`BENCHMARK_DIR`, all nine variables are required. Optional overrides are
+`SOURCE_BENCHMARK_DIR`, `PUBLISHED_EMBEDDING_ARCHIVE_DIR`, `ALIASES_FILE`,
+`INVENTORY_CONFIG`, `INVENTORY_POLICY`, `REPORT_LEVEL`, and `RESULTS_ROOT`.
+The default is to download the canonical source CSVs and published embedding
+archives during each job, as requested.
 
 ## Homology-cluster identity array
 

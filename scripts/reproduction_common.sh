@@ -14,7 +14,7 @@ load_framework_paths() {
   export CONDA_EXE="${CONDA_EXE:-/share/apps/miniforge3_mamba/bin/conda}"
   export MMFP_ENV="${MMFP_ENV:-mmfp}"
   export MMFP_ENV_DIR="${MMFP_ENV_DIR:-${HOME}/.conda/envs/${MMFP_ENV}}"
-  export MMFP_PYTHON="${MMFP_PYTHON:-3.11}"
+  export MMFP_PYTHON="${MMFP_PYTHON:-3.9.23}"
 }
 
 clone_or_reuse_pfp() {
@@ -49,10 +49,24 @@ activate_or_create_mmfp_env() {
     conda activate "${MMFP_ENV}"
 
     python -m pip install --upgrade pip setuptools wheel
-    pip install -r requirements.txt --prefer-binary
-    pip install requests fair-esm biopython protobuf sentencepiece torch-geometric "biotite==0.41.2"
+    pip install --prefer-binary \
+      "torch==2.8.0" \
+      "numpy==2.0.2" \
+      "pandas==2.3.3" \
+      "scipy==1.13.1" \
+      "tqdm==4.67.1" \
+      "scikit-learn==1.6.1" \
+      "cafaeval==1.2.1" \
+      "obonet==1.1.1" \
+      "networkx==3.2.1" \
+      "transformers==4.56.2" \
+      "sentencepiece==0.2.1" \
+      "biopython==1.85" \
+      "requests==2.32.5" \
+      "biotite==0.38.0" \
+      fair-esm protobuf torch-geometric
     pip install torch-scatter torch-sparse -f https://data.pyg.org/whl/torch-2.6.0+cu124.html
-    pip install --only-binary=:all: h5py
+    pip install --only-binary=:all: "h5py==3.14.0"
     pip install --only-binary=:all: tiktoken
 
     echo "==> Environment created."

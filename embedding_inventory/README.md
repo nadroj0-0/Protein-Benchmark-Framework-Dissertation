@@ -177,6 +177,42 @@ python3 scripts/verification/inventory_embeddings.py \
   --output-dir "/path/to/results/contemporary_plan"
 ```
 
+For a real contemporary benchmark on UCL Grid Engine, the framework also
+provides a staged integration workflow. It downloads and authenticates the
+three published embedding archives in node-local scratch, downloads and
+authenticates the canonical CAFA3 source CSVs, runs this inventory, copies only
+compact reports/lists home, and clears scratch:
+
+```bash
+qsub -v BENCHMARK_DIR=/path/to/contemporary/run/outputs \
+  hpc_jobs/active/hpc_contemporary_embedding_inventory.sh
+```
+
+`BENCHMARK_DIR` is never hard-coded. Individual roles can instead be supplied
+with `BP_TRAINING_CSV`, `BP_VALIDATION_CSV`, `BP_TEST_CSV`, and the equivalent
+`CC_*` and `MF_*` variables. A directory may be combined with one or more
+per-file overrides. Optional local caches are `SOURCE_BENCHMARK_DIR` and
+`PUBLISHED_EMBEDDING_ARCHIVE_DIR`; by default both source CSVs and embeddings
+are downloaded during the job.
+
+The reusable non-scheduler implementation is:
+
+```bash
+bash scripts/verification/run_contemporary_embedding_inventory.sh \
+  --benchmark-dir /path/to/contemporary/run/outputs \
+  --work-dir /path/to/disposable/work \
+  --output-dir /path/to/new/result
+```
+
+The result root contains `job_summary.md`, acquisition provenance,
+`physical_coverage/{valid,not_valid,missing}_{modality}.txt` convenience lists, and an
+`inventory/` directory with the normal manifests and completion marker.
+`generate_prott5.fasta` is immediately actionable because ProtT5 transfer is
+approved only for an exact complete-sequence match. The contemporary config
+keeps text, structure, and PPI in manual review when their temporal/source/node
+provenance is unresolved; their `missing_*.txt` files are physical generation
+candidates, not automatic scientific approval.
+
 Future homology benchmark uses the same executable and nine CSV interface:
 
 ```bash

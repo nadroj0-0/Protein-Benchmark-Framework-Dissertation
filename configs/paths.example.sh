@@ -33,7 +33,7 @@ export STRING_ALIAS_FILE="${STRING_ALIAS_FILE:-$HOME/protein_databases/string/pr
 # the active machine; cluster scripts may override this.
 export MMFP_ENV="${MMFP_ENV:-mmfp}"
 export MMFP_ENV_DIR="${MMFP_ENV_DIR:-$HOME/.conda/envs/$MMFP_ENV}"
-export MMFP_PYTHON="${MMFP_PYTHON:-3.11}"
+export MMFP_PYTHON="${MMFP_PYTHON:-3.9.23}"
 export CONDA_EXE="${CONDA_EXE:-/share/apps/miniforge3_mamba/bin/conda}"
 
 # Root-level reproduction wrappers clone/reuse PFP here.
