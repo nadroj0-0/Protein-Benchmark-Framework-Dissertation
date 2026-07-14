@@ -105,6 +105,64 @@ and approval bindings, whole-cluster/sequence leakage, output files, aggregation
 construction, revision checks, publication isolation, and scratch cleanup using miniature fixtures
 and fake executables. Immutable PFP ingestion is exercised when the local checkout is available.
 
-No real `qsub`, `qstat`, `qdel`, SSH, full source download, full MMseqs2 clustering, production HPC
-build, embedding generation, or PFP training/evaluation was performed. Real-data mapping coverage,
-biological correctness, runtime, peak memory, peak scratch, and copy-back capacity remain unproven.
+During implementation, no real `qsub`, `qstat`, `qdel`, SSH, full source download, full MMseqs2
+clustering, production HPC build, embedding generation, or PFP training/evaluation was performed.
+The independent audit below later used read-only SSH environment probes only; it did not submit or
+alter cluster work. Real-data mapping coverage, biological correctness, runtime, peak memory, peak
+scratch, and copy-back capacity remain unproven.
+
+## Independent post-implementation audit — 2026-07-14
+
+The implementation was reviewed again after commit `a0ebe2c`. The six original engineering findings
+above are resolved at code and miniature-fixture level. No new defect was found in the benchmark
+transformations, cluster-level split enforcement, PFP export contract, provenance binding, atomic
+publication, or owned-scratch cleanup logic.
+
+### Verification repeated independently
+
+- `PYTHONPATH=src python3 -m unittest discover -s tests -v`: 102 tests passed; one real-MMseqs2
+  smoke test was skipped because MMseqs2 is not installed locally.
+- Ruff with cache disabled, Python compilation with its bytecode cache under `/tmp`, `bash -n` over
+  the five homology shell entrypoints, and `git diff --check` all passed.
+- The immutable-PFP fixture integration test consumed all nine generated CSVs.
+- A read-only UCL cluster probe found the existing `mmfp` environment uses Python 3.11.15, so the
+  package's Python `>=3.10` declaration is compatible with the actual cluster environment.
+- `qconf -spl` and `qconf -sp smp` confirmed that the `smp` parallel environment exists and uses
+  `$pe_slots` allocation. This validates the PE name and slot-allocation shape, but not the provisional
+  memory, scratch, or walltime requests.
+
+### Outstanding blockers and decisions
+
+1. **The real 30% pilot cannot currently start on the cluster.** MMseqs2 was not found on `PATH`, in
+   the `mmfp` environment, through the available modules, or at the checked common shared paths. The
+   exact executable/version pin cannot be completed until MMseqs2 is installed or an approved shared
+   binary is identified.
+2. **The shared frozen input collection is incomplete.** The remaining
+   `~/protein_databases` tree contains the 2026_02 Swiss-Prot DAT and small metadata only. It does not
+   currently contain the frozen UniRef90 FASTA, `idmapping_selected`, GOA 234 GAF, GO OBO, or TrEMBL
+   DAT required by scopes that include TrEMBL. The production launcher deliberately forbids six
+   independent downloads, so these inputs need persistent shared storage and reviewed hashes first.
+3. **Resource values remain provisional.** `64G / 200G / 72h` has not been measured. The pilot must
+   establish whether these requests are schedulable and sufficient before they are reused for all six
+   array tasks.
+4. **The full-array launcher currently makes the 30% pilot mandatory.** This matches Daniel's stated
+   good-practice instruction to test one array item first and is conservative, but it is stricter than
+   the later preference that a pilot should be strongly recommended rather than mechanically required.
+   Resolve that policy before changing the launcher; it does not block the recommended pilot-first path.
+5. **Scientific choices remain explicit rather than silently defaulted.** Daniel still needs to select
+   the production UniProt source scope and one of the two implemented cluster split policies. Only
+   `annotated-only` supervision is implemented. `all-cluster-members` continues to fail deliberately
+   until a valid label policy for unannotated proteins is approved.
+
+### Readiness verdict
+
+- **Fixture/software validation:** ready.
+- **Production launcher preview:** ready once the pinned input collection and MMseqs2 executable exist.
+- **One-item 30% diagnostic pilot:** code-ready, but operationally blocked by missing MMseqs2 and
+  incomplete shared inputs.
+- **Six-task production array:** not yet authorized. It requires the successful pilot, reviewed input
+  manifest and source scope, exact MMseqs2 pin, evidence-derived attrition limits, measured resources,
+  and human approval described above.
+
+Therefore the implementation should be pushed for reproducibility and cluster staging, but it must
+not yet be described as production-validated or submitted as the full sensitivity array.
