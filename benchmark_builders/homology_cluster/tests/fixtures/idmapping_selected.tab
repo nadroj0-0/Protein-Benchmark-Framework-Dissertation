@@ -1,0 +1,18 @@
+P1BP	P1BP_ENTRY	-	-	-	-	-	UniRef100_U1	UniRef90_U1	UniRef50_U1	UPI1	-	9606	-	-	-	-	-	-	-	-	-
+P1CC	P1CC_ENTRY	-	-	-	-	-	UniRef100_U1	UniRef90_U1	UniRef50_U1	UPI2	-	9606	-	-	-	-	-	-	-	-	-
+P1MF	P1MF_ENTRY	-	-	-	-	-	UniRef100_U1	UniRef90_U1	UniRef50_U1	UPI3	-	9606	-	-	-	-	-	-	-	-	-
+P2BP	P2BP_ENTRY	-	-	-	-	-	UniRef100_U2	UniRef90_U2	UniRef50_U2	UPI4	-	10090	-	-	-	-	-	-	-	-	-
+P2CC	P2CC_ENTRY	-	-	-	-	-	UniRef100_U2	UniRef90_U2	UniRef50_U2	UPI5	-	10090	-	-	-	-	-	-	-	-	-
+P2MF	P2MF_ENTRY	-	-	-	-	-	UniRef100_U2	UniRef90_U2	UniRef50_U2	UPI6	-	10090	-	-	-	-	-	-	-	-	-
+P3BP	P3BP_ENTRY	-	-	-	-	-	UniRef100_U3	UniRef90_U3	UniRef50_U3	UPI7	-	9606	-	-	-	-	-	-	-	-	-
+P3CC	P3CC_ENTRY	-	-	-	-	-	UniRef100_U3	UniRef90_U3	UniRef50_U3	UPI8	-	9606	-	-	-	-	-	-	-	-	-
+P3MF	P3MF_ENTRY	-	-	-	-	-	UniRef100_U3	UniRef90_U3	UniRef50_U3	UPI9	-	9606	-	-	-	-	-	-	-	-	-
+P4BP	P4BP_ENTRY	-	-	-	-	-	UniRef100_U4	UniRef90_U4	UniRef50_U4	UPI10	-	10090	-	-	-	-	-	-	-	-	-
+P4CC	P4CC_ENTRY	-	-	-	-	-	UniRef100_U4	UniRef90_U4	UniRef50_U4	UPI11	-	10090	-	-	-	-	-	-	-	-	-
+P4MF	P4MF_ENTRY	-	-	-	-	-	UniRef100_U4	UniRef90_U4	UniRef50_U4	UPI12	-	10090	-	-	-	-	-	-	-	-	-
+P5BP	P5BP_ENTRY	-	-	-	-	-	UniRef100_U5	UniRef90_U5	UniRef50_U5	UPI13	-	9606	-	-	-	-	-	-	-	-	-
+P5CC	P5CC_ENTRY	-	-	-	-	-	UniRef100_U5	UniRef90_U5	UniRef50_U5	UPI14	-	9606	-	-	-	-	-	-	-	-	-
+P5MF	P5MF_ENTRY	-	-	-	-	-	UniRef100_U5	UniRef90_U5	UniRef50_U5	UPI15	-	9606	-	-	-	-	-	-	-	-	-
+PAMB	PAMB_ENTRY	-	-	-	-	-	UniRef100_U2	UniRef90_U2	UniRef50_U2	UPI16	-	9606	-	-	-	-	-	-	-	-	-
+PAMB	PAMB_ENTRY	-	-	-	-	-	UniRef100_U3	UniRef90_U3	UniRef50_U3	UPI16	-	9606	-	-	-	-	-	-	-	-	-
+

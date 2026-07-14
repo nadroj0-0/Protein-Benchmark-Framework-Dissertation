@@ -1,0 +1,58 @@
+format-version: 1.2
+data-version: releases/2026-06-15
+
+[Term]
+id: GO:0008150
+name: biological_process
+namespace: biological_process
+
+[Term]
+id: GO:0009987
+name: cellular process
+namespace: biological_process
+is_a: GO:0008150 ! biological_process
+relationship: part_of GO:0008150 ! biological_process
+
+[Term]
+id: GO:0006355
+name: regulation of DNA-templated transcription
+namespace: biological_process
+is_a: GO:0009987 ! cellular process
+
+[Term]
+id: GO:0005575
+name: cellular_component
+namespace: cellular_component
+
+[Term]
+id: GO:0005886
+name: plasma membrane
+namespace: cellular_component
+is_a: GO:0005575 ! cellular_component
+
+[Term]
+id: GO:0003674
+name: molecular_function
+namespace: molecular_function
+
+[Term]
+id: GO:0005488
+name: binding
+namespace: molecular_function
+alt_id: GO:9990002
+is_a: GO:0003674 ! molecular_function
+
+[Term]
+id: GO:9990001
+name: obsolete cellular process
+namespace: biological_process
+is_obsolete: true
+replaced_by: GO:0009987
+
+[Term]
+id: GO:9990003
+name: obsolete ambiguous term
+namespace: biological_process
+is_obsolete: true
+consider: GO:0009987
+

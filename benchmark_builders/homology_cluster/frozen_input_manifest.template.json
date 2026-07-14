@@ -1,0 +1,74 @@
+{
+  "created_at": "REPLACE_ME_ISO_8601",
+  "inputs": [
+    {
+      "acquisition": "REPLACE_ME_ACQUISITION_RECORD",
+      "embedded_metadata": {},
+      "local_filename": "REPLACE_ME_UNIREF90_FILENAME",
+      "name": "uniref90_fasta",
+      "notes": "REPLACE_ME_PROVENANCE_NOTES",
+      "release": "2026_02",
+      "sha256": "REPLACE_ME_64_HEX",
+      "size_bytes": 0,
+      "url": "https://example.invalid/REPLACE_ME"
+    },
+    {
+      "acquisition": "REPLACE_ME_ACQUISITION_RECORD",
+      "embedded_metadata": {},
+      "local_filename": "REPLACE_ME_IDMAPPING_FILENAME",
+      "name": "idmapping",
+      "notes": "REPLACE_ME_PROVENANCE_NOTES",
+      "release": "2026_02",
+      "sha256": "REPLACE_ME_64_HEX",
+      "size_bytes": 0,
+      "url": "https://example.invalid/REPLACE_ME"
+    },
+    {
+      "acquisition": "REPLACE_ME_ACQUISITION_RECORD",
+      "embedded_metadata": {},
+      "local_filename": "REPLACE_ME_UNIPROT_SEQUENCE_FILENAME",
+      "name": "uniprot_sequences",
+      "notes": "REPLACE_ME_PROVENANCE_NOTES",
+      "release": "2026_02",
+      "sha256": "REPLACE_ME_64_HEX",
+      "size_bytes": 0,
+      "url": "https://example.invalid/REPLACE_ME"
+    },
+    {
+      "acquisition": "REPLACE_ME_ACQUISITION_RECORD",
+      "embedded_metadata": {
+        "date_generated": "2026-06-17",
+        "gaf_version": "2.2",
+        "go_version": "2026-06-15"
+      },
+      "local_filename": "REPLACE_ME_GOA_FILENAME",
+      "name": "goa",
+      "notes": "REPLACE_ME_PROVENANCE_NOTES",
+      "release": "234",
+      "sha256": "REPLACE_ME_64_HEX",
+      "size_bytes": 0,
+      "url": "https://example.invalid/REPLACE_ME"
+    },
+    {
+      "acquisition": "REPLACE_ME_ACQUISITION_RECORD",
+      "embedded_metadata": {
+        "data_version": "releases/2026-06-15"
+      },
+      "local_filename": "REPLACE_ME_GO_OBO_FILENAME",
+      "name": "go_obo",
+      "notes": "REPLACE_ME_PROVENANCE_NOTES",
+      "release": "releases/2026-06-15",
+      "sha256": "REPLACE_ME_64_HEX",
+      "size_bytes": 0,
+      "url": "https://example.invalid/REPLACE_ME"
+    }
+  ],
+  "review": {
+    "authoritative_origin": true,
+    "evidence": "REPLACE_ME_EXTERNAL_RELEASE_OR_CHECKSUM_EVIDENCE",
+    "reviewed_by": "REPLACE_ME_REVIEWER",
+    "status": "authoritative-source-reviewed"
+  },
+  "schema_name": "homology-cluster-frozen-inputs",
+  "schema_version": 1
+}

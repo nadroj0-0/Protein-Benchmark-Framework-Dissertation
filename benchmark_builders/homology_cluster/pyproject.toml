@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "homology-cluster-benchmark"
+version = "0.1.0"
+description = "Frozen UniRef90/MMseqs2 whole-cluster benchmark builder for immutable PFP"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy",
+  "pandas",
+]
+
+[project.scripts]
+homology-cluster-benchmark = "homology_cluster_benchmark.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["E402"]

@@ -1,0 +1,27 @@
+!gaf-version: 2.2
+!date-generated: 2026-06-17
+!go-version: http://purl.obolibrary.org/obo/go/releases/2026-06-15/go.owl
+UniProtKB	P1BP	P1BP	involved_in	GO:0006355	PMID:1	EXP		P			protein	taxon:9606	20260617	UniProt		
+UniProtKB	P1CC	P1CC	located_in	GO:0005886	PMID:1	IDA		C			protein	taxon:9606	20260617	UniProt		
+UniProtKB	P1MF	P1MF	enables	GO:0005488	PMID:1	TAS		F			protein	taxon:9606	20260617	UniProt		
+UniProtKB	P2BP	P2BP	involved_in	GO:0009987	PMID:2	HTP		P			protein	taxon:10090	20260617	UniProt		
+UniProtKB	P2CC	P2CC	located_in	GO:0005886	PMID:2	HDA		C			protein	taxon:10090	20260617	UniProt		
+UniProtKB	P2MF	P2MF	enables	GO:9990002	PMID:2	HMP		F			protein	taxon:10090	20260617	UniProt		
+UniProtKB	P3BP	P3BP	involved_in	GO:0006355	PMID:3	HGI		P			protein	taxon:9606	20260617	UniProt		
+UniProtKB	P3CC	P3CC	located_in	GO:0005886	PMID:3	HEP		C			protein	taxon:9606	20260617	UniProt		
+UniProtKB	P3MF	P3MF	enables	GO:0005488	PMID:3	NAS		F			protein	taxon:9606	20260617	UniProt		
+UniProtKB	P4BP	P4BP	involved_in	GO:0009987	PMID:4	IGC		P			protein	taxon:10090	20260617	UniProt		
+UniProtKB	P4CC	P4CC	located_in	GO:0005886	PMID:4	RCA		C			protein	taxon:10090	20260617	UniProt		
+UniProtKB	P4MF	P4MF	enables	GO:0005488	PMID:4	IC		F			protein	taxon:10090	20260617	UniProt		
+UniProtKB	P5BP	P5BP	involved_in	GO:9990001	PMID:5	IMP		P			protein	taxon:9606	20260617	UniProt		
+UniProtKB	P5CC	P5CC	located_in	GO:0005886	PMID:5	IGI		C			protein	taxon:9606	20260617	UniProt		
+UniProtKB	P5MF	P5MF	enables	GO:9990002	PMID:5	IPI		F			protein	taxon:9606	20260617	UniProt		
+UniProtKB	PAMB	PAMB	involved_in	GO:0009987	PMID:6	IEP		P			protein	taxon:9606	20260617	UniProt		
+UniProtKB	PUN	PUN	involved_in	GO:0009987	PMID:7	ND		P			protein	taxon:9606	20260617	UniProt		
+UniProtKB	PNOT	PNOT	NOT|involved_in	GO:0009987	PMID:8	EXP		P			protein	taxon:9606	20260617	UniProt		
+UniProtKB	PLOW	PLOW	involved_in	GO:0009987	PMID:9	IEA		P			protein	taxon:9606	20260617	UniProt		
+UniProtKB	PISO	PISO	involved_in	GO:0009987	PMID:10	EXP		P			protein	taxon:9606	20260617	UniProt		UniProtKB:PISO-2
+UniProtKB	PUNK	PUNK	involved_in	GO:1234567	PMID:11	EXP		P			protein	taxon:9606	20260617	UniProt		
+UniProtKB	PNM	PNM	enables	GO:0009987	PMID:12	EXP		F			protein	taxon:9606	20260617	UniProt		
+UniProtKB	PGEN	PGEN	involved_in	GO:0009987	PMID:13	EXP		P			gene	taxon:9606	20260617	UniProt		
+OtherDB	POTHER	POTHER	involved_in	GO:0009987	PMID:14	EXP		P			protein	taxon:9606	20260617	Other		
