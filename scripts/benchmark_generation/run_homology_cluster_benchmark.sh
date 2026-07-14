@@ -11,6 +11,7 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 IDENTITY="${IDENTITY:-30}"
 SPLIT_POLICY="${SPLIT_POLICY:-sequence-balanced}"
 TRAINING_POPULATION="${TRAINING_POPULATION:-annotated-only}"
+UNIPROT_SOURCE_SCOPE="${UNIPROT_SOURCE_SCOPE:-}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-$FRAMEWORK_ROOT/results/homology_cluster_benchmark}"
 TEMP_DIR="${TEMP_DIR:-${TMPDIR:-/tmp}/homology-cluster-benchmark}"
 THREADS="${THREADS:-1}"
@@ -19,6 +20,13 @@ MIN_COUNT="${MIN_COUNT:-50}"
 MMSEQS_BIN="${MMSEQS_BIN:-mmseqs}"
 EXPECTED_MMSEQS_VERSION="${EXPECTED_MMSEQS_VERSION:-}"
 FROZEN_INPUT_MANIFEST="${FROZEN_INPUT_MANIFEST:-}"
+ATTRITION_POLICY="${ATTRITION_POLICY:-}"
+ATTRITION_OVERRIDE="${ATTRITION_OVERRIDE:-}"
+FRAMEWORK_REVISION="${FRAMEWORK_REVISION:-}"
+DIAGNOSTIC_PILOT="${DIAGNOSTIC_PILOT:-0}"
+RUN_ID="${RUN_ID:-local}"
+REQUESTED_SLOTS="${REQUESTED_SLOTS:-}"
+ALLOCATED_SLOTS="${ALLOCATED_SLOTS:-}"
 UNIPROT_RELEASE="${UNIPROT_RELEASE:-2026_02}"
 GOA_RELEASE="${GOA_RELEASE:-234}"
 ONTOLOGY_RELEASE="${ONTOLOGY_RELEASE:-releases/2026-06-15}"
@@ -100,11 +108,23 @@ if [[ "$TRAINING_POPULATION" != "annotated-only" ]]; then
     echo "No zero-negative, homology-transfer, or representative-label policy is authorized." >&2
     exit 2
 fi
+if [[ -z "$UNIPROT_SOURCE_SCOPE" && "$FIXTURE_MODE" == "1" ]]; then
+    UNIPROT_SOURCE_SCOPE="sprot-only"
+fi
+case "$UNIPROT_SOURCE_SCOPE" in
+    sprot-only|trembl-only|sprot-and-trembl) ;;
+    *) echo "UNIPROT_SOURCE_SCOPE must be explicitly set to sprot-only, trembl-only, or sprot-and-trembl" >&2; exit 2 ;;
+esac
 
 if [[ "$DRY_RUN" != "1" ]]; then
     require_local_or_url UniRef90 "${UNIREF90_FASTA:-}" "${UNIREF90_FASTA_URL:-}"
     require_local_or_url idmapping_selected "${IDMAPPING:-}" "${IDMAPPING_URL:-}"
-    require_local_or_url UniProt-sequences "${UNIPROT_SEQUENCES:-}" "${UNIPROT_SEQUENCES_URL:-}"
+    if [[ "$UNIPROT_SOURCE_SCOPE" != "trembl-only" ]]; then
+        require_local_or_url Swiss-Prot-DAT "${UNIPROT_SPROT_SEQUENCES:-}" "${UNIPROT_SPROT_SEQUENCES_URL:-}"
+    fi
+    if [[ "$UNIPROT_SOURCE_SCOPE" != "sprot-only" ]]; then
+        require_local_or_url TrEMBL-DAT "${UNIPROT_TREMBL_SEQUENCES:-}" "${UNIPROT_TREMBL_SEQUENCES_URL:-}"
+    fi
     require_local_or_url GOA "${GOA:-}" "${GOA_URL:-}"
     require_local_or_url GO-OBO "${GO_OBO:-}" "$GO_OBO_URL"
     if [[ "$FIXTURE_MODE" != "1" && -n "${CLUSTER_ASSIGNMENTS:-}" ]]; then
@@ -120,8 +140,20 @@ if [[ "$DRY_RUN" != "1" ]]; then
             echo "Production run requires exact EXPECTED_MMSEQS_VERSION" >&2
             exit 1
         }
-        for hash_variable in \
-            UNIREF90_FASTA_SHA256 IDMAPPING_SHA256 UNIPROT_SEQUENCES_SHA256 GOA_SHA256 GO_OBO_SHA256
+        [[ "$FRAMEWORK_REVISION" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "Production run requires FRAMEWORK_REVISION as exactly 40 lowercase hex characters" >&2
+            exit 1
+        }
+        if [[ "$DIAGNOSTIC_PILOT" != "1" ]]; then
+            [[ -f "$ATTRITION_POLICY" ]] || {
+                echo "Production run requires reviewed ATTRITION_POLICY" >&2
+                exit 1
+            }
+        fi
+        required_hashes=(UNIREF90_FASTA_SHA256 IDMAPPING_SHA256 GOA_SHA256 GO_OBO_SHA256)
+        [[ "$UNIPROT_SOURCE_SCOPE" == "trembl-only" ]] || required_hashes+=(UNIPROT_SPROT_SEQUENCES_SHA256)
+        [[ "$UNIPROT_SOURCE_SCOPE" == "sprot-only" ]] || required_hashes+=(UNIPROT_TREMBL_SEQUENCES_SHA256)
+        for hash_variable in "${required_hashes[@]}"
         do
             [[ -n "${!hash_variable:-}" ]] || {
                 echo "Production run requires $hash_variable to pin the frozen input" >&2
@@ -146,10 +178,12 @@ COMMAND=(
     --identity "$IDENTITY"
     --split-policy "$SPLIT_POLICY"
     --training-population "$TRAINING_POPULATION"
+    --uniprot-source-scope "$UNIPROT_SOURCE_SCOPE"
     --mmseqs-bin "$MMSEQS_BIN"
     --output-dir "$OUTPUT_ROOT"
     --temp-dir "$TEMP_DIR"
     --threads "$THREADS"
+    --run-id "$RUN_ID"
     --seed "$SEED"
     --min-count "$MIN_COUNT"
     --uniprot-release "$UNIPROT_RELEASE"
@@ -168,13 +202,33 @@ fi
 if [[ -n "$FROZEN_INPUT_MANIFEST" ]]; then
     COMMAND+=(--frozen-input-manifest "$FROZEN_INPUT_MANIFEST")
 fi
+if [[ -n "$ATTRITION_POLICY" ]]; then
+    COMMAND+=(--attrition-policy "$ATTRITION_POLICY")
+fi
+if [[ -n "$ATTRITION_OVERRIDE" ]]; then
+    COMMAND+=(--attrition-override "$ATTRITION_OVERRIDE")
+fi
+if [[ -n "$FRAMEWORK_REVISION" ]]; then
+    COMMAND+=(--framework-revision "$FRAMEWORK_REVISION")
+fi
+if [[ -n "$REQUESTED_SLOTS" ]]; then
+    COMMAND+=(--requested-slots "$REQUESTED_SLOTS")
+fi
+if [[ -n "$ALLOCATED_SLOTS" ]]; then
+    COMMAND+=(--allocated-slots "$ALLOCATED_SLOTS")
+fi
 if [[ -n "$PERSISTENT_RESULTS_ROOT" ]]; then
     COMMAND+=(--persistent-results-root "$PERSISTENT_RESULTS_ROOT")
 fi
 
 append_input uniref90-fasta "${UNIREF90_FASTA:-}" "${UNIREF90_FASTA_URL:-}" "${UNIREF90_FASTA_SHA256:-}"
 append_input idmapping "${IDMAPPING:-}" "${IDMAPPING_URL:-}" "${IDMAPPING_SHA256:-}"
-append_input uniprot-sequences "${UNIPROT_SEQUENCES:-}" "${UNIPROT_SEQUENCES_URL:-}" "${UNIPROT_SEQUENCES_SHA256:-}"
+if [[ "$UNIPROT_SOURCE_SCOPE" != "trembl-only" ]]; then
+    append_input uniprot-sprot-sequences "${UNIPROT_SPROT_SEQUENCES:-}" "${UNIPROT_SPROT_SEQUENCES_URL:-}" "${UNIPROT_SPROT_SEQUENCES_SHA256:-}"
+fi
+if [[ "$UNIPROT_SOURCE_SCOPE" != "sprot-only" ]]; then
+    append_input uniprot-trembl-sequences "${UNIPROT_TREMBL_SEQUENCES:-}" "${UNIPROT_TREMBL_SEQUENCES_URL:-}" "${UNIPROT_TREMBL_SEQUENCES_SHA256:-}"
+fi
 append_input goa "${GOA:-}" "${GOA_URL:-}" "${GOA_SHA256:-}"
 append_input go-obo "${GO_OBO:-}" "$GO_OBO_URL" "${GO_OBO_SHA256:-}"
 
@@ -183,6 +237,7 @@ if [[ -n "${CLUSTER_ASSIGNMENTS:-}" ]]; then
     COMMAND+=(--cluster-assignments "$CLUSTER_ASSIGNMENTS")
 fi
 [[ "$FIXTURE_MODE" == "1" ]] && COMMAND+=(--fixture-mode)
+[[ "$DIAGNOSTIC_PILOT" == "1" ]] && COMMAND+=(--diagnostic-pilot)
 [[ "$NO_DOWNLOADS" == "1" ]] && COMMAND+=(--no-downloads)
 [[ "$DRY_RUN" == "1" ]] && COMMAND+=(--dry-run)
 [[ "$KEEP_TEMP" == "1" ]] && COMMAND+=(--keep-temp)

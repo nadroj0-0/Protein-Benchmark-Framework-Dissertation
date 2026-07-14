@@ -9,8 +9,11 @@ from pathlib import Path
 
 import pandas as pd
 
+from .attrition import load_attrition_policy
+from .authorization import validate_pilot_approval
 from .config import (
     SUPPORTED_IDENTITIES,
+    UNIPROT_SOURCE_SCOPES,
     BuildConfig,
     parse_identity,
 )
@@ -56,7 +59,13 @@ def _parser() -> argparse.ArgumentParser:
     )
     _add_input(build, "uniref90-fasta", "UniRef90 FASTA")
     _add_input(build, "idmapping", "idmapping_selected.tab")
-    _add_input(build, "uniprot-sequences", "frozen UniProt sequence FASTA/DAT")
+    build.add_argument(
+        "--uniprot-source-scope",
+        choices=UNIPROT_SOURCE_SCOPES,
+        help="Required production supervised-population scope; UniRef90 remains the clustering scaffold",
+    )
+    _add_input(build, "uniprot-sprot-sequences", "frozen Swiss-Prot DAT")
+    _add_input(build, "uniprot-trembl-sequences", "frozen TrEMBL DAT")
     _add_input(build, "goa", "frozen GOA GAF")
     _add_input(build, "go-obo", "frozen GO OBO")
     build.add_argument("--cluster-assignments", type=Path, help="Precomputed MMseqs2 createtsv output; intended for validated fixture tests")
@@ -70,12 +79,22 @@ def _parser() -> argparse.ArgumentParser:
     build.add_argument("--mmseqs-bin", default=os.environ.get("MMSEQS_BIN", "mmseqs"))
     build.add_argument("--expected-mmseqs-version")
     build.add_argument("--frozen-input-manifest", type=Path)
+    build.add_argument("--attrition-policy", type=Path)
+    build.add_argument("--attrition-override", type=Path)
+    build.add_argument("--framework-revision")
+    build.add_argument(
+        "--diagnostic-pilot", action="store_true",
+        help="Publish measured 30% pilot evidence as non-production without self-approval",
+    )
     build.add_argument("--output-dir", type=Path, required=True, help="Root beneath which identity/policy/population directories are published")
     build.add_argument(
         "--temp-dir", type=Path,
         default=Path(os.environ.get("TMPDIR", "/tmp")) / "homology-cluster-benchmark",
     )
     build.add_argument("--threads", type=int, default=1)
+    build.add_argument("--requested-slots", type=int)
+    build.add_argument("--allocated-slots", type=int)
+    build.add_argument("--run-id", default=os.environ.get("RUN_ID", "local"))
     build.add_argument("--seed", type=int, default=0)
     build.add_argument("--min-count", type=int, default=50)
     build.add_argument(
@@ -121,10 +140,32 @@ def _parser() -> argparse.ArgumentParser:
         "--run-dir", type=Path, action="append", required=True,
         help="Published run leaf or parent containing exactly one publication; repeat exactly six times",
     )
+    authorize = subparsers.add_parser(
+        "authorize-array",
+        help="Validate reviewed attrition policy and 30% pilot approval before qsub",
+    )
+    authorize.add_argument("--attrition-policy", type=Path, required=True)
+    authorize.add_argument("--pilot-approval", type=Path, required=True)
+    authorize.add_argument("--pilot-completion-marker", type=Path, required=True)
+    authorize.add_argument("--pilot-attrition-report", type=Path, required=True)
+    authorize.add_argument("--pilot-run-dir", type=Path, required=True)
+    authorize.add_argument("--pilot-task-context", type=Path, required=True)
+    authorize.add_argument("--pilot-measurement-evidence", type=Path, required=True)
+    authorize.add_argument("--frozen-input-manifest", type=Path, required=True)
+    authorize.add_argument("--framework-revision", required=True)
+    authorize.add_argument("--uniprot-source-scope", choices=UNIPROT_SOURCE_SCOPES, required=True)
+    authorize.add_argument("--split-policy", choices=("cluster-count-random", "sequence-balanced"), required=True)
+    authorize.add_argument("--training-population", required=True)
+    authorize.add_argument("--expected-mmseqs-version", required=True)
+    authorize.add_argument("--uniprot-release", default="2026_02")
+    authorize.add_argument("--goa-release", default="234")
+    authorize.add_argument("--ontology-release", default="releases/2026-06-15")
     return parser
 
 
-def _input_spec(args: argparse.Namespace, name: str, release: str) -> InputSpec:
+def _input_spec(
+    args: argparse.Namespace, name: str, release: str, source_population: str = "shared"
+) -> InputSpec:
     attribute = name.replace("-", "_")
     return InputSpec(
         name=attribute,
@@ -132,6 +173,7 @@ def _input_spec(args: argparse.Namespace, name: str, release: str) -> InputSpec:
         url=getattr(args, attribute + "_url"),
         expected_sha256=getattr(args, attribute + "_sha256"),
         release=release,
+        source_population=source_population,
     )
 
 
@@ -148,23 +190,44 @@ def _identities(values: list[str]) -> tuple[float, ...]:
 
 
 def _config(args: argparse.Namespace, identity: float) -> BuildConfig:
+    source_scope = args.uniprot_source_scope or (
+        "sprot-only" if args.fixture_mode else ""
+    )
     return BuildConfig(
         identity=identity,
         output_dir=args.output_dir,
         temp_dir=args.temp_dir,
-        uniref90_fasta=_input_spec(args, "uniref90-fasta", args.uniprot_release),
-        idmapping=_input_spec(args, "idmapping", args.uniprot_release),
-        uniprot_sequences=_input_spec(args, "uniprot-sequences", args.uniprot_release),
-        goa=_input_spec(args, "goa", args.goa_release),
-        go_obo=_input_spec(args, "go-obo", args.ontology_release),
+        uniref90_fasta=_input_spec(
+            args, "uniref90-fasta", args.uniprot_release,
+            "uniref90-clustering-scaffold",
+        ),
+        idmapping=_input_spec(
+            args, "idmapping", args.uniprot_release, "uniprotkb-shared-mapping"
+        ),
+        uniprot_source_scope=source_scope,
+        uniprot_sprot_sequences=_input_spec(
+            args, "uniprot-sprot-sequences", args.uniprot_release, "sprot"
+        ),
+        uniprot_trembl_sequences=_input_spec(
+            args, "uniprot-trembl-sequences", args.uniprot_release, "trembl"
+        ),
+        goa=_input_spec(args, "goa", args.goa_release, "uniprotkb-goa"),
+        go_obo=_input_spec(args, "go-obo", args.ontology_release, "gene-ontology"),
         split_policy=args.split_policy,
         training_population=args.training_population,
         mmseqs_bin=args.mmseqs_bin,
         expected_mmseqs_version=args.expected_mmseqs_version,
         cluster_assignments=args.cluster_assignments,
         frozen_input_manifest=args.frozen_input_manifest,
+        attrition_policy=args.attrition_policy,
+        attrition_override=args.attrition_override,
+        framework_revision=args.framework_revision,
         fixture_mode=args.fixture_mode,
+        diagnostic_pilot=args.diagnostic_pilot,
         threads=args.threads,
+        requested_slots=args.requested_slots,
+        allocated_slots=args.allocated_slots,
+        run_id=args.run_id,
         seed=args.seed,
         min_count=args.min_count,
         development_fraction=args.development_fraction,
@@ -196,6 +259,13 @@ def _preview(config: BuildConfig) -> dict[str, object]:
     commands = build_mmseqs_commands(config, path, config.temp_dir / config.identity_directory / "mmseqs")
     return {
         "identity": config.identity,
+        "benchmark_scope": config.benchmark_scope,
+        "uniprot_source_scope": config.uniprot_source_scope,
+        "framework_revision": config.framework_revision,
+        "attrition_policy": str(config.attrition_policy) if config.attrition_policy else None,
+        "requested_slots": config.requested_slots,
+        "allocated_slots": config.allocated_slots,
+        "mmseqs_threads": config.threads,
         "final_output": str(
             config.output_dir / config.publication_relative_path
         ),
@@ -267,9 +337,21 @@ def _cross_threshold_reports(
     frozen_manifest_hashes = {
         str(item.get("frozen_input_manifest_sha256")) for item in child_metadata.values()
     }
-    if len(fingerprints) != 1 or len(frozen_manifest_hashes) != 1:
+    source_scopes = {str(item.get("uniprot_source_scope")) for item in child_metadata.values()}
+    framework_revisions = {str(item.get("framework_revision")) for item in child_metadata.values()}
+    attrition_policy_hashes = {
+        str(item.get("attrition_policy_sha256")) for item in child_metadata.values()
+    }
+    if (
+        len(fingerprints) != 1
+        or len(frozen_manifest_hashes) != 1
+        or len(source_scopes) != 1
+        or len(framework_revisions) != 1
+        or len(attrition_policy_hashes) != 1
+    ):
         raise ValueError(
-            "The six threshold runs do not share one hashed frozen-input/scientific fingerprint"
+            "The six threshold runs do not share one source scope, framework revision, "
+            "frozen manifest, attrition policy, and scientific fingerprint"
         )
     first = child_metadata[max(child_metadata)]
     fingerprint_payload = first.get("scientific_fingerprint_payload")
@@ -294,6 +376,9 @@ def _cross_threshold_reports(
         raise ValueError("Production/fixture eligibility differs across child publications")
     production_eligible = next(iter(production_values))
     fixture_mode = next(iter(fixture_values))
+    source_scope = next(iter(source_scopes))
+    framework_revision = next(iter(framework_revisions))
+    attrition_policy_sha256 = next(iter(attrition_policy_hashes))
     aggregate_repository_state = git_state(Path(__file__).resolve().parents[4])
     if production_eligible and (
         aggregate_repository_state.get("commit") != first.get("repository_commit")
@@ -304,7 +389,8 @@ def _cross_threshold_reports(
             f"observed={aggregate_repository_state}"
         )
     final = (
-        root.resolve() / "all_thresholds_summary" / actual_split_policy / actual_population
+        root.resolve() / f"source_{source_scope}" / f"framework_{framework_revision[:12]}"
+        / "all_thresholds_summary" / actual_split_policy / actual_population
         / f"seed_{actual_seed}" / f"min_count_{actual_min_count}"
     )
     if any(final.is_relative_to(child) for child in child_dirs.values()):
@@ -376,8 +462,58 @@ def _cross_threshold_reports(
             )
             writer.writeheader()
             writer.writerows(identical_rows)
+        benchmark_rows = []
+        split_rows = []
+        attrition_rows = []
+        for percent in percentages:
+            run_dir = child_dirs[percent]
+            benchmark = json.loads(
+                (run_dir / "benchmark_summary.json").read_text(encoding="utf-8")
+            )
+            benchmark_rows.append({
+                "identity_percent": percent,
+                "uniprot_source_scope": source_scope,
+                **benchmark["counts"],
+            })
+            with (run_dir / "split_summary.tsv").open(
+                "r", encoding="utf-8", newline=""
+            ) as handle:
+                for row in csv.DictReader(handle, delimiter="\t"):
+                    split_rows.append({"identity_percent": percent, **row})
+            attrition = json.loads(
+                (run_dir / "attrition_report.json").read_text(encoding="utf-8")
+            )
+            for metric in attrition["metrics"]:
+                attrition_rows.append({
+                    "identity_percent": percent,
+                    "metric": metric["name"],
+                    "numerator": metric["numerator"],
+                    "denominator": metric["denominator"],
+                    "ratio": metric["ratio"],
+                    "allowed_ratio": metric["allowed_ratio"],
+                    "bound_type": metric["bound_type"],
+                    "passed": int(metric["passed"]),
+                })
+        for filename, rows in (
+            ("threshold_metrics.tsv", benchmark_rows),
+            ("threshold_split_metrics.tsv", split_rows),
+            ("threshold_attrition_metrics.tsv", attrition_rows),
+        ):
+            with (stage / filename).open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=list(rows[0]) if rows else [],
+                    delimiter="\t",
+                    lineterminator="\n",
+                )
+                writer.writeheader()
+                writer.writerows(rows)
         (stage / "all_thresholds_summary.json").write_text(json.dumps({
             "identities": percentages,
+            "uniprot_source_scope": source_scope,
+            "framework_revision": framework_revision,
+            "frozen_input_manifest_sha256": next(iter(frozen_manifest_hashes)),
+            "attrition_policy_sha256": attrition_policy_sha256,
             "split_policy": actual_split_policy,
             "training_population": actual_population,
             "seed": actual_seed,
@@ -408,6 +544,8 @@ def _cross_threshold_reports(
                 "passed": all((stage / name).is_file() for name in (
                     "term_universe_overlap.tsv", "term_universe_changes.tsv",
                     "identical_cluster_assignments.tsv", "all_thresholds_summary.json",
+                    "threshold_metrics.tsv", "threshold_split_metrics.tsv",
+                    "threshold_attrition_metrics.tsv",
                 )),
                 "detail": "All required cross-threshold reports were written",
             },
@@ -439,6 +577,7 @@ def _cross_threshold_reports(
             "include_relationships", "root_policy", "coverage", "cov_mode", "cluster_mode",
             "alignment_mode", "seq_id_mode", "createdb_shuffle", "cluster_reassign",
             "sensitivity", "evalue", "uniprot_release", "goa_release", "ontology_release",
+            "uniprot_source_scope",
         )
         parameters = {key: fingerprint_payload[key] for key in parameter_keys}
         (stage / "parameters.json").write_text(
@@ -463,6 +602,10 @@ def _cross_threshold_reports(
         input_manifest = {
             "schema_version": 1,
             "kind": "all-thresholds-child-references",
+            "uniprot_source_scope": source_scope,
+            "framework_revision": framework_revision,
+            "frozen_input_manifest_sha256": next(iter(frozen_manifest_hashes)),
+            "attrition_policy_sha256": attrition_policy_sha256,
             "children": child_references,
         }
         (stage / "input_manifest.json").write_text(
@@ -485,6 +628,9 @@ def _cross_threshold_reports(
             "fixture_mode": fixture_mode,
             "production_eligible": production_eligible,
             "benchmark_scope": "all-thresholds-summary",
+            "uniprot_source_scope": source_scope,
+            "framework_revision": framework_revision,
+            "run_id": "aggregate",
             "identity_percent": None,
             "identities": percentages,
             "split_policy": actual_split_policy,
@@ -493,6 +639,18 @@ def _cross_threshold_reports(
             "min_count": actual_min_count,
             "run_input_manifest_sha256": sha256_file(stage / "input_manifest.json"),
             "frozen_input_manifest_sha256": sha256_file(stage / "frozen_input_manifest.json"),
+            "attrition_policy_sha256": attrition_policy_sha256,
+            "attrition_report_sha256": None,
+            "attrition_override_sha256": None,
+            "attrition_policy_passed": all(
+                bool(item.get("attrition_policy_passed")) for item in child_metadata.values()
+            ),
+            "attrition_override_valid": any(
+                bool(item.get("attrition_override_valid")) for item in child_metadata.values()
+            ),
+            "requested_slots": first.get("requested_slots"),
+            "allocated_slots": first.get("allocated_slots"),
+            "mmseqs_threads": first.get("mmseqs_threads"),
             "expected_mmseqs_version": first["expected_mmseqs_version"],
             "observed_mmseqs_version": first["observed_mmseqs_version"],
             "mmseqs_resolved_executable": first["mmseqs_resolved_executable"],
@@ -532,6 +690,49 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         except (OSError, ValueError, RuntimeError) as exc:
             parser.error(str(exc))
+    if args.command == "authorize-array":
+        try:
+            pilot_run_dir = args.pilot_run_dir.resolve()
+            if args.pilot_completion_marker.resolve() != pilot_run_dir / "RUN_COMPLETE.json":
+                raise ValueError(
+                    "Pilot completion marker must be RUN_COMPLETE.json in --pilot-run-dir"
+                )
+            if args.pilot_attrition_report.resolve() != pilot_run_dir / "attrition_report.json":
+                raise ValueError(
+                    "Pilot attrition report must be attrition_report.json in --pilot-run-dir"
+                )
+            validate_publication(pilot_run_dir)
+            manifest_hash = sha256_file(args.frozen_input_manifest)
+            reviewed_policy, reviewed_policy_sha256 = load_attrition_policy(
+                args.attrition_policy,
+                source_scope=args.uniprot_source_scope,
+                expected_releases={
+                    "uniprot_uniref": args.uniprot_release,
+                    "goa": args.goa_release,
+                    "ontology": args.ontology_release,
+                },
+                framework_commit=args.framework_revision,
+                frozen_input_manifest_sha256=manifest_hash,
+            )
+            validate_pilot_approval(
+                args.pilot_approval,
+                completion_marker_path=args.pilot_completion_marker,
+                attrition_report_path=args.pilot_attrition_report,
+                task_context_path=args.pilot_task_context,
+                measurement_evidence_path=args.pilot_measurement_evidence,
+                framework_commit=args.framework_revision,
+                frozen_input_manifest_sha256=manifest_hash,
+                source_scope=args.uniprot_source_scope,
+                split_policy=args.split_policy,
+                training_population=args.training_population,
+                mmseqs_version=args.expected_mmseqs_version,
+                reviewed_attrition_policy=reviewed_policy,
+                reviewed_attrition_policy_sha256=reviewed_policy_sha256,
+            )
+            print("Reviewed pilot approval and attrition policy authorize array preview/submission")
+            return 0
+        except (OSError, ValueError, RuntimeError) as exc:
+            parser.error(str(exc))
 
     logging.basicConfig(level=getattr(logging, args.verbosity), format="%(levelname)s %(message)s")
     try:
@@ -548,10 +749,11 @@ def main(argv: list[str] | None = None) -> int:
                 for spec in (
                     configs[0].uniref90_fasta,
                     configs[0].idmapping,
-                    configs[0].uniprot_sequences,
+                    *(getattr(configs[0], name) for name in configs[0].selected_uniprot_input_names),
                     configs[0].goa,
                     configs[0].go_obo,
                 )
+                if spec is not None
                 if spec.path is None
             ]
             if missing_local:

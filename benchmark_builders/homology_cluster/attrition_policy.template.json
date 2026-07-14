@@ -1,0 +1,96 @@
+{
+  "author": "REPLACE_ME",
+  "evidence_source": "REPLACE_WITH_REVIEWED_30_PERCENT_PILOT",
+  "expected_releases": {
+    "goa": "234",
+    "ontology": "releases/2026-06-15",
+    "uniprot_uniref": "2026_02"
+  },
+  "framework_commit": "REPLACE_WITH_40_HEX_COMMIT",
+  "frozen_input_manifest_sha256": "REPLACE_WITH_64_HEX_SHA256",
+  "metrics": {
+    "bp_evaluable_ratio": {
+      "allowed_minimum_ratio": null,
+      "denominator_definition": "mapped labelled protein rows with propagated GO annotations",
+      "evidence_source": "REPLACE_WITH_REVIEWED_PILOT_EVIDENCE",
+      "numerator_definition": "mapped labelled protein rows with at least one evaluable biological-process term",
+      "rationale": "REPLACE_ME"
+    },
+    "cc_evaluable_ratio": {
+      "allowed_minimum_ratio": null,
+      "denominator_definition": "mapped labelled protein rows with propagated GO annotations",
+      "evidence_source": "REPLACE_WITH_REVIEWED_PILOT_EVIDENCE",
+      "numerator_definition": "mapped labelled protein rows with at least one evaluable cellular-component term",
+      "rationale": "REPLACE_ME"
+    },
+    "development_split_deviation": {
+      "allowed_maximum_ratio": null,
+      "denominator_definition": "one whole ratio unit",
+      "evidence_source": "REPLACE_WITH_REVIEWED_PILOT_EVIDENCE",
+      "numerator_definition": "absolute achieved-minus-requested development member fraction",
+      "rationale": "REPLACE_ME"
+    },
+    "evaluable_protein_ratio": {
+      "allowed_minimum_ratio": null,
+      "denominator_definition": "qualifying raw GOA protein accessions entering the ontology and mapping chain",
+      "evidence_source": "REPLACE_WITH_REVIEWED_PILOT_EVIDENCE",
+      "numerator_definition": "qualifying raw GOA accessions producing at least one evaluable propagated PFP term",
+      "rationale": "REPLACE_ME"
+    },
+    "goa_to_selected_uniprot_mapping_ratio": {
+      "allowed_minimum_ratio": null,
+      "denominator_definition": "all qualifying GOA accessions after evidence, NOT, object, and ontology filtering",
+      "evidence_source": "REPLACE_WITH_REVIEWED_PILOT_EVIDENCE",
+      "numerator_definition": "qualifying GOA accessions resolving to one sequence in the selected UniProt scope",
+      "rationale": "REPLACE_ME"
+    },
+    "mf_evaluable_ratio": {
+      "allowed_minimum_ratio": null,
+      "denominator_definition": "mapped labelled protein rows with propagated GO annotations",
+      "evidence_source": "REPLACE_WITH_REVIEWED_PILOT_EVIDENCE",
+      "numerator_definition": "mapped labelled protein rows with at least one evaluable molecular-function term",
+      "rationale": "REPLACE_ME"
+    },
+    "propagated_term_evaluable_ratio": {
+      "allowed_minimum_ratio": null,
+      "denominator_definition": "mapped labelled protein rows with propagated GO annotations",
+      "evidence_source": "REPLACE_WITH_REVIEWED_PILOT_EVIDENCE",
+      "numerator_definition": "mapped labelled protein rows retaining at least one development-universe term",
+      "rationale": "REPLACE_ME"
+    },
+    "qualifying_annotation_retention_ratio": {
+      "allowed_minimum_ratio": null,
+      "denominator_definition": "qualifying annotation rows entering mapping and label construction",
+      "evidence_source": "REPLACE_WITH_REVIEWED_PILOT_EVIDENCE",
+      "numerator_definition": "qualifying annotation rows whose own accession completes the mapping and retained-cluster chain",
+      "rationale": "REPLACE_ME"
+    },
+    "retained_cluster_member_ratio": {
+      "allowed_minimum_ratio": null,
+      "denominator_definition": "all frozen UniRef90 FASTA members clustered by MMseqs2",
+      "evidence_source": "REPLACE_WITH_REVIEWED_PILOT_EVIDENCE",
+      "numerator_definition": "UniRef90 members in clusters retained by a qualifying selected-UniProt annotation",
+      "rationale": "REPLACE_ME"
+    },
+    "selected_uniprot_to_uniref90_mapping_ratio": {
+      "allowed_minimum_ratio": null,
+      "denominator_definition": "qualifying GOA accessions resolving to one selected-UniProt sequence",
+      "evidence_source": "REPLACE_WITH_REVIEWED_PILOT_EVIDENCE",
+      "numerator_definition": "selected-UniProt accessions mapped uniquely to a UniRef90 FASTA member",
+      "rationale": "REPLACE_ME"
+    },
+    "training_split_deviation": {
+      "allowed_maximum_ratio": null,
+      "denominator_definition": "one whole ratio unit",
+      "evidence_source": "REPLACE_WITH_REVIEWED_PILOT_EVIDENCE",
+      "numerator_definition": "absolute achieved-minus-requested training-within-development member fraction",
+      "rationale": "REPLACE_ME"
+    }
+  },
+  "rationale": "REPLACE_WITH_REVIEWED_POLICY_RATIONALE",
+  "review_date": "REPLACE_WITH_ISO_DATE",
+  "reviewer": "REPLACE_ME",
+  "schema_name": "homology-cluster-attrition-policy",
+  "schema_version": 1,
+  "uniprot_source_scope": "REPLACE_WITH_EXPLICIT_SCOPE"
+}

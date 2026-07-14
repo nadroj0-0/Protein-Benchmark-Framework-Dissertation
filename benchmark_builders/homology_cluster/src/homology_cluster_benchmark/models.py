@@ -15,6 +15,7 @@ class InputSpec:
     url: str | None = None
     expected_sha256: str | None = None
     release: str = ""
+    source_population: str = "shared"
 
 
 @dataclass(frozen=True)
@@ -27,10 +28,13 @@ class ResolvedInput:
     sha256: str
     expected_sha256: str | None
     acquisition: str
+    source_population: str = "shared"
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
+            "logical_role": self.name,
+            "source_population": self.source_population,
             "resolved_path": str(self.resolved_path.resolve()),
             "source_url": self.source_url,
             "release": self.release,
@@ -48,6 +52,7 @@ class ProteinRecord:
     taxon_id: str = ""
     aliases: tuple[str, ...] = ()
     source_header: str = ""
+    source_population: str = "unknown"
 
 
 @dataclass
@@ -55,6 +60,10 @@ class ProteinCatalog:
     records: dict[str, ProteinRecord] = field(default_factory=dict)
     alias_to_primary: dict[str, str] = field(default_factory=dict)
     ambiguous_aliases: set[str] = field(default_factory=set)
+    primary_source: dict[str, str] = field(default_factory=dict)
+    alias_source: dict[str, str] = field(default_factory=dict)
+    source_counts: dict[str, dict[str, Any]] = field(default_factory=dict)
+    collision_counts: Counter = field(default_factory=Counter)
 
 
 @dataclass(frozen=True)
@@ -145,6 +154,7 @@ class MappingDecision:
     mmseqs_cluster_id: str = ""
     split: str = ""
     accession_lifecycle_status: str = "not-assessed"
+    source_population: str = "unresolved"
 
 
 @dataclass(frozen=True)

@@ -1,535 +1,462 @@
 # Homology-cluster benchmark builder
 
-This isolated package builds Daniel's Part B dissertation benchmark from a frozen UniRef90
-sequence population. It runs MMseqs2 independently at 30%, 25%, 20%, 15%, 10%, or 5%
-identity with 80% longest-sequence coverage, retains clusters connected to qualifying GOA
-annotations, assigns whole clusters globally to training/validation/test, and publishes the nine
-CSV files consumed by immutable PFP plus DeepGOPlus-shaped pickle intermediates.
+This isolated package implements Daniel's Part B dissertation benchmark. It clusters the frozen
+UniRef90 FASTA independently at 30%, 25%, 20%, 15%, 10%, and 5% sequence identity, with 80%
+longest-sequence coverage, retains clusters connected to a qualifying GOA annotation, and assigns
+whole clusters to development/test and then training/validation. It publishes the nine CSV files
+consumed by immutable PFP and five DeepGOPlus-shaped pickle files.
 
-It does **not** alter the contemporary temporal benchmark, immutable PFP, or the embedding
-inventory. It does not generate embeddings or train/evaluate PFP.
+It does not modify the contemporary or historical benchmark implementations, embedding inventory,
+embedding generation, PFP training, or immutable PFP.
 
-## Scientific data flow
+## Scientific contract
 
-```text
-frozen GOA 234 annotation
-    │ exact/explicit accession handling; own GO labels only
-    ▼
-UniProtKB accession ── frozen idmapping_selected column 9 ──► UniRef90 identifier
-    │                                                        │
-    │ frozen UniProt sequence                                │ frozen UniRef90 FASTA
-    │                                                        ▼
-    └──────────────────────────────────────────── MMseqs2 cluster at identity X
-                                                             │ whole-cluster assignment
-                                                             ▼
-                                                   development / test
-                                                             │
-                              own labels + GO propagation + development-defined term universe
-                                                             │
-                                      development-only 90:10 cluster split
-                                                             ▼
-                                               training / validation / test
-                                                             │
-                                         PFP CSVs and DeepGOPlus-shaped pickles
-```
+The three identifiers remain separate:
 
-These three identities never collapse into one field:
+1. A UniProtKB accession is the GOA key, supervised protein ID, and sequence/embedding key.
+2. A UniRef90 identifier is one member of the frozen clustering scaffold.
+3. An MMseqs2 representative identifies a lower-identity cluster used for retention and splitting.
 
-1. UniProtKB accession: GOA key, benchmark protein ID, sequence/embedding key.
-2. UniRef90 identifier: one frozen clustering-scaffold entry.
-3. MMseqs2 cluster representative: lower-identity cluster key for splitting.
+Cluster membership controls retention and split assignment only. Each protein retains only its own
+GO annotations; no representative, neighbour, or unannotated member supplies labels to another
+protein.
 
-Cluster membership determines retention and split only. It never transfers GO labels between
-homologues.
+The locked experiment is:
 
-## Frozen endpoint
+- identities `30, 25, 20, 15, 10, 5` percent;
+- coverage `0.8` with `--cov-mode 0`;
+- MMseqs2 cluster mode 0, alignment mode 3, literal identity mode 0, cluster reassign enabled,
+  sensitivity `7.5`, and E-value `1e-4`;
+- Daniel's exact supplied qualifying evidence-code set:
+  `EXP, IDA, IPI, IMP, IGI, IEP, HTP, HDA, HMP, HGI, HEP, TAS, NAS, IGC, RCA, ND, IC`;
+- removal of exact pipe-delimited `NOT` annotations;
+- one global 80:20 development/test whole-cluster split, followed by a 90:10
+  training/validation whole-cluster split within development;
+- either `cluster-count-random` or `sequence-balanced` splitting;
+- production `min_count >= 50`, defined from complete development before its 90:10 split;
+- `annotated-only` supervised rows.
 
-Production builds lock and record:
+The supplied evidence set is broader than strictly experimental evidence and is therefore always
+described as Daniel's qualifying set. `all-cluster-members` remains an explicit hard failure: lack
+of a GOA annotation is not a negative label, and no homology-transfer policy is authorized.
 
-- UniProt / UniRef release `2026_02`;
-- GOA release `234`, whose established local header is generated `2026-06-17` against GO
-  `2026-06-15`;
-- ontology `data-version: releases/2026-06-15`, distributed from the established
-  `2026-06-19` GO release directory.
-
-Every input is declared as a local path, URL, or both. Local paths always win and are never
-downloaded again, while a supplied source URL remains in provenance. Resolved path, URL, release
-label, byte size, expected hash, observed SHA-256, and acquisition action are recorded. A
-production build requires both an expected SHA-256 for all five inputs and a reviewed
-`--frozen-input-manifest` with exactly five release/URL/filename/size/hash/acquisition/embedded-
-metadata/notes entries. Fixture mode may generate a clearly synthetic manifest. The manifest
-separates byte reproducibility, recorded provenance, and an explicit authoritative-origin review;
-a caller computing hashes over arbitrary local bytes cannot bypass the missing review contract.
-This is an auditable attestation, not a cryptographic signature or independent proof of origin.
-
-## Methodological locks
-
-- Identities: exactly `30, 25, 20, 15, 10, 5` percent. Other values fail.
-- Coverage: exactly `0.8` with MMseqs2 `--cov-mode 0`.
-- MMseqs2, not CD-HIT/DIAMOND or post-hoc homologue removal.
-- Frozen UniRef90 FASTA, not a CAFA or temporal benchmark population.
-- Daniel's exact 17-code set:
-  `EXP, IDA, IPI, IMP, IGI, IEP, HTP, HDA, HMP, HGI, HEP, TAS, NAS, IGC, RCA, ND, IC`.
-- A locked global 80:20 development/test cluster split, followed by a locked 90:10
-  training/validation cluster split inside development.
-- One global split before BP/CC/MF separation.
-- Production `min_count >= 50`, derived from the complete development population before its
-  90:10 cluster split for each threshold;
-  lower fixture values require explicit `--fixture-mode`.
-- Ontology roots `GO:0008150`, `GO:0005575`, and `GO:0003674` are retained in propagated labels,
-  `terms.pkl`, and PFP CSV columns when they meet development support, matching PFP/TEMPROT shape.
-- `annotated-only` is the complete production population.
-- `all-cluster-members` is represented but hard-fails before input checks or clustering because absence from GOA
-  is not a negative label and no label-transfer policy was authorized.
-
-## Exact MMseqs2 workflow
-
-For identity `X`, the builder constructs argument arrays equivalent to:
+The generated MMseqs2 commands are equivalent to:
 
 ```bash
-mmseqs createdb FROZEN_UNIREF90_FASTA WORK/uniref90_db \
-  --dbtype 1 --shuffle 0
-
+mmseqs createdb FROZEN_UNIREF90_FASTA WORK/uniref90_db --dbtype 1 --shuffle 0
 mmseqs cluster WORK/uniref90_db WORK/clusters_db WORK/mmseqs_tmp \
-  --min-seq-id X \
-  -c 0.8 \
-  --cov-mode 0 \
-  --cluster-mode 0 \
-  --alignment-mode 3 \
-  --seq-id-mode 0 \
-  --cluster-reassign 1 \
-  -s 7.5 \
-  -e 1e-4 \
-  --threads THREADS
-
+  --min-seq-id X -c 0.8 --cov-mode 0 --cluster-mode 0 \
+  --alignment-mode 3 --seq-id-mode 0 --cluster-reassign 1 \
+  -s 7.5 -e 1e-4 --threads THREADS
 mmseqs createtsv WORK/uniref90_db WORK/uniref90_db \
   WORK/clusters_db WORK/uniref90_clusters.tsv
 ```
 
-`--alignment-mode 3 --seq-id-mode 0` makes the identity fraction literal identical aligned
-residues divided by alignment columns, including internal gaps. `--shuffle 0` preserves the
-frozen FASTA order in `createdb`. `-c 0.8 --cov-mode 0` requires aligned residues divided
-by the longer of query/target lengths to be at least 0.8, matching the documented UniRef
-"80% overlap with the longest seed" interpretation. Cluster mode 0 is greedy set cover; it is not
-connected components or an all-pairs guarantee. `-s 7.5` is prefilter sensitivity, not identity.
-The reviewed implementation locks `-e 1e-4`; whether that value remains scientifically preferable
-at 5–15% identity is still a documented future sensitivity decision, not a runtime override.
-Production requires a non-placeholder exact
-`--expected-mmseqs-version`, compares it to a parseable successful `mmseq version` probe, resolves
-the executable once, records its path/SHA-256 when readable, and rechecks the executable before
-publication. Fixture precomputed assignments are explicitly relaxed because MMseqs is not run. Successful MMseqs logs are
-published; failed-run logs and bounded semantic failure reports are retained outside any completed
-run. See [METHODOLOGY.md](METHODOLOGY.md).
+`-s 7.5` is prefilter sensitivity, not one of the six array values. See
+[METHODOLOGY.md](METHODOLOGY.md) for parameter semantics and source references.
 
-## GOA, accession, and ontology policy
+## Explicit UniProt source scope
 
-The GAF parser streams plain or gzip text, requires `!gaf-version: 2.2`, requires exactly 17 data
-columns and every mandatory GAF 2.2 field, and records the embedded GAF/date/GO metadata. It
-retains only:
+Daniel did not specify whether eligible UniProtKB proteins should come from Swiss-Prot, TrEMBL, or
+both. Production therefore has no default and requires exactly one explicit scope:
 
-- database `UniProtKB`;
-- object type `protein`;
-- one of Daniel's exact evidence codes;
-- aspect `P`, `C`, or `F` consistent with the resolved term namespace;
-- annotations without an exact pipe-delimited `NOT` token.
+| Scope | Required authoritative sequence source | Forbidden source | Manifest entries |
+|---|---|---|---:|
+| `sprot-only` | frozen Swiss-Prot DAT | TrEMBL | 5 |
+| `trembl-only` | frozen TrEMBL DAT | Swiss-Prot | 5 |
+| `sprot-and-trembl` | both frozen DAT files | neither | 6 |
 
-Reference, With/From, assigned date (field 14), Assigned By, annotation extension, and gene-product
-form are preserved in annotation manifests; assigned date is never used to reconstruct snapshot
-membership. Field-17 form-specific rows and accessions with an explicit `-N` isoform suffix are
-excluded unless a future independently verified isoform mapping policy is added. A suffix is never
-stripped. UniProt DAT secondary accessions
-can be explicitly collapsed to their primary accession; FASTA supplies exact accessions only.
-Ambiguous aliases, mapping conflicts, blank/absent mappings, mappings missing from the frozen
-FASTA, and missing canonical sequences remain separate statuses.
+The four always-required inputs are frozen UniRef90 FASTA, 22-column
+`idmapping_selected`, GOA GAF, and GO OBO. The selected source scope controls accession eligibility
+and supervised rows; it never replaces UniRef90 as the MMseqs2 population.
 
-GO primary IDs and alt IDs resolve to the live canonical ID. Obsolete IDs resolve only through a
-single `replaced_by`; `consider` is never selected. Unknown, unresolved obsolete, and
-namespace-mismatched terms are excluded with reason. The established DeepGOPlus-style ancestor
-policy includes OBO relationship targets when enabled; the exact relationship types observed are
-recorded. Daniel did not specify GO-root handling. Retaining the three ontology roots is inherited
-from the established DeepGOPlus/TEMPROT/PFP interface, and they remain after propagation.
+Production uses separate `--uniprot-sprot-sequences` and
+`--uniprot-trembl-sequences` declarations. DAT is required because it records primary and secondary
+accessions. FASTA is allowed only for synthetic fixtures and clearly diagnostic use; reports state
+that it cannot reproduce DAT secondary-accession handling. DAT content is also checked against its
+declared role: Swiss-Prot records must say `Reviewed` on the `ID` line and TrEMBL records must say
+`Unreviewed`; renaming or misdeclaring one official product as the other fails.
 
-## Split algorithms
+Combined mode scans sources in a fixed order and retains each record's source population. A
+disk-backed collision audit reports primary/secondary and collision counts per involved source. Conflicting sequences,
+unexpected duplicate primary accessions (including identical sequences), and ambiguous secondary
+aliases fail production. Results do not depend on caller dictionary or traversal order. GOA
+accessions outside the selected source may be visible in `idmapping_selected`, but cannot authorize
+cluster retention.
 
-Both algorithms sort IDs before any seeded operation and assign indivisible MMseqs2 clusters.
+The chosen scope is recorded in parameters, the frozen and run input manifests, mapping and
+benchmark summaries, attrition policy/report, publication metadata, completion marker, validation
+metrics, aggregate metadata, and source-prefixed output paths.
 
-### `cluster-count-random`
+## Scope-aware frozen manifest
 
-1. Sort cluster IDs.
-2. Shuffle using Python's isolated `random.Random(seed)`.
-3. Allocate `round(cluster_count * 0.8)` clusters to development, bounded so both sides are nonempty.
-4. Repeat on development with `seed + 1` and fraction `0.9` for training vs validation.
+`frozen_input_manifest.template.json` is a deliberately non-authorizing Swiss-Prot example. A
+production manifest uses schema version 2 and records for every required role:
 
-### `sequence-balanced`
+- logical role and source population;
+- release, local filename, authoritative URL, expected/observed SHA-256, and byte size;
+- acquisition action, embedded metadata, notes, and authoritative-origin review evidence.
 
-1. Weight each retained cluster by its frozen UniRef90 member count—not PFP protein count.
-2. Construct the smaller side (20% test, then 10% validation) to avoid systematic large-side
-   overshoot, using four fixed deterministic candidate orders.
-3. Refine candidates with strict-improvement single moves, bisect-assisted one-for-one exchanges,
-   and a fixed-size two-move pool; passes and pools are bounded for production scale.
-4. Select by absolute target deviation plus a SHA-256 membership tie-break, enforce nonempty sides,
-   and repeat on development with `seed + 1`.
+The manifest's `uniprot_source_scope` determines the exact 5/5/6 role set. Missing, extra,
+mislabelled, cross-release, placeholder, or hash-mismatched entries fail. UniRef90, idmapping, and
+selected UniProt DAT files must share the frozen UniProt/UniRef release. Local paths win over URLs,
+but the reviewed URL remains provenance. A self-hash over arbitrary bytes does not establish
+authoritative origin.
 
-Reports include requested/achieved ratios by cluster count, UniRef90 member count, and qualifying
-UniProt protein count, plus the largest indivisible cluster. Sequence-balanced deviation above two
-percentage points warns; production fails if either stage exceeds five points. Fixture runs report
-otherwise-impossible giant-cluster cases without pretending they are production-valid. The bounded
-heuristic does not claim globally optimal subset-sum allocation.
+The currently locked labels are UniProt/UniRef `2026_02`, GOA `234`, and ontology
+`releases/2026-06-15`. Exact archived paths and hashes remain inputs to review, not values invented
+by the code.
 
-## Label and PFP contracts
+## Mapping, labels, and term universe
 
-Each protein receives only its own canonicalized GO annotations. Propagation occurs before term
-support counting and retains all three roots. The complete development population defines
-`terms.pkl` at `min_count` before its 90:10 cluster partition; test never contributes. Every split's
-PFP labels are intersected with that universe. Each threshold has
-an independent term universe. A six-threshold invocation—or the later `summarize` command over six
-independent HPC outputs—publishes pairwise overlap, gained/lost terms, and identical-clustering
-warnings.
+The parsers stream plain/gzip FASTA, DAT, GAF, OBO, and idmapping sources. UniRef90 and cluster
+membership are indexed in SQLite. GAF must be version 2.2 with 17 columns; only `UniProtKB`
+proteins, aspects P/C/F, Daniel's qualifying codes, and non-`NOT` assertions enter the mapping
+chain. Primary, secondary-to-primary, ambiguous, blank, absent, missing-from-FASTA, and
+out-of-selected-scope outcomes remain distinct.
 
-The nine CSVs are:
+Source-specific reports separate selected-UniProt resolution by primary/secondary accession from
+successful UniRef90 mapping and from final MMseqs2 assignment. Every selected source receives an
+explicit row, including a zero-count row, so a later mapping-stage failure cannot erase earlier
+accession-resolution evidence.
 
-```text
-bp-training.csv    bp-validation.csv    bp-test.csv
-cc-training.csv    cc-validation.csv    cc-test.csv
-mf-training.csv    mf-validation.csv    mf-test.csv
-```
+GO alt IDs canonicalize. Obsolete IDs resolve only through one `replaced_by`; `consider` is never
+chosen automatically. Propagated labels retain the BP/CC/MF roots inherited from the established
+DeepGOPlus/TEMPROT/PFP contract. The complete development population defines each threshold's term
+universe; test never contributes. A term is not removed merely because one downstream split has no
+positive examples.
 
-Every file begins `proteins,sequences`, followed by lexicographically ordered ontology-specific
-GO IDs from that threshold's development-defined term universe. The same header/order is used across all three
-splits. Rows are sorted by UniProtKB accession and labels are binary. Proteins without an evaluable
-term in an ontology are absent from that ontology's CSV and counted; they are never emitted as
-all-zero negatives.
+The two split policies assign indivisible, deterministically ordered MMseqs2 clusters:
 
-DeepGOPlus-shaped intermediates preserve each protein's complete propagated annotation
-tuple, matching the established historical chain. `terms.pkl` defines the evaluable universe and
-the nine CSVs are the explicitly restricted PFP views. This retains out-of-universe labels for
-audit without exposing them as PFP target columns.
+- `cluster-count-random` shuffles sorted IDs with isolated seeded RNG state and targets cluster
+  counts;
+- `sequence-balanced` targets UniRef90 member counts with deterministic bounded candidate, move,
+  and swap refinement.
 
-The intermediates are:
+Achieved ratios and the largest indivisible cluster are reported. Split deviations are governed by
+the reviewed attrition policy; there is no hidden hard-coded biological tolerance.
 
-- `train_data.pkl`: sorted training + validation supervised rows;
-- `train_data_train.pkl`, `train_data_valid.pkl`, `test_data.pkl`: dataframes with exactly
-  `proteins`, `sequences`, `annotations`;
-- `terms.pkl`: one-column dataframe named `terms`.
+## Production attrition gate
 
-## CLI
+Production requires a reviewed JSON policy based on evidence such as the 30% diagnostic pilot.
+`attrition_policy.template.json` contains placeholders and cannot authorize a run. It binds the
+scope, releases, full framework commit, frozen-manifest hash, author/reviewer/date, rationale, and
+an explicit minimum or maximum for every registered metric:
 
-Run from the package root or set `PYTHONPATH=benchmark_builders/homology_cluster/src`.
+| Metric | Numerator / denominator | Bound |
+|---|---|---|
+| `goa_to_selected_uniprot_mapping_ratio` | qualifying GOA accessions resolving in selected UniProt / all qualifying GOA accessions | minimum |
+| `selected_uniprot_to_uniref90_mapping_ratio` | selected accessions uniquely mapped to a present UniRef90 member / selected accessions | minimum |
+| `qualifying_annotation_retention_ratio` | qualifying annotation rows completing the retained-cluster chain / qualifying annotation rows entering it | minimum |
+| `retained_cluster_member_ratio` | members of retained clusters / all frozen UniRef90 members | minimum |
+| `evaluable_protein_ratio` | raw qualifying GOA proteins with an evaluable propagated term / raw qualifying GOA proteins | minimum |
+| `propagated_term_evaluable_ratio` | labelled rows retaining a development-universe term / labelled rows with propagated annotations | minimum |
+| `bp_evaluable_ratio` | labelled rows with an evaluable BP term / labelled rows with propagated annotations | minimum |
+| `cc_evaluable_ratio` | labelled rows with an evaluable CC term / labelled rows with propagated annotations | minimum |
+| `mf_evaluable_ratio` | labelled rows with an evaluable MF term / labelled rows with propagated annotations | minimum |
+| `development_split_deviation` | absolute achieved-minus-requested development member fraction / one ratio unit | maximum |
+| `training_split_deviation` | absolute achieved-minus-requested training-within-development member fraction / one ratio unit | maximum |
 
-Command preview (no path resolution, download, MMseqs2 execution, or publication):
+The code does not choose final biological thresholds. A failed limit prevents production
+publication. A deliberate exception requires `attrition_override.template.json`'s structured
+document bound to the exact failed metric names and observed ratios, run input-manifest hash,
+scope, commit, reviewer/date, justification, and run identifier. There is no
+`--ignore-attrition` flag. Because failures can differ by identity, the six-task launcher rejects
+one array-wide override; any exception must be reviewed for the specific failed task before a
+deliberate rerun.
 
-```bash
-python3 -m homology_cluster_benchmark build \
-  --identity 30 \
-  --split-policy sequence-balanced \
-  --training-population annotated-only \
-  --uniref90-fasta /frozen/uniref90.fasta.gz \
-  --idmapping /frozen/idmapping_selected.tab.gz \
-  --uniprot-sequences /frozen/uniprot.fasta.gz \
-  --goa /frozen/goa_uniprot_all.gaf.234.gz \
-  --go-obo /frozen/go-basic.obo \
-  --frozen-input-manifest /frozen/homology-inputs.reviewed.json \
-  --mmseqs-bin /path/to/mmseqs \
-  --expected-mmseqs-version 15-REPLACE_WITH_EXACT_BUILD \
-  --output-dir /results/homology \
-  --temp-dir /scratch/homology \
-  --threads 16 \
-  --seed 0 \
-  --dry-run
-```
+Diagnostic pilot mode records all measurements but is always `diagnostic-pilot`,
+`production_eligible: false`, `production_authorized: false`, and unsuitable for downstream PFP
+experiments even if its measurement-only limits pass. Reviewed policy/override placeholder text is
+rejected as data. The reviewed manifest and production policy contracts are parsed and mutually
+bound before any large input is hashed, before ontology parsing, and before MMseqs2. The actual
+input bytes are then hashed and bound to that manifest, and the policy hash is rechecked before
+evaluation and publication.
 
-Remove `--dry-run` for a real future build. Use `--identity all` only when all six independent runs
-are intentionally requested. The production command refuses existing final run directories; an
-unsafe resume/overwrite mode is not implemented.
+## Output contract and isolation
 
-Production execution additionally requires all five `--*-sha256` values, the reviewed frozen-input
-manifest, an exact MMseqs version token, and a clean,
-commit-addressable framework checkout. `--identity all` requires the five inputs to be staged as
-local paths so multi-gigabyte sources are not downloaded once per threshold. Precomputed cluster
-assignments, `min_count < 50`, disabled strict QC, and empty ontology/split outputs require explicit
-`--fixture-mode`. Fixture artifacts declare `production_eligible: false` and
-`benchmark_scope: fixture-only` in their summaries and completion markers.
-
-Each run publishes beneath:
+Every threshold continues to publish:
 
 ```text
-OUTPUT_ROOT/identity_30/sequence-balanced/annotated-only/seed_0/min_count_50/
+train_data.pkl              bp-training.csv    bp-validation.csv    bp-test.csv
+train_data_train.pkl        cc-training.csv    cc-validation.csv    cc-test.csv
+train_data_valid.pkl        mf-training.csv    mf-validation.csv    mf-test.csv
+test_data.pkl
+terms.pkl
 ```
 
-Publication validation checks marker/manifest hashes and the saved strict validation result:
+CSV rows begin with `proteins,sequences`; remaining columns are sorted ontology-specific GO IDs.
+Rows are sorted by accession and labels are binary. Proteins with no evaluable term in an ontology
+are counted and omitted from that ontology view, never emitted as all-zero negatives.
 
-```bash
-python3 -m homology_cluster_benchmark validate \
-  --run-dir OUTPUT_ROOT/identity_30/sequence-balanced/annotated-only/seed_0/min_count_50
+Each Python publication is isolated beneath:
+
+```text
+OUTPUT_ROOT/source_SCOPE/framework_SHA12/identity_XX/SPLIT/annotated-only/seed_N/min_count_N/
 ```
 
-After six independently scheduled runs, validate their shared frozen-input, release, evidence,
-split/population/seed/min-count, root/relationship, builder/git, and MMseqs2 scientific fingerprint
-and publish scoped cross-threshold reports. Python/pandas/NumPy versions remain provenance fields;
-the aggregator does not overclaim that they are part of this scientific fingerprint:
+It also contains source-aware frozen/input manifests, `parameters.json`,
+`run_provenance.json`, mapping/annotation/cluster/split/term summaries,
+`attrition_policy.json`, `attrition_report.json`, an optional validated override, strict validation
+reports, hashes, and `RUN_COMPLETE.json`. The marker is written only after staged validation,
+atomic rename, and final-path hash verification. Existing outputs are never overwritten.
 
-```bash
-python3 -m homology_cluster_benchmark summarize \
-  --output-dir AGGREGATE_OUTPUT_ROOT \
-  --run-dir /results/job-30 \
-  --run-dir /results/job-25 \
-  --run-dir /results/job-20 \
-  --run-dir /results/job-15 \
-  --run-dir /results/job-10 \
-  --run-dir /results/job-05
-```
+`summarize` requires exactly one valid publication for each identity and rejects missing,
+duplicate, mixed-scope, mixed-commit, mixed-manifest, or mixed-method runs. It writes threshold,
+split, and attrition metrics plus term-universe overlaps/changes and identical-cluster warnings; it
+does not copy the large child payloads.
 
-Each `--run-dir` may be a publication leaf or a timestamped parent containing exactly one leaf.
-Identity and shared selectors come only from hashed child publication metadata. The aggregate stores
-small child hash/path references; it does not copy CSVs, pickles, or membership manifests.
+## Grid Engine contract
 
-### URL and hash behavior
-
-For each input, use a local option, `--OPTION-url URL`, or both, and supply
-`--OPTION-sha256 HEX` for production. A missing local path never silently falls back to an
-unrelated current file.
-Use `--no-downloads` to require all paths locally. The known stable ontology URL may be supplied;
-exact archived 2026_02 UniRef/idmapping and GOA 234 URLs remain configurable rather than invented.
-
-## Output schemas
-
-Large complete audits use deterministic gzip (`mtime=0`, no embedded filename). Rejection decisions
-are complete counts; detailed rejected rows are a deterministic first-N sample per reason controlled
-by `--excluded-sample-per-reason` (default 1000). Accepted annotations and retained members remain
-complete compressed streams.
-
-| File | Row key and fields |
-|---|---|
-| `frozen_input_manifest.json` | exact reviewed five-source declaration copied byte-for-byte (synthetic and non-authoritative in fixture mode) |
-| `input_manifest.json` | resolved inputs, byte/provenance/origin eligibility dimensions, frozen-manifest fingerprint/hash, embedded metadata, capacity observations |
-| `publication_metadata.json` | hashed fixture/eligibility/scope/identity/policy/population/seed/min-count/input/MMseq/repository contract mirrored exactly by the marker |
-| `parameters.json` | every split, label, MMseqs2, seed, evidence, release, and root-policy parameter |
-| `disk_preflight.json` | scratch/publication free bytes, declared input bytes, safety multiplier, and required-space estimates |
-| `run_provenance.json` | command, git state, Python/NumPy/pandas/MMseqs2/OS versions, inputs, determinism boundary |
-| `mmseqs_commands.tsv` | stage, argument index, literal argument, shell-quoted display command |
-| `uniprot_to_uniref90.tsv` | raw/canonical UniProt accession, accession and lifecycle action/status, UniRef90 ID, mapping detail, FASTA/sequence availability |
-| `mmseqs_cluster_membership.tsv.gz` | the one complete canonical MMseqs representative/member publication; raw `createtsv` remains scratch-only |
-| `protein_cluster_assignments.tsv` | complete UniProt→UniRef90→MMseqs2→split chain and mapping diagnostics |
-| `cluster_split_assignments.tsv` | MMseqs2 cluster, split, UniRef90 weight, qualifying-protein count, assignment stage |
-| `retained_clusters.tsv` | retained cluster, split, counts, singleton/giant flags |
-| `retained_cluster_members.tsv.gz` | complete retained cluster/split/member, sequence SHA-256/length, qualifying-annotation connection flag |
-| `qualifying_annotations.tsv.gz` | complete accepted raw/canonical protein and GO provenance plus mapping chain/split |
-| `annotation_decision_counts.tsv` | complete accepted/rejected counts by disposition/reason/evidence/database/object type/aspect |
-| `excluded_annotations_sample.tsv.gz` | bounded detailed rejection sample, never a complete rejection table |
-| `attrition_summary.json/.tsv` | mutually exclusive row and protein-candidate terminal buckets with explicit denominators |
-| `mapping_summary.json` | qualifying/canonical sequence counts, ambiguous aliases, mapping-status counts |
-| `evidence_summary.tsv` | evidence, accepted/rejected disposition, reason, row count |
-| `go_term_summary.tsv` | term/namespace, direct rows, development-universe membership, unrestricted/evaluable support per split |
-| `taxonomy_summary.tsv` | qualifying annotation or supervised-protein stage, split, taxon, count |
-| `split_summary.tsv` | split and achieved cluster/member/qualifying, label-intermediate, and evaluable-PFP counts and ratios |
-| `cluster_size_summary.tsv` | all/per-split count, total, singleton/giant count, min/median/mean/p95/max |
-| `benchmark_summary.json/.md` | population/result totals, label losses, limitations, human-readable summary |
-| `validation_report.json/.md` | named pass/fail checks, warnings, metrics, scientific boundary |
-| `logs/mmseqs/*` | successful command stdout/stderr; fixture runs contain an explicit `NOT_EXECUTED.json` instead |
-| `output_manifest.json` | payload relative path, final byte size, SHA-256, deterministic-payload flag |
-| `RUN_COMPLETE.json` | written last; binds output manifest and publication metadata hashes and mirrors all publication-policy fields exactly |
-
-Failure diagnostics live outside successful run directories under
-`OUTPUT_ROOT/_failed_runs/<identity>-<uuid>/{FAILURE.json,logs/...}`. They never contain
-`RUN_COMPLETE.json` and are not benchmark publications. A six-threshold aggregate separately writes
-`term_universe_overlap.tsv`, `term_universe_changes.tsv`, `identical_cluster_assignments.tsv`,
-`all_thresholds_summary.json`, its validation reports/manifest, and its own completion marker.
-
-## Atomicity and validation
-
-The builder writes a sibling staging directory, validates the complete staged benchmark, hashes
-the payload, renames the payload atomically, re-verifies every hash at the final path, then writes
-`RUN_COMPLETE.json` atomically. Existing outputs are never overwritten. A failed run cannot publish
-a marker: the owned stage is removed while bounded diagnostics and MMseqs2 logs are preserved under
-the output root's `_failed_runs/` directory.
-
-Strict validation covers input/hash/release metadata, MMseqs completion and exact member-assignment
-content, the identifier chain, MMseq/UniRef/protein disjointness, and one combined disk-backed exact-
-sequence check spanning retained UniRef entries and qualifying UniProt sequences. It also replays the
-split, independently recounts the development-defined term universe from serialized training and
-validation pickles, verifies exact CSV and pickle contents (not schemas alone), checks binary and
-namespace labels, reconciles complete versus sampled audits and the output file set, and verifies
-final hashes plus marker/publication-metadata agreement.
-Warnings cover giant/imbalanced clusters, poor indivisible balance, mapping and annotation-chain
-loss, ontology/taxonomy/evidence imbalance, low evaluable support, and identical threshold outputs.
-
-Internal validation proves software and benchmark-contract properties. It cannot prove that
-MMseqs2 discovered every biologically meaningful low-identity edge, that the split is biologically
-optimal, that frozen source content is externally correct beyond recorded metadata/hashes, or that
-PFP training will succeed on the full population.
-
-## Shell and HPC use
-
-The real shell entrypoint is:
+The normal shell entrypoint delegates scientific work to Python:
 
 ```bash
 scripts/benchmark_generation/run_homology_cluster_benchmark.sh
 ```
 
-It uses `set -euo pipefail`, resolves the repository root from `BASH_SOURCE`, prefers supplied local
-inputs, prints the exact command, and delegates all benchmark logic to Python.
+The array worker is `hpc_jobs/active/hpc_homology_cluster_benchmark.sh`. It requests
+`-pe smp 8`, uses scheduler-provided `NSLOTS`, and requires `THREADS == NSLOTS` (exactly eight in
+production). Six simultaneously runnable tasks can therefore consume up to 48 CPU slots; Grid
+Engine decides actual concurrency.
 
-The Grid Engine wrapper is:
+The locked mapping is:
 
-```bash
-qsub -v IDENTITY=30,SPLIT_POLICY=sequence-balanced,TRAINING_POPULATION=annotated-only,\
-FRAMEWORK_REVISION=<reviewed-commit>,\
-RESULTS_ROOT=/persistent/homology_cluster_benchmark_results,NO_DOWNLOADS=1,\
-UNIREF90_FASTA=/persistent/uniref90.fasta.gz,\
-UNIREF90_FASTA_SHA256=<64-hex>,\
-IDMAPPING=/persistent/idmapping_selected.tab.gz,\
-IDMAPPING_SHA256=<64-hex>,\
-UNIPROT_SEQUENCES=/persistent/uniprot.fasta.gz,\
-UNIPROT_SEQUENCES_SHA256=<64-hex>,\
-GOA=/persistent/goa_uniprot_all.gaf.234.gz,\
-GOA_SHA256=<64-hex>,\
-GO_OBO=/persistent/go-basic.obo,\
-GO_OBO_SHA256=<64-hex>,\
-FROZEN_INPUT_MANIFEST=/persistent/homology-inputs.reviewed.json,\
-MMSEQS_BIN=/path/on/compute/node/mmseqs,\
-EXPECTED_MMSEQS_VERSION=<exact-version-token> \
-  hpc_jobs/active/hpc_homology_cluster_benchmark.sh
+```text
+SGE_TASK_ID 1 -> 30%     SGE_TASK_ID 2 -> 25%     SGE_TASK_ID 3 -> 20%
+SGE_TASK_ID 4 -> 15%     SGE_TASK_ID 5 -> 10%     SGE_TASK_ID 6 -> 5%
 ```
 
-The wrapper activates the exact existing `MMFP_ENV_DIR`, verifies the canonical `CONDA_PREFIX`, and
-refuses to create/install anything. It clones a clean commit-addressable framework checkout, checks
-MMseqs2 on the compute node, stages inputs without changing basenames, and refuses `THREADS` above
-allocated `NSLOTS`. Before staging it records local/manifest bytes and checks scratch/MMseqs plus
-persistent-publication estimates; before copy it records rounded allocated scratch usage and applies
-a configurable copy-safety multiplier plus reserve. Neither value is described as exact.
-Success is scratch validate → partial copy → copied validate → atomic final rename → cleanup.
-Ordinary failure or forwarded INT/TERM publishes only a marker-free `.failed` diagnostic directory;
-copy failure preserves and prints the exact scratch path. No SIGKILL handling claim is made. The
-inherited `64G / 200G / 72h` directives are known repository syntax, **not** a claim
-that they are sufficient for full UniRef90; a site-specific parallel-environment directive is also
-not guessed. Measure the 30% smoke and preflight input, MMseqs database/index, temporary alignment,
-SQLite, retained-manifest, and copy-back space before production. No job is submitted by this
-package.
+Missing/invalid task IDs and conflicting `IDENTITY` fail. Production requires `JOB_ID`, an exact
+40-character lowercase `FRAMEWORK_REVISION`, detached checkout, exact `git rev-parse HEAD`, and a
+clean tree. It requires shared local checksum-pinned inputs with `NO_DOWNLOADS=1`; six tasks never
+download the source collection independently. The launcher exports a whitelist rather than the
+submission shell's full environment.
 
-## Future execution examples — not executed in this implementation task
+Scratch and final paths include job ID, task ID, identity, source scope, run ID, split policy, and
+framework revision. Scratch is atomically claimed with an ownership marker. Success, command or
+validation failure, INT, TERM, and copy failure all attempt marker-free diagnostics and then remove
+only task-owned scratch. Empty, root, relative, symlinked, pre-existing, out-of-base, or
+marker-mismatched deletion targets are refused. Persistent paths are atomically claimed so a
+colliding task cannot alter a prior final or another task's partial output.
 
-The following tiny fixture smoke exercises parsing, mapping, splitting, labels, export, validation,
-and publication without executing MMseqs2. It is **NOT EXECUTED as written here**:
+The full launcher re-hashes pilot evidence when called; the queued worker checks the exported
+hashes and re-runs authorization from its detached framework checkout before input staging. This
+closes the queue-time mutation window.
 
-```bash
-FIXTURE_MODE=1 NO_DOWNLOADS=1 IDENTITY=30 MIN_COUNT=1 THREADS=1 \
-UNIREF90_FASTA=benchmark_builders/homology_cluster/tests/fixtures/uniref90.fasta \
-IDMAPPING=benchmark_builders/homology_cluster/tests/fixtures/idmapping_selected.tab \
-UNIPROT_SEQUENCES=benchmark_builders/homology_cluster/tests/fixtures/uniprot.fasta \
-GOA=benchmark_builders/homology_cluster/tests/fixtures/goa.gaf \
-GO_OBO=benchmark_builders/homology_cluster/tests/fixtures/go-mini.obo \
-CLUSTER_ASSIGNMENTS=benchmark_builders/homology_cluster/tests/fixtures/clusters.tsv \
-OUTPUT_ROOT=/tmp/homology-cluster-fixture-smoke \
-TEMP_DIR=/tmp/homology-cluster-fixture-scratch \
-bash scripts/benchmark_generation/run_homology_cluster_benchmark.sh
-```
+## Pilot-first production workflow (future commands only)
 
-The following representative-subset smoke executes MMseqs2 but marks every result fixture-only and
-non-production. The five subset files must preserve the frozen GOA/OBO metadata and contain at least
-three retained clusters. Replace every placeholder before use. It is also **NOT EXECUTED** here:
+These commands are documentation for Jordan to run after review. They were not executed while
+implementing this change.
+
+### 1. Declare one shared frozen input collection
+
+This example deliberately selects Swiss-Prot only; use the corresponding TrEMBL variables or both
+sources for a separately named array after Daniel's scope decision.
 
 ```bash
-FIXTURE_MODE=1 NO_DOWNLOADS=1 IDENTITY=30 MIN_COUNT=1 THREADS=4 \
-UNIREF90_FASTA=/path/to/smoke/uniref90.fasta \
-IDMAPPING=/path/to/smoke/idmapping_selected.tab \
-UNIPROT_SEQUENCES=/path/to/smoke/uniprot.fasta \
-GOA=/path/to/smoke/goa.gaf \
-GO_OBO=/path/to/smoke/go-basic.obo \
-MMSEQS_BIN=/path/to/mmseqs \
-OUTPUT_ROOT=/path/to/smoke-output \
-TEMP_DIR=/path/to/smoke-scratch \
-bash scripts/benchmark_generation/run_homology_cluster_benchmark.sh \
-  --allow-empty-fixture-outputs
+cd '/Users/jordansydney-darlin/Documents/University/Data Science with Machine Learning/Project/Protein-Benchmark-Framework'
+export PYTHONPATH="$PWD/benchmark_builders/homology_cluster/src"
+export UNIPROT_SOURCE_SCOPE=sprot-only
+export UNIPROT_RELEASE='2026_02'
+export GOA_RELEASE='234'
+export ONTOLOGY_RELEASE='releases/2026-06-15'
+export FRAMEWORK_REVISION='<40-lowercase-hex-reviewed-commit>'
+export RUN_ID='<collision-resistant-pilot-run-id>'
+export RESULTS_ROOT='/persistent/homology-results'
+export FROZEN_INPUT_MANIFEST='/persistent/inputs/homology-sprot.reviewed.json'
+export UNIREF90_FASTA='/persistent/inputs/uniref90.fasta.gz'
+export UNIREF90_FASTA_SHA256='<reviewed-64-hex>'
+export IDMAPPING='/persistent/inputs/idmapping_selected.tab.gz'
+export IDMAPPING_SHA256='<reviewed-64-hex>'
+export UNIPROT_SPROT_SEQUENCES='/persistent/inputs/uniprot_sprot.dat.gz'
+export UNIPROT_SPROT_SEQUENCES_SHA256='<reviewed-64-hex>'
+unset UNIPROT_TREMBL_SEQUENCES UNIPROT_TREMBL_SEQUENCES_SHA256
+export GOA='/persistent/inputs/goa_uniprot_all.gaf.234.gz'
+export GOA_SHA256='<reviewed-64-hex>'
+export GO_OBO='/persistent/inputs/go-basic.obo'
+export GO_OBO_SHA256='<reviewed-64-hex>'
+export MMSEQS_BIN='/path/on/compute/node/mmseqs'
+export EXPECTED_MMSEQS_VERSION='<exact-mmseqs-version-token>'
+export SPLIT_POLICY=sequence-balanced
+export TRAINING_POPULATION=annotated-only
+export SEED=0
+export MIN_COUNT=50
+python3 -m json.tool "$FROZEN_INPUT_MANIFEST" >/dev/null
 ```
 
-The `qsub` command above is the future one-threshold production form and was **NOT EXECUTED**.
-Replace the five `<64-hex>` values and other placeholders, then use validated persistent paths.
-
-Once the 30% smoke above has been reviewed, the exact six-job submission pattern is the following
-loop. It is documentation only and was **NOT EXECUTED**. Export every common variable shown in the
-one-threshold command first; each iteration changes only `IDENTITY`:
+### 2. Preview the one-item pilot without contacting Grid Engine
 
 ```bash
-for IDENTITY in 30 25 20 15 10 5; do
-  export IDENTITY
-  qsub -v IDENTITY,SPLIT_POLICY,TRAINING_POPULATION,FRAMEWORK_REVISION,RESULTS_ROOT,\
-NO_DOWNLOADS,UNIREF90_FASTA,UNIREF90_FASTA_SHA256,IDMAPPING,IDMAPPING_SHA256,\
-UNIPROT_SEQUENCES,UNIPROT_SEQUENCES_SHA256,GOA,GOA_SHA256,GO_OBO,GO_OBO_SHA256,\
-FROZEN_INPUT_MANIFEST,MMSEQS_BIN,EXPECTED_MMSEQS_VERSION \
-    hpc_jobs/active/hpc_homology_cluster_benchmark.sh
-done
+DRY_RUN=1 bash hpc_jobs/launchers/submit_homology_cluster_pilot.sh
 ```
 
-The first cluster-storage smoke sequence is deliberately ordered:
+The preview prints mode, exact `qsub -t 1 -pe smp 8` command, task range, scope, full commit,
+manifest, result root, methodology fields, input paths/hashes, and every exported value.
 
-1. Inspect the compute-node executable with `mmseqs version`, resolve its path, hash it if readable,
-   and replace the version placeholder only after review.
-2. Fill and review all five frozen-manifest entries and verify their filenames, sizes, hashes,
-   embedded GOA/OBO metadata, and authoritative URLs against the staged bytes.
-3. Run the representative 30% fixture-only MMseqs command above against cluster scratch and
-   persistent result storage; do not submit the six production jobs yet.
-4. Validate that direct fixture publication and inspect its `disk_preflight.json`, MMseq logs,
-   cluster balance, retained population, audit sizes, peak storage, memory, and walltime.
-5. Export exactly the representative-subset variables from the command above and run the same 30%
-   fixture through the HPC adapter with
-   `qsub -v FIXTURE_MODE,NO_DOWNLOADS,IDENTITY,MIN_COUNT,THREADS,UNIREF90_FASTA,IDMAPPING,UNIPROT_SEQUENCES,GOA,GO_OBO,MMSEQS_BIN,RESULTS_ROOT hpc_jobs/active/hpc_homology_cluster_benchmark.sh`.
-   Validate the copied leaf and inspect `hpc_capacity_preflight.json` and
-   `hpc_capacity_precopy.json`.
-6. Adjust the provisional scheduler resources from those observations, repeat the 30% smoke if
-   needed, and obtain review before using the six-job loop.
+### 3. Manually submit the 30% diagnostic pilot later
 
-## Embedding inventory and immutable PFP
+```bash
+DRY_RUN=0 bash hpc_jobs/launchers/submit_homology_cluster_pilot.sh
+```
 
-After a threshold publishes:
+### 4. Validate and review the copied pilot
 
-1. point `scripts/verification/inventory_embeddings.py` at the directory containing the nine CSVs;
-2. use `configs/embedding_inventory.homology.example.json`;
-3. review per-protein/per-modality `reusable`, `missing`, `invalid`, sequence mismatch, and
-   provenance-unknown/manual-review results;
-4. generate only embeddings not safely reusable;
-5. prepare/train immutable PFP.
+```bash
+export PILOT_RUN_DIR='<published diagnostic-pilot benchmark leaf>'
+export PILOT_COMPLETION_MARKER="$PILOT_RUN_DIR/RUN_COMPLETE.json"
+export PILOT_ATTRITION_REPORT="$PILOT_RUN_DIR/attrition_report.json"
+export PILOT_TASK_CONTEXT='<outer task result>/logs/hpc_task_context.json'
+python3 -m homology_cluster_benchmark validate --run-dir "$PILOT_RUN_DIR"
+python3 -m json.tool "$PILOT_COMPLETION_MARKER"
+python3 -m json.tool "$PILOT_ATTRITION_REPORT"
+python3 -m json.tool "$PILOT_TASK_CONTEXT"
+```
 
-Split reassignment alone does not invalidate sequence/protein embeddings. Existing modality-specific
-provenance rules still apply: exact-sequence ProtT5 reuse is distinct from text/structure/PPI
-provenance.
+Review all mapping/attrition ratios, five pickles, nine CSVs, validation report, MMseqs2 version,
+copy-back, logs, and source-specific counts. Obtain runtime and peak memory from reviewed Grid
+Engine accounting, peak scratch from explicit task scratch monitoring, and output bytes from a
+reviewed filesystem measurement. Do not relabel end-of-run scratch size as peak usage.
 
-## Local tests
+### 5. Create reviewed policy, measurement evidence, and approval
+
+Copy the three non-authorizing templates. Edit the reviewed policy first, using the pilot
+observations to set every limit. Then calculate evidence hashes, complete the measurement file,
+calculate its hash, and only then complete the approval. Keep `approved: false` until a human has
+reviewed all evidence; change it to `true` only as the final manual approval action.
+
+```bash
+cp benchmark_builders/homology_cluster/attrition_policy.template.json \
+  '/persistent/review/homology-attrition-policy.json'
+cp benchmark_builders/homology_cluster/pilot_measurement_evidence.template.json \
+  '/persistent/review/homology-pilot-measurements.json'
+cp benchmark_builders/homology_cluster/pilot_approval.template.json \
+  '/persistent/review/homology-pilot-approval.json'
+export ATTRITION_POLICY='/persistent/review/homology-attrition-policy.json'
+export PILOT_MEASUREMENT_EVIDENCE='/persistent/review/homology-pilot-measurements.json'
+export PILOT_APPROVAL='/persistent/review/homology-pilot-approval.json'
+
+vi "$ATTRITION_POLICY"
+python3 -m json.tool "$ATTRITION_POLICY" >/dev/null
+export REVIEWED_ATTRITION_POLICY_SHA256="$(sha256sum "$ATTRITION_POLICY" | awk '{print $1}')"
+export PILOT_COMPLETION_MARKER_SHA256="$(sha256sum "$PILOT_COMPLETION_MARKER" | awk '{print $1}')"
+export PILOT_ATTRITION_REPORT_SHA256="$(sha256sum "$PILOT_ATTRITION_REPORT" | awk '{print $1}')"
+export PILOT_TASK_CONTEXT_SHA256="$(sha256sum "$PILOT_TASK_CONTEXT" | awk '{print $1}')"
+export FROZEN_INPUT_MANIFEST_SHA256="$(sha256sum "$FROZEN_INPUT_MANIFEST" | awk '{print $1}')"
+
+vi "$PILOT_MEASUREMENT_EVIDENCE"
+python3 -m json.tool "$PILOT_MEASUREMENT_EVIDENCE" >/dev/null
+export PILOT_MEASUREMENT_EVIDENCE_SHA256="$(
+  sha256sum "$PILOT_MEASUREMENT_EVIDENCE" | awk '{print $1}'
+)"
+
+vi "$PILOT_APPROVAL"
+python3 -m json.tool "$PILOT_APPROVAL" >/dev/null
+
+python3 -m homology_cluster_benchmark authorize-array \
+  --attrition-policy "$ATTRITION_POLICY" \
+  --pilot-approval "$PILOT_APPROVAL" \
+  --pilot-completion-marker "$PILOT_COMPLETION_MARKER" \
+  --pilot-attrition-report "$PILOT_ATTRITION_REPORT" \
+  --pilot-run-dir "$PILOT_RUN_DIR" \
+  --pilot-task-context "$PILOT_TASK_CONTEXT" \
+  --pilot-measurement-evidence "$PILOT_MEASUREMENT_EVIDENCE" \
+  --frozen-input-manifest "$FROZEN_INPUT_MANIFEST" \
+  --framework-revision "$FRAMEWORK_REVISION" \
+  --uniprot-source-scope "$UNIPROT_SOURCE_SCOPE" \
+  --split-policy "$SPLIT_POLICY" \
+  --training-population "$TRAINING_POPULATION" \
+  --expected-mmseqs-version "$EXPECTED_MMSEQS_VERSION" \
+  --uniprot-release "$UNIPROT_RELEASE" \
+  --goa-release "$GOA_RELEASE" \
+  --ontology-release "$ONTOLOGY_RELEASE"
+```
+
+Populate the JSON fields with the calculated values above. In particular,
+`reviewed_attrition_policy_sha256` is `$REVIEWED_ATTRITION_POLICY_SHA256`; it is not the pilot
+report's `policy_sha256`. The latter identifies the software-generated, non-production measurement
+policy used to let the diagnostic pilot finish and cannot authorize the full array. The approval's
+other evidence hashes must use the corresponding calculated variables, and `approved` is changed
+to `true` only after manual review.
+
+The approval binds task 1/30%, successful marker hash, complete validated pilot publication,
+attrition report hash and scope/commit bindings, reviewed attrition-policy hash, task-context hash,
+measurement-evidence hash, pilot job/run IDs, commit, frozen manifest, scope, methodology, MMseqs2
+version, positive finite measurements, reviewer/date, and notes. Authorization reconstructs every
+pilot metric from its numerator and denominator, checks the recorded definitions/ratio, and
+requires the reviewed production limits to accept those observations. The marker, task context,
+and measurement evidence must all bind the same run ID. Template placeholders are rejected. The
+pilot never approves itself.
+
+### 6. Preview the authorized six-task array
+
+Set a new collision-resistant `RUN_ID` for the full array, then preview:
+
+```bash
+export RUN_ID='<collision-resistant-full-array-run-id>'
+DRY_RUN=1 bash hpc_jobs/launchers/submit_homology_cluster_array.sh
+```
+
+Authorization still runs; only `qsub` is suppressed.
+
+### 7. Manually submit the full array later
+
+```bash
+DRY_RUN=0 bash hpc_jobs/launchers/submit_homology_cluster_array.sh
+```
+
+### 8. Monitor the future array on the cluster
+
+```bash
+qstat -j '<array-job-id>'
+```
+
+This monitoring command is documentation only and was not run during implementation.
+
+### 9. Validate and aggregate all six completed publications
+
+```bash
+python3 -m homology_cluster_benchmark summarize \
+  --output-dir '/persistent/homology-aggregate' \
+  --run-dir '<30-percent-publication-leaf>' \
+  --run-dir '<25-percent-publication-leaf>' \
+  --run-dir '<20-percent-publication-leaf>' \
+  --run-dir '<15-percent-publication-leaf>' \
+  --run-dir '<10-percent-publication-leaf>' \
+  --run-dir '<5-percent-publication-leaf>'
+```
+
+## Local validation
 
 ```bash
 cd benchmark_builders/homology_cluster
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider
-PYTHONPYCACHEPREFIX=/tmp/homology-pyc python3 -m compileall -q src tests
-python3 -m ruff check --no-cache .
+PYTHONPYCACHEPREFIX=/tmp/homology-cluster-pycache PYTHONPATH=src \
+  python3 -m unittest discover -s tests
+PYTHONPYCACHEPREFIX=/tmp/homology-cluster-pycache python3 -m compileall -q src tests
+ruff check --no-cache src tests
 
 cd ../..
-bash -n \
-  scripts/benchmark_generation/run_homology_cluster_benchmark.sh \
-  hpc_jobs/active/hpc_homology_cluster_benchmark.sh
+bash -n scripts/benchmark_generation/run_homology_cluster_benchmark.sh \
+  hpc_jobs/active/hpc_homology_cluster_benchmark.sh \
+  hpc_jobs/launchers/_homology_cluster_common.sh \
+  hpc_jobs/launchers/submit_homology_cluster_pilot.sh \
+  hpc_jobs/launchers/submit_homology_cluster_array.sh
 ```
 
-The real-MMseqs integration test skips explicitly when MMseqs2 is absent. Tiny tests use a
-synthetic, complete `createtsv` fixture and production `min_count` remains 50.
+Launcher tests use only a temporary fake `qsub` that records arguments and controlled return
+statuses. The real-MMseqs2 integration test skips explicitly when MMseqs2 is absent.
 
-## Limitations and supervisor decisions
+## Validation boundary and unresolved decisions
 
-- Confirm whether `-e 1e-4` should remain fixed after measured sensitivity analysis at 5–15%.
-- Root retention is locked for PFP/TEMPROT compatibility; change it only through a reviewed
-  benchmark-contract revision.
-- Confirm which OBO relationship types should remain in the DeepGOPlus-compatible propagation
-  policy; version 0.1 records the observed types.
-- Provide/pin exact archived 2026_02 UniRef90/idmapping and GOA 234 URLs plus expected hashes when
-  available.
-- `idmapping_selected` can prove present, blank, ambiguous, and absent mappings, but absence alone
-  cannot prove that a UniProt accession is obsolete. Such rows are explicitly
-  `obsolete-status-unknown-absent-from-idmapping`; an independently frozen deleted-accession source
-  is required for a positive obsolete classification.
-- `all-cluster-members` needs a supervisor-approved supervised-label policy before it may export
-  PFP rows. No zero-negative or homology-transfer policy is assumed.
-- Full resource directives need a measured smoke run; none was performed locally.
-- Greedy set cover and finite prefilter sensitivity do not prove that every biologically meaningful
-  low-identity edge was discovered, especially at 5–15% identity.
-- UniRef/MMseq membership is disk-backed and GOA scratch records use low-compression streaming
-  spools, but the qualifying accession set, qualifying UniProt sequences, mapping decisions, and
-  final supervised pandas frames remain memory-resident because the required pickle contract is
-  dataframe-shaped. Peak memory must be measured on the representative smoke before production.
+Internal validation proves declared hashes/metadata, parser/filter behavior, mapping and source
+scope, complete MMseq membership, whole-cluster and exact-sequence separation, own-protein labels,
+development-defined terms, output schemas/content, attrition authorization, and publication hashes.
+It cannot prove external biological correctness, exhaustive low-identity edge discovery, resource
+sufficiency, or downstream model performance.
+
+Daniel still needs to decide the production UniProt source scope. Reviewed pilot evidence must set
+the attrition limits and confirm memory, scratch, walltime, and provisional `64G / 200G / 72h`
+resources. The `-e 1e-4`, GO relationship policy, root compatibility lock, archived input URLs, and
+any future all-cluster-member supervision remain explicit review points.
+
+No real scheduler command, full source download, full MMseqs2 clustering, production benchmark,
+embedding generation, or PFP training/evaluation was performed while implementing this workflow.

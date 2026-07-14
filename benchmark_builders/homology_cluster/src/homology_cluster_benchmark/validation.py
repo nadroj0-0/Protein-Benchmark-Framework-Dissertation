@@ -181,15 +181,10 @@ def split_balance_metrics(
 def production_balance_within_tolerance(
     assignments: dict[str, SplitAssignment], config: BuildConfig
 ) -> bool:
+    # Kept as a compatibility helper. Biological limits now come only from the reviewed
+    # structured attrition policy; this function asserts that the ratios were calculable.
     metrics = split_balance_metrics(assignments, config)
-    return (
-        config.fixture_mode
-        or config.split_policy != "sequence-balanced"
-        or (
-            metrics["development_deviation"] <= 0.05
-            and metrics["training_deviation"] <= 0.05
-        )
-    )
+    return all(value >= 0 for value in metrics.values())
 
 
 def _check(report: ValidationReport, name: str, condition: bool, detail: str, **metrics: object) -> None:
@@ -250,6 +245,14 @@ def validate_outputs(
     global_sequence_conflicts: list[dict[str, str]],
 ) -> ValidationReport:
     report = ValidationReport()
+    _check(
+        report,
+        "explicit_uniprot_source_scope",
+        config.uniprot_source_scope in {"sprot-only", "trembl-only", "sprot-and-trembl"},
+        "The selected UniProt supervised-population scope is explicit and does not replace UniRef90",
+        uniprot_source_scope=config.uniprot_source_scope,
+        clustering_population="frozen UniRef90 FASTA",
+    )
     _check(
         report, "mmseqs_assignment_completeness", uniref_count == mmseqs_member_count,
         "Every frozen UniRef90 entry must receive exactly one MMseqs2 assignment",
@@ -539,31 +542,16 @@ def validate_outputs(
     conditional_training_ratio = balance["training_ratio_within_development"]
     development_deviation = balance["development_deviation"]
     training_deviation = balance["training_deviation"]
-    if config.split_policy == "sequence-balanced" and (
-        development_deviation > 0.02 or training_deviation > 0.02
-    ):
-        report.add_warning(
-            "sequence_balance",
-            "Whole-cluster indivisibility leaves a sequence balance more than two percentage "
-            "points from a requested stage target",
-            requested_development=config.development_fraction,
-            achieved_development=development_ratio,
-            development_percentage_point_deviation=development_deviation * 100,
-            requested_training_within_development=config.training_fraction_within_development,
-            achieved_training_within_development=conditional_training_ratio,
-            training_percentage_point_deviation=training_deviation * 100,
-        )
     balance_within_production_tolerance = production_balance_within_tolerance(
         assignments, config
     )
     _check(
         report, "production_sequence_balance_tolerance",
         balance_within_production_tolerance,
-        "Production sequence-balanced stages must each remain within five percentage points; "
-        "fixture runs report but do not fail impossible indivisible cases",
+        "Split ratios are finite and reported; reviewed limits are evaluated by attrition policy",
         development_percentage_point_deviation=development_deviation * 100,
         training_percentage_point_deviation=training_deviation * 100,
-        enforced=not config.fixture_mode and config.split_policy == "sequence-balanced",
+        enforced_by="attrition-policy",
     )
     giant = [
         assignment.cluster_id for assignment in assignments.values()

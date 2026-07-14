@@ -1,0 +1,24 @@
+{
+  "evidence_notes": "REPLACE_AFTER_REVIEWING_SCHEDULER_AND_FILESYSTEM_EVIDENCE",
+  "framework_commit": "REPLACE_WITH_40_HEX_COMMIT",
+  "measurement_sources": {
+    "output_size": "REPLACE_WITH_COMMAND_OR_ARTIFACT_REFERENCE",
+    "peak_memory": "REPLACE_WITH_GRID_ENGINE_ACCOUNTING_REFERENCE",
+    "runtime": "REPLACE_WITH_GRID_ENGINE_ACCOUNTING_REFERENCE",
+    "scratch_peak": "REPLACE_WITH_SCRATCH_MONITORING_REFERENCE"
+  },
+  "output_size_bytes": 0,
+  "peak_memory_bytes": 0,
+  "pilot_identity_percent": 30,
+  "pilot_job_id": "REPLACE_ME",
+  "pilot_task_id": 1,
+  "review_date": "REPLACE_WITH_ISO_DATE",
+  "reviewer": "REPLACE_ME",
+  "run_id": "REPLACE_ME",
+  "runtime_seconds": 0,
+  "schema_name": "homology-cluster-pilot-measurement-evidence",
+  "schema_version": 1,
+  "scratch_peak_bytes": 0,
+  "successful_completion_marker_sha256": "REPLACE_WITH_64_HEX_SHA256",
+  "uniprot_source_scope": "REPLACE_WITH_EXPLICIT_SCOPE"
+}

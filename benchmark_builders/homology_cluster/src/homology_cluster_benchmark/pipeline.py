@@ -19,7 +19,18 @@ import time
 from typing import Iterable
 import uuid
 
-from .clustering import connect_proteins_to_clusters, mapping_counters, retained_cluster_info
+from .attrition import (
+    METRIC_DEFINITIONS,
+    evaluate_attrition,
+    load_attrition_policy,
+    observation,
+)
+from .clustering import (
+    connect_proteins_to_clusters,
+    mapping_counters,
+    mapping_counters_by_source,
+    retained_cluster_info,
+)
 from .config import PREFIX_TO_NAMESPACE, SPLITS, SUPPORTED_IDENTITIES, BuildConfig
 from .export import export_all
 from .frozen_inputs import (
@@ -33,7 +44,7 @@ from .goa import iter_annotation_records, iter_excluded_annotations, load_goa
 from .idmapping import load_uniref90_mappings
 from .inputs import resolve_input, sha256_file
 from .labels import build_labels
-from .mapping import canonicalize_goa_accessions, load_requested_proteins
+from .mapping import canonicalize_goa_accessions, load_requested_proteins_from_sources
 from .models import BuildResult, MappingDecision, ResolvedInput
 from .mmseqs import (
     ClusterIndex,
@@ -62,6 +73,7 @@ from .provenance import (
 from .splitting import assign_development_test, assign_training_validation
 from .uniref import UniRefIndex
 from .validation import (
+    split_balance_metrics,
     validate_outputs,
     validate_term_universe_artifacts,
     write_validation_report,
@@ -114,6 +126,12 @@ def _parameters(config: BuildConfig) -> dict[str, object]:
         "sensitivity": config.sensitivity,
         "evalue": config.evalue,
         "threads": config.threads,
+        "requested_slots": config.requested_slots,
+        "allocated_slots": config.allocated_slots,
+        "run_id": config.run_id,
+        "uniprot_source_scope": config.uniprot_source_scope,
+        "framework_revision": config.framework_revision,
+        "benchmark_scope": config.benchmark_scope,
         "split_policy": config.split_policy,
         "development_fraction": config.development_fraction,
         "training_fraction_within_development": config.training_fraction_within_development,
@@ -142,10 +160,13 @@ def _scientific_fingerprint_payload(
     frozen_manifest: FrozenInputManifest,
     mmseqs_runtime,
     repository_commit: str | None,
+    attrition_policy_sha256: str,
 ) -> dict[str, object]:
     """Return the identity-independent contract shared by all six threshold jobs."""
     return {
         "frozen_input_source_fingerprint": frozen_manifest.source_fingerprint,
+        "uniprot_source_scope": config.uniprot_source_scope,
+        "attrition_policy_sha256": attrition_policy_sha256,
         "uniprot_release": config.release_uniprot,
         "goa_release": config.release_goa,
         "ontology_release": config.release_ontology,
@@ -173,6 +194,10 @@ def _scientific_fingerprint_payload(
         "observed_mmseqs_version": mmseqs_runtime.version_token,
         "mmseqs_executable_sha256": mmseqs_runtime.executable_sha256,
         "repository_commit": repository_commit,
+        "framework_revision": config.framework_revision or repository_commit,
+        "requested_slots": config.requested_slots,
+        "allocated_slots": config.allocated_slots,
+        "mmseqs_threads": config.threads,
     }
 
 
@@ -212,13 +237,17 @@ def _resolved_inputs(config: BuildConfig, work: Path) -> dict[str, ResolvedInput
 
 
 def _input_specs(config: BuildConfig):
-    return {
+    specs = {
         "uniref90_fasta": config.uniref90_fasta,
         "idmapping": config.idmapping,
-        "uniprot_sequences": config.uniprot_sequences,
         "goa": config.goa,
         "go_obo": config.go_obo,
     }
+    for name in config.selected_uniprot_input_names:
+        spec = getattr(config, name)
+        assert spec is not None
+        specs[name] = spec
+    return specs
 
 
 def _validate_manifest_embedded_metadata(
@@ -265,7 +294,7 @@ def _disk_preflight(
         (
             uniref_bytes
             + goa_bytes
-            + inputs["uniprot_sequences"].size_bytes
+            + sum(inputs[name].size_bytes for name in config.selected_uniprot_input_names)
         ) * config.publication_safety_multiplier
         + config.minimum_free_disk_bytes
     )
@@ -369,7 +398,7 @@ def _write_mapping_manifests(stage: Path, decisions: list[MappingDecision]) -> N
     fields = [
         "raw_uniprot_accession", "uniprot_accession", "accession_action", "uniref90_id",
         "mapping_status", "mapping_detail", "exists_in_uniref90_fasta",
-        "canonical_sequence_available", "accession_lifecycle_status",
+        "canonical_sequence_available", "accession_lifecycle_status", "source_population",
     ]
     _tsv(stage / "uniprot_to_uniref90.tsv", fields, (
         {
@@ -384,6 +413,7 @@ def _write_mapping_manifests(stage: Path, decisions: list[MappingDecision]) -> N
             ),
             "canonical_sequence_available": int(item.canonical_sequence_available),
             "accession_lifecycle_status": item.accession_lifecycle_status,
+            "source_population": item.source_population,
         }
         for item in sorted(decisions, key=lambda row: (row.protein_id, row.raw_accession))
     ))
@@ -401,6 +431,7 @@ def _write_mapping_manifests(stage: Path, decisions: list[MappingDecision]) -> N
             ),
             "canonical_sequence_available": int(item.canonical_sequence_available),
             "accession_lifecycle_status": item.accession_lifecycle_status,
+            "source_population": item.source_population,
             "mmseqs_cluster_id": item.mmseqs_cluster_id,
             "split": item.split,
         }
@@ -607,6 +638,117 @@ def _write_attrition_summary(stage: Path, labels) -> None:
     ))
 
 
+def _write_nonproduction_attrition_policy(
+    path: Path,
+    config: BuildConfig,
+    repository_commit: str,
+    frozen_manifest_sha256: str,
+) -> None:
+    """Write a non-authorizing measurement policy for fixtures and diagnostic pilots."""
+    metrics = {}
+    for name, definition in METRIC_DEFINITIONS.items():
+        bound_key = f"allowed_{definition.bound}_ratio"
+        metrics[name] = {
+            "numerator_definition": definition.numerator,
+            "denominator_definition": definition.denominator,
+            bound_key: 0.0 if definition.bound == "minimum" else 1.0,
+            "rationale": "Non-production measurement boundary; not a biological approval.",
+            "evidence_source": "synthetic fixture or diagnostic pilot measurement only",
+        }
+    _json(path, {
+        "schema_name": "homology-cluster-attrition-policy",
+        "schema_version": 1,
+        "uniprot_source_scope": config.uniprot_source_scope,
+        "expected_releases": {
+            "uniprot_uniref": config.release_uniprot,
+            "goa": config.release_goa,
+            "ontology": config.release_ontology,
+        },
+        "metrics": metrics,
+        "rationale": "Measure software behavior without authorizing dissertation production.",
+        "evidence_source": "non-production run",
+        "author": "software-generated-non-production",
+        "reviewer": "not-reviewed-for-production",
+        "review_date": "2026-07-14",
+        "framework_commit": repository_commit,
+        "frozen_input_manifest_sha256": frozen_manifest_sha256,
+    })
+
+
+def _attrition_observations(
+    config: BuildConfig,
+    ontology: Ontology,
+    labels,
+    decisions: list[MappingDecision],
+    assignments: dict,
+    retained_members: int,
+    uniref_count: int,
+) -> dict[str, dict[str, object]]:
+    selected = sum(item.canonical_sequence_available for item in decisions)
+    mapped = sum(item.status == "mapped" for item in decisions)
+    eligible_rows = int(labels.row_attrition_counts.get("eligible_annotation_row", 0))
+    evaluable_raw = int(labels.protein_attrition_counts.get("evaluable_pfp", 0))
+    intermediate = sum(len(labels.frames[split]) for split in SPLITS)
+    evaluable = sum(
+        bool(labels.restricted_annotations.get(str(row.proteins), ()))
+        for split in SPLITS
+        for row in labels.frames[split].itertuples(index=False)
+    )
+    namespace_prefix = {
+        "bp": "biological_process",
+        "cc": "cellular_component",
+        "mf": "molecular_function",
+    }
+    ontology_evaluable = {}
+    for prefix, namespace in namespace_prefix.items():
+        terms = {
+            term for term in labels.term_universe if ontology.namespace(term) == namespace
+        }
+        ontology_evaluable[prefix] = sum(
+            bool(set(row.annotations) & terms)
+            for split in SPLITS
+            for row in labels.frames[split].itertuples(index=False)
+        )
+    balance = split_balance_metrics(assignments, config)
+    return {
+        "goa_to_selected_uniprot_mapping_ratio": observation(
+            "goa_to_selected_uniprot_mapping_ratio", selected, len(decisions)
+        ),
+        "selected_uniprot_to_uniref90_mapping_ratio": observation(
+            "selected_uniprot_to_uniref90_mapping_ratio", mapped, selected
+        ),
+        "qualifying_annotation_retention_ratio": observation(
+            "qualifying_annotation_retention_ratio",
+            eligible_rows,
+            labels.intended_annotation_rows,
+        ),
+        "retained_cluster_member_ratio": observation(
+            "retained_cluster_member_ratio", retained_members, uniref_count
+        ),
+        "evaluable_protein_ratio": observation(
+            "evaluable_protein_ratio", evaluable_raw, labels.intended_accessions
+        ),
+        "propagated_term_evaluable_ratio": observation(
+            "propagated_term_evaluable_ratio", evaluable, intermediate
+        ),
+        "bp_evaluable_ratio": observation(
+            "bp_evaluable_ratio", ontology_evaluable["bp"], intermediate
+        ),
+        "cc_evaluable_ratio": observation(
+            "cc_evaluable_ratio", ontology_evaluable["cc"], intermediate
+        ),
+        "mf_evaluable_ratio": observation(
+            "mf_evaluable_ratio", ontology_evaluable["mf"], intermediate
+        ),
+        "development_split_deviation": observation(
+            "development_split_deviation", balance["development_deviation"], 1
+        ),
+        "training_split_deviation": observation(
+            "training_split_deviation", balance["training_deviation"], 1
+        ),
+    }
+
+
 def _write_go_term_summary(stage: Path, goa, labels, ontology: Ontology) -> None:
     direct = goa.direct_go_counts
     unrestricted: dict[str, Counter] = {split: Counter() for split in SPLITS}
@@ -776,6 +918,8 @@ def _write_benchmark_summary(stage: Path, summary: dict[str, object]) -> None:
     counts = summary["counts"]
     lines = [
         "# Homology-cluster benchmark summary", "",
+        f"- Benchmark scope: `{summary['benchmark_scope']}`",
+        f"- Selected UniProt source scope: `{summary['uniprot_source_scope']}`",
         f"- Identity threshold: **{summary['identity_percent']}%**",
         f"- Coverage: **{summary['coverage']}** using MMseqs2 cov-mode 0",
         f"- Split policy: `{summary['split_policy']}`",
@@ -853,10 +997,9 @@ def _validate_publication_marker(directory: Path) -> None:
     for key in PUBLICATION_MARKER_KEYS:
         if marker.get(key) != publication.get(key):
             raise ValueError(f"Completion marker/publication metadata mismatch for {key}")
-    if publication.get("production_eligible") != (not publication.get("fixture_mode")):
-        raise ValueError("Publication eligibility and fixture scope are inconsistent")
     if publication.get("benchmark_scope") not in {
-        "dissertation-production", "fixture-only", "all-thresholds-summary"
+        "dissertation-production", "diagnostic-pilot", "fixture-only",
+        "all-thresholds-summary"
     }:
         raise ValueError("Publication metadata has an unknown benchmark_scope")
     if publication.get("benchmark_scope") == "all-thresholds-summary":
@@ -867,16 +1010,24 @@ def _validate_publication_marker(directory: Path) -> None:
         ):
             raise ValueError("Aggregate publication identity scope is inconsistent")
     else:
-        expected_scope = (
-            "fixture-only" if publication["fixture_mode"] else "dissertation-production"
-        )
-        if publication.get("benchmark_scope") != expected_scope:
+        scope = publication.get("benchmark_scope")
+        if (scope == "fixture-only") != publication["fixture_mode"]:
             raise ValueError("Publication benchmark_scope is inconsistent with fixture_mode")
+        if scope in {"fixture-only", "diagnostic-pilot"} and publication.get(
+            "production_eligible"
+        ) is not False:
+            raise ValueError("Non-production publication cannot be production eligible")
+        if scope == "dissertation-production" and publication.get(
+            "production_eligible"
+        ) is not True:
+            raise ValueError("Dissertation production publication lacks production authorization")
         if publication.get("identities") is not None or publication.get(
             "identity_percent"
         ) not in {30, 25, 20, 15, 10, 5}:
             raise ValueError("Child publication identity scope is inconsistent")
-        if publication.get("benchmark_scope") == "dissertation-production":
+        if publication.get("benchmark_scope") in {
+            "dissertation-production", "diagnostic-pilot"
+        }:
             for key in (
                 "expected_mmseqs_version", "observed_mmseqs_version",
                 "mmseqs_resolved_executable", "repository_commit",
@@ -904,8 +1055,12 @@ def _validate_publication_marker(directory: Path) -> None:
     if publication.get("benchmark_scope") != "all-thresholds-summary":
         if publication.get("fixture_mode") != input_manifest.get("fixture_mode"):
             raise ValueError("Publication metadata/input manifest fixture-mode mismatch")
-        if publication.get("production_eligible") != input_manifest.get("production_eligible"):
-            raise ValueError("Publication metadata/input manifest eligibility mismatch")
+        if publication.get("benchmark_scope") != input_manifest.get("benchmark_scope"):
+            raise ValueError("Publication metadata/input manifest benchmark-scope mismatch")
+        if publication.get("uniprot_source_scope") != input_manifest.get(
+            "uniprot_source_scope"
+        ):
+            raise ValueError("Publication metadata/input manifest source-scope mismatch")
         if (
             publication.get("frozen_input_manifest_sha256")
             != input_manifest.get("frozen_input_manifest", {}).get("sha256")
@@ -914,6 +1069,8 @@ def _validate_publication_marker(directory: Path) -> None:
     provenance = json.loads((directory / "run_provenance.json").read_text(encoding="utf-8"))
     if publication.get("repository_commit") != provenance.get("repository", {}).get("commit"):
         raise ValueError("Publication metadata/repository commit mismatch")
+    if publication.get("framework_revision") != publication.get("repository_commit"):
+        raise ValueError("Publication requested/observed framework revision mismatch")
     runtime = provenance.get("runtime", {}).get("mmseqs2", {})
     if publication.get("expected_mmseqs_version") != runtime.get("expected_version"):
         raise ValueError("Publication metadata/MMseqs expected-version mismatch")
@@ -923,7 +1080,9 @@ def _validate_publication_marker(directory: Path) -> None:
         raise ValueError("Publication metadata/MMseqs resolved-executable mismatch")
     if publication.get("mmseqs_executable_sha256") != runtime.get("executable_sha256"):
         raise ValueError("Publication metadata/MMseqs executable-hash mismatch")
-    if publication["production_eligible"]:
+    if publication["benchmark_scope"] in {
+        "dissertation-production", "diagnostic-pilot"
+    }:
         validate_recorded_exact_mmseqs_version(
             str(publication["expected_mmseqs_version"]),
             str(publication["observed_mmseqs_version"]),
@@ -938,7 +1097,9 @@ def _validate_publication_marker(directory: Path) -> None:
     if not isinstance(payload, dict) or _scientific_fingerprint(payload) != fingerprint:
         raise ValueError("Publication scientific fingerprint payload/hash mismatch")
     frozen_manifest = load_frozen_input_manifest(
-        frozen_manifest_path, fixture_mode=publication["fixture_mode"]
+        frozen_manifest_path,
+        uniprot_source_scope=str(publication["uniprot_source_scope"]),
+        fixture_mode=publication["fixture_mode"],
     )
     expected_parameter_fields = (
         "split_policy", "development_fraction", "training_fraction_within_development",
@@ -946,6 +1107,7 @@ def _validate_publication_marker(directory: Path) -> None:
         "include_relationships", "root_policy", "coverage", "cov_mode", "cluster_mode",
         "alignment_mode", "seq_id_mode", "createdb_shuffle", "cluster_reassign",
         "sensitivity", "evalue", "uniprot_release", "goa_release", "ontology_release",
+        "uniprot_source_scope",
     )
     for key in expected_parameter_fields:
         if key not in parameters or payload.get(key) != parameters.get(key):
@@ -956,10 +1118,47 @@ def _validate_publication_marker(directory: Path) -> None:
         "observed_mmseqs_version": publication.get("observed_mmseqs_version"),
         "mmseqs_executable_sha256": publication.get("mmseqs_executable_sha256"),
         "repository_commit": publication.get("repository_commit"),
+        "framework_revision": publication.get("framework_revision"),
+        "uniprot_source_scope": publication.get("uniprot_source_scope"),
+        "attrition_policy_sha256": publication.get("attrition_policy_sha256"),
+        "requested_slots": publication.get("requested_slots"),
+        "allocated_slots": publication.get("allocated_slots"),
+        "mmseqs_threads": publication.get("mmseqs_threads"),
     }
     for key, expected in bound_values.items():
         if payload.get(key) != expected:
             raise ValueError(f"Scientific fingerprint binding mismatch for {key}")
+    if publication.get("benchmark_scope") != "all-thresholds-summary":
+        attrition_policy_path = directory / "attrition_policy.json"
+        attrition_report_path = directory / "attrition_report.json"
+        if sha256_file(attrition_policy_path) != publication.get("attrition_policy_sha256"):
+            raise ValueError("Publication attrition-policy hash mismatch")
+        if sha256_file(attrition_report_path) != publication.get("attrition_report_sha256"):
+            raise ValueError("Publication attrition-report hash mismatch")
+        attrition_report = json.loads(attrition_report_path.read_text(encoding="utf-8"))
+        if attrition_report.get("uniprot_source_scope") != publication.get(
+            "uniprot_source_scope"
+        ):
+            raise ValueError("Publication attrition report source-scope mismatch")
+        if attrition_report.get("policy_sha256") != publication.get("attrition_policy_sha256"):
+            raise ValueError("Publication attrition report policy binding mismatch")
+        if attrition_report.get("input_manifest_sha256") != publication.get(
+            "run_input_manifest_sha256"
+        ):
+            raise ValueError("Publication attrition report run-input-manifest binding mismatch")
+        if publication.get("attrition_policy_passed") != attrition_report.get("policy_passed"):
+            raise ValueError("Publication attrition policy outcome mismatch")
+        if publication.get("attrition_override_valid") != attrition_report.get("override_valid"):
+            raise ValueError("Publication attrition override outcome mismatch")
+        expected_diagnostic = publication.get("benchmark_scope") == "diagnostic-pilot"
+        if attrition_report.get("diagnostic") is not expected_diagnostic:
+            raise ValueError("Publication attrition report diagnostic scope mismatch")
+        if expected_diagnostic and attrition_report.get("production_authorized") is not False:
+            raise ValueError("Diagnostic pilot attrition report cannot authorize production")
+        if publication.get("production_eligible") and not attrition_report.get(
+            "production_authorized"
+        ):
+            raise ValueError("Production publication lacks attrition authorization")
 
 
 def _mapped_protein_sequence_rows(decisions, catalog):
@@ -1103,10 +1302,16 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
             "Production publication requires a clean, commit-addressable framework checkout; "
             f"observed repository state={repository_state}"
         )
+    if not config.fixture_mode and repository_state["commit"] != config.framework_revision:
+        raise ValueError(
+            "Configured full framework revision does not match checked-out HEAD: "
+            f"expected={config.framework_revision}, observed={repository_state['commit']}"
+        )
     final_dir = config.output_dir.expanduser().resolve() / config.publication_relative_path
     work = config.temp_dir.expanduser().resolve() / (
-        f"homology-{config.identity_directory}-{config.split_policy}-seed-{config.seed}"
-        f"-min-count-{config.min_count}"
+        f"homology-{config.uniprot_source_scope}-{config.identity_directory}-"
+        f"{config.split_policy}-{config.training_population}-seed-{config.seed}"
+        f"-min-count-{config.min_count}-{config.run_id}"
     )
     if (
         work == final_dir
@@ -1151,19 +1356,74 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 "Initial scratch preflight failed before input acquisition: "
                 f"free={initial_free}, required={config.minimum_free_disk_bytes}"
             )
+        expected_releases = {
+            "uniprot_uniref": config.release_uniprot,
+            "goa": config.release_goa,
+            "ontology": config.release_ontology,
+        }
+        repository_commit = str(repository_state["commit"])
+        policy_source = config.attrition_policy
+        frozen_manifest = None
+        policy = None
+        attrition_policy_sha256 = None
+        stage_started = time.monotonic()
+        LOGGER.info("Stage started: validate frozen manifest and attrition policy contracts")
+        if config.frozen_input_manifest is not None:
+            frozen_manifest = load_frozen_input_manifest(
+                config.frozen_input_manifest,
+                uniprot_source_scope=config.uniprot_source_scope,
+                fixture_mode=config.fixture_mode,
+            )
+            if policy_source is None:
+                policy_source = work / "nonproduction_attrition_policy.json"
+                _write_nonproduction_attrition_policy(
+                    policy_source,
+                    config,
+                    repository_commit,
+                    frozen_manifest.sha256,
+                )
+            policy, attrition_policy_sha256 = load_attrition_policy(
+                policy_source,
+                source_scope=config.uniprot_source_scope,
+                expected_releases=expected_releases,
+                framework_commit=repository_commit,
+                frozen_input_manifest_sha256=frozen_manifest.sha256,
+            )
+        elif not config.fixture_mode:  # guarded by BuildConfig.validate
+            raise ValueError("Production frozen-input manifest is unavailable")
+        LOGGER.info(
+            "Stage completed: validate frozen manifest and attrition policy contracts "
+            "elapsed_seconds=%.1f",
+            time.monotonic() - stage_started,
+        )
+
         stage_started = time.monotonic()
         LOGGER.info("Stage started: resolve and hash frozen inputs")
         inputs = _resolved_inputs(config, work)
-        if config.frozen_input_manifest is not None:
-            frozen_manifest = load_frozen_input_manifest(
-                config.frozen_input_manifest, fixture_mode=config.fixture_mode
-            )
-        elif config.fixture_mode:
+        if frozen_manifest is None:
             frozen_manifest = write_synthetic_fixture_manifest(
-                work / "synthetic_frozen_input_manifest.json", _input_specs(config), inputs
+                work / "synthetic_frozen_input_manifest.json",
+                _input_specs(config),
+                inputs,
+                config.uniprot_source_scope,
             )
-        else:  # guarded by BuildConfig.validate; retained as a defensive invariant
-            raise ValueError("Production frozen-input manifest is unavailable")
+            if policy_source is None:
+                policy_source = work / "nonproduction_attrition_policy.json"
+                _write_nonproduction_attrition_policy(
+                    policy_source,
+                    config,
+                    repository_commit,
+                    frozen_manifest.sha256,
+                )
+            policy, attrition_policy_sha256 = load_attrition_policy(
+                policy_source,
+                source_scope=config.uniprot_source_scope,
+                expected_releases=expected_releases,
+                framework_commit=repository_commit,
+                frozen_input_manifest_sha256=frozen_manifest.sha256,
+            )
+        if policy is None or attrition_policy_sha256 is None or policy_source is None:
+            raise RuntimeError("Attrition policy contract was not initialized")
         eligibility = bind_frozen_inputs(frozen_manifest, _input_specs(config), inputs)
         disk_preflight = _disk_preflight(config, work, inputs)
         LOGGER.info(
@@ -1201,8 +1461,18 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 inputs["uniref90_fasta"].resolved_path, work / "uniref90.sqlite"
             )
             requested_raw = set(goa.qualifying_accessions or goa.annotations)
-            catalog = load_requested_proteins(
-                inputs["uniprot_sequences"].resolved_path, requested_raw
+            selected_sources = {
+                {
+                    "uniprot_sprot_sequences": "sprot",
+                    "uniprot_trembl_sequences": "trembl",
+                }[name]: inputs[name].resolved_path
+                for name in config.selected_uniprot_input_names
+            }
+            catalog = load_requested_proteins_from_sources(
+                selected_sources,
+                requested_raw,
+                strict_collisions=not config.fixture_mode,
+                collision_database=work / "uniprot_accessions.sqlite",
             )
             goa = canonicalize_goa_accessions(goa, catalog)
             decisions = load_uniref90_mappings(
@@ -1326,19 +1596,27 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
             _write_cluster_size_summary(stage, assignments, config.giant_cluster_threshold)
 
             mapping_summary = {
+                "uniprot_source_scope": config.uniprot_source_scope,
                 "qualifying_goa_accessions": len(requested_raw),
                 "canonical_annotated_uniprot_proteins": len(goa.qualifying_accessions),
                 "loaded_canonical_sequences": len(catalog.records),
                 "ambiguous_sequence_aliases": sorted(catalog.ambiguous_aliases),
+                "source_counts": catalog.source_counts,
+                "collision_counts": dict(sorted(catalog.collision_counts.items())),
                 "mapping_status_counts": mapping_counters(decisions),
+                "mapping_counts_by_source": mapping_counters_by_source(
+                    decisions, set(selected_sources), catalog.source_counts
+                ),
             }
             _json(stage / "mapping_summary.json", mapping_summary)
 
-            production_eligible = not config.fixture_mode and all(eligibility.values())
+            structural_input_eligible = not config.fixture_mode and all(eligibility.values())
             input_manifest = {
-                "schema_version": 2,
+                "schema_version": 3,
                 "fixture_mode": config.fixture_mode,
-                "production_eligible": production_eligible,
+                "benchmark_scope": config.benchmark_scope,
+                "uniprot_source_scope": config.uniprot_source_scope,
+                "structural_input_eligible": structural_input_eligible,
                 "eligibility": eligibility,
                 "frozen_input_manifest": {
                     "published_path": "frozen_input_manifest.json",
@@ -1351,6 +1629,17 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                     "ontology_release": config.release_ontology,
                 },
                 "inputs": {name: item.as_dict() for name, item in sorted(inputs.items())},
+                "selected_uniprot_population": {
+                    "scope": config.uniprot_source_scope,
+                    "required_roles": list(config.selected_uniprot_input_names),
+                    "source_counts": catalog.source_counts,
+                    "collision_counts": dict(sorted(catalog.collision_counts.items())),
+                    "production_sequence_format": "DAT",
+                    "fasta_limitation": (
+                        "FASTA diagnostic fixtures cannot provide the secondary-accession "
+                        "information available from authoritative UniProt DAT"
+                    ),
+                },
                 "scratch_preflight": disk_preflight,
                 "mmseqs_runtime": mmseqs_runtime.as_dict(config.expected_mmseqs_version),
                 "embedded_metadata": {
@@ -1372,6 +1661,37 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 }
             _json(stage / "input_manifest.json", input_manifest)
 
+            if sha256_file(policy_source) != attrition_policy_sha256:
+                raise ValueError("Attrition policy changed before evaluation")
+            shutil.copyfile(policy_source, stage / "attrition_policy.json")
+            observations = _attrition_observations(
+                config,
+                ontology,
+                labels,
+                decisions,
+                assignments,
+                retained_members,
+                uniref.count(),
+            )
+            attrition_report = evaluate_attrition(
+                policy,
+                attrition_policy_sha256,
+                observations,
+                source_scope=config.uniprot_source_scope,
+                framework_commit=repository_commit,
+                input_manifest_sha256=sha256_file(stage / "input_manifest.json"),
+                override_path=config.attrition_override,
+                diagnostic=config.diagnostic_pilot,
+            )
+            _json(stage / "attrition_report.json", attrition_report)
+            if config.attrition_override is not None:
+                shutil.copyfile(config.attrition_override, stage / "attrition_override.json")
+            production_eligible = (
+                config.benchmark_scope == "dissertation-production"
+                and structural_input_eligible
+                and attrition_report["production_authorized"] is True
+            )
+
             label_intermediate_count = sum(len(labels.frames[split]) for split in SPLITS)
             evaluable_pfp_count = sum(
                 bool(labels.restricted_annotations.get(str(row.proteins), ()))
@@ -1382,6 +1702,10 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 "schema_version": 1,
                 "fixture_mode": config.fixture_mode,
                 "production_eligible": production_eligible,
+                "benchmark_scope": config.benchmark_scope,
+                "uniprot_source_scope": config.uniprot_source_scope,
+                "framework_revision": config.framework_revision,
+                "run_id": config.run_id,
                 "identity_percent": int(config.identity * 100),
                 "identity_fraction": config.identity,
                 "coverage": config.coverage,
@@ -1413,6 +1737,13 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                     labels.annotation_exclusion_counts
                 ),
                 "proteins_without_evaluable_terms": dict(labels.no_evaluable_term),
+                "attrition_gate": {
+                    "policy_sha256": attrition_policy_sha256,
+                    "policy_passed": attrition_report["policy_passed"],
+                    "override_valid": attrition_report["override_valid"],
+                    "production_authorized": attrition_report["production_authorized"],
+                    "failed_metrics": attrition_report["failed_metrics"],
+                },
                 "limitations": [
                     "MMseqs2 cluster mode 0 is greedy set cover, not an exhaustive equivalence relation.",
                     "At 5-15% identity, prefilter recall, E-value, database size, and MMseqs2 version strongly affect results.",
@@ -1431,16 +1762,21 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 ),
             )
             fingerprint_payload = _scientific_fingerprint_payload(
-                config, frozen_manifest, mmseqs_runtime, repository_state["commit"]
+                config,
+                frozen_manifest,
+                mmseqs_runtime,
+                repository_state["commit"],
+                attrition_policy_sha256,
             )
             scientific_fingerprint = _scientific_fingerprint(fingerprint_payload)
             publication_metadata = {
                 "schema_version": 1,
                 "fixture_mode": config.fixture_mode,
                 "production_eligible": production_eligible,
-                "benchmark_scope": (
-                    "fixture-only" if config.fixture_mode else "dissertation-production"
-                ),
+                "benchmark_scope": config.benchmark_scope,
+                "uniprot_source_scope": config.uniprot_source_scope,
+                "framework_revision": config.framework_revision or repository_commit,
+                "run_id": config.run_id,
                 "identity_percent": int(config.identity * 100),
                 "identities": None,
                 "split_policy": config.split_policy,
@@ -1451,6 +1787,14 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 "frozen_input_manifest_sha256": sha256_file(
                     stage / "frozen_input_manifest.json"
                 ),
+                "attrition_policy_sha256": sha256_file(stage / "attrition_policy.json"),
+                "attrition_report_sha256": sha256_file(stage / "attrition_report.json"),
+                "attrition_override_sha256": attrition_report["override_sha256"],
+                "attrition_policy_passed": attrition_report["policy_passed"],
+                "attrition_override_valid": attrition_report["override_valid"],
+                "requested_slots": config.requested_slots,
+                "allocated_slots": config.allocated_slots,
+                "mmseqs_threads": config.threads,
                 "expected_mmseqs_version": config.expected_mmseqs_version,
                 "observed_mmseqs_version": mmseqs_runtime.version_token,
                 "mmseqs_resolved_executable": mmseqs_runtime.resolved_executable,
@@ -1488,6 +1832,20 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 )
                 failed = [item["name"] for item in validation.checks if not item["passed"]]
                 raise ValueError("Benchmark validation failed: " + ", ".join(failed))
+            if (
+                config.benchmark_scope == "dissertation-production"
+                and not attrition_report["production_authorized"]
+            ):
+                shutil.copyfile(
+                    stage / "attrition_report.json", work / "logs" / "attrition_report.json"
+                )
+                failed_metrics = [
+                    item["name"] for item in attrition_report["failed_metrics"]
+                ]
+                raise ValueError(
+                    "Production attrition policy failed without a valid reviewed override: "
+                    + ", ".join(failed_metrics)
+                )
             LOGGER.info(
                 "Stage completed: strict semantic validation checks=%d warnings=%d "
                 "elapsed_seconds=%.1f",
@@ -1499,6 +1857,13 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
             LOGGER.info("Stage started: final input recheck and atomic publication")
             _verify_inputs_unchanged(inputs)
             verify_frozen_manifest_unchanged(frozen_manifest)
+            if sha256_file(policy_source) != attrition_policy_sha256:
+                raise ValueError("Attrition policy changed while the run was in progress")
+            if config.attrition_override is not None and (
+                sha256_file(config.attrition_override)
+                != attrition_report["override_sha256"]
+            ):
+                raise ValueError("Attrition override changed while the run was in progress")
             verify_mmseqs_executable_unchanged(mmseqs_runtime)
             if not config.fixture_mode:
                 final_repository_state = git_state(repository)

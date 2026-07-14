@@ -12,6 +12,7 @@ the framework, run a workflow, and copy results home.
 ```text
 hpc_jobs/
 ├── active/    # Current qsub wrappers used for reproduction jobs
+├── launchers/ # Reviewed dry-run/pilot/array launchers for guarded workflows
 ├── examples/  # Scheduler examples/templates
 └── archive/   # Historical scripts kept for provenance
 ```
@@ -37,6 +38,74 @@ then call the normal entrypoints under `scripts/`.
 The historical and contemporary benchmark-generation wrappers activate and use
 the shared `mmfp` environment directly. They do not create another virtual
 environment or replace its NumPy and pandas installations.
+
+## Homology-cluster identity array
+
+The homology benchmark has three components:
+
+```text
+hpc_jobs/active/hpc_homology_cluster_benchmark.sh
+hpc_jobs/launchers/submit_homology_cluster_pilot.sh
+hpc_jobs/launchers/submit_homology_cluster_array.sh
+```
+
+The active file is the array-aware worker; scientific work remains in
+`scripts/benchmark_generation/run_homology_cluster_benchmark.sh` and the isolated Python package.
+Both launchers source `_homology_cluster_common.sh` for strict shared-input, hash, scope, revision,
+methodology, and preview validation.
+
+The deterministic mapping is:
+
+```text
+1 -> 30%    2 -> 25%    3 -> 20%    4 -> 15%    5 -> 10%    6 -> 5%
+```
+
+The pilot launcher constructs `qsub -t 1 -pe smp 8`; the full launcher constructs
+`qsub -t 1-6 -pe smp 8`. `NSLOTS` is authoritative within each task and must equal the MMseqs2
+thread count. Six runnable tasks can request up to 48 CPU slots, but scheduler concurrency remains
+a Grid Engine decision.
+
+Production arrays require:
+
+- an exact full lowercase framework commit and detached clean checkout;
+- one explicit `sprot-only`, `trembl-only`, or `sprot-and-trembl` scope;
+- a reviewed scope-aware 5/5/6 frozen manifest;
+- shared local checksum-verified inputs and `NO_DOWNLOADS=1`;
+- fixed split, annotated-only population, seed, evidence/ontology policy, and exact MMseqs2 version;
+- a successful validated task-1/30% diagnostic pilot;
+- reviewed attrition policy, task context, separately sourced runtime/memory/scratch/output
+  measurements, and human approval.
+
+The full launcher rechecks approval evidence before constructing the command. The queued worker
+rechecks launcher-time evidence hashes and reruns approval from its detached checkout before input
+staging. Approval binds the reviewed attrition-policy hash and a common pilot run ID across the
+marker, task context, and measurement evidence. Authorization reconstructs the pilot ratios and
+requires the reviewed policy to accept them; diagnostic reports remain explicitly non-authorizing.
+No bypass exists. One array-wide attrition override is rejected because observed failures can
+differ across identities.
+
+Task paths include source scope, framework revision, run ID, Grid Engine job ID, task ID, identity,
+and split policy. Scratch and persistent paths are atomically claimed. Success, failures, INT, TERM,
+and copy failure attempt marker-free diagnostics and then remove only task-owned scratch. Unsafe,
+pre-existing, symlinked, or ownership-mismatched cleanup targets are refused; a collision cannot
+mutate an earlier publication.
+
+Preview commands are safe and print the exact command plus every exported value:
+
+```bash
+DRY_RUN=1 bash hpc_jobs/launchers/submit_homology_cluster_pilot.sh
+DRY_RUN=1 bash hpc_jobs/launchers/submit_homology_cluster_array.sh
+```
+
+The full preview still validates the approval; only `qsub` is suppressed. Automated tests place a
+recording fake `qsub` first in `PATH`, test controlled scheduler failure, and prove dry run does not
+call it. Neither launcher was executed against Grid Engine during implementation. No real `qsub`,
+`qstat`, `qdel`, SSH, full download, or full MMseqs2 run occurred.
+
+The exact future nine-step user workflow—shared input declaration, pilot preview/submission,
+validation/review, approval creation, full preview/submission, monitoring, and six-run
+aggregation—is documented in
+[`benchmark_builders/homology_cluster/README.md`](../benchmark_builders/homology_cluster/README.md).
 
 `hpc_contemporary_temporal_benchmark.sh` stages any locally available frozen
 2025/2026 UniProt, GOA and GO inputs, downloads missing inputs into scratch,

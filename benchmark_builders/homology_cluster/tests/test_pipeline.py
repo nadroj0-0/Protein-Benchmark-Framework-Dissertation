@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import replace
 import gzip
 import hashlib
 import json
@@ -62,6 +63,51 @@ def _rewrite_hashed_publication_metadata(run_dir: Path, publication: dict) -> No
     )
     entry["size_bytes"] = publication_path.stat().st_size
     entry["sha256"] = sha256_file(publication_path)
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    marker_path = run_dir / "RUN_COMPLETE.json"
+    marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    marker["publication_metadata_sha256"] = sha256_file(publication_path)
+    marker["manifest_sha256"] = sha256_file(manifest_path)
+    for key in PUBLICATION_MARKER_KEYS:
+        marker[key] = publication.get(key)
+    marker_path.write_text(
+        json.dumps(marker, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+def _rewrite_fixture_repository_commit(run_dir: Path, commit: str) -> None:
+    provenance_path = run_dir / "run_provenance.json"
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    provenance["repository"]["commit"] = commit
+    provenance_path.write_text(
+        json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    publication_path = run_dir / "publication_metadata.json"
+    publication = json.loads(publication_path.read_text(encoding="utf-8"))
+    publication["repository_commit"] = commit
+    publication["framework_revision"] = commit
+    fingerprint_payload = publication["scientific_fingerprint_payload"]
+    fingerprint_payload["repository_commit"] = commit
+    fingerprint_payload["framework_revision"] = commit
+    publication["scientific_fingerprint"] = hashlib.sha256(
+        json.dumps(
+            fingerprint_payload, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest()
+    publication_path.write_text(
+        json.dumps(publication, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    manifest_path = run_dir / "output_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    for relative, path in (
+        ("publication_metadata.json", publication_path),
+        ("run_provenance.json", provenance_path),
+    ):
+        entry = next(item for item in manifest["files"] if item["path"] == relative)
+        entry["size_bytes"] = path.stat().st_size
+        entry["sha256"] = sha256_file(path)
     manifest_path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -187,7 +233,10 @@ class PipelineTests(unittest.TestCase):
             ))
             config = fixture_config(
                 root / "leak", root / "temp",
-                uniprot_sequences=InputSpec("uniprot_sequences", modified, release="2026_02"),
+                uniprot_sprot_sequences=InputSpec(
+                    "uniprot_sprot_sequences", modified, release="2026_02",
+                    source_population="sprot",
+                ),
             )
             with self.assertRaisesRegex(ValueError, "global_exact_sequence_disjointness"):
                 build_benchmark(config)
@@ -237,8 +286,9 @@ class PipelineTests(unittest.TestCase):
             ))
             config = fixture_config(
                 root / "cross-population", root / "temp",
-                uniprot_sequences=InputSpec(
-                    "uniprot_sequences", modified, release="2026_02"
+                uniprot_sprot_sequences=InputSpec(
+                    "uniprot_sprot_sequences", modified, release="2026_02",
+                    source_population="sprot",
                 ),
             )
             with self.assertRaisesRegex(ValueError, "global_retained_exact_sequence_disjointness"):
@@ -283,6 +333,59 @@ class PipelineTests(unittest.TestCase):
             marker_path.write_text(json.dumps(changed))
             with self.assertRaisesRegex(ValueError, "metadata mismatch"):
                 validate_publication(result.output_dir)
+
+    def test_attrition_report_is_bound_to_the_published_run_input_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result = build_benchmark(fixture_config(root / "outputs", root / "temp"))
+            attrition_path = result.output_dir / "attrition_report.json"
+            attrition = json.loads(attrition_path.read_text(encoding="utf-8"))
+            attrition["input_manifest_sha256"] = "0" * 64
+            attrition_path.write_text(
+                json.dumps(attrition, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            manifest_path = result.output_dir / "output_manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            entry = next(
+                item for item in manifest["files"]
+                if item["path"] == "attrition_report.json"
+            )
+            entry["size_bytes"] = attrition_path.stat().st_size
+            entry["sha256"] = sha256_file(attrition_path)
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            publication_path = result.output_dir / "publication_metadata.json"
+            publication = json.loads(publication_path.read_text(encoding="utf-8"))
+            publication["attrition_report_sha256"] = sha256_file(attrition_path)
+            _rewrite_hashed_publication_metadata(result.output_dir, publication)
+            with self.assertRaisesRegex(ValueError, "run-input-manifest binding"):
+                validate_publication(result.output_dir)
+
+    def test_malformed_review_policy_fails_before_large_input_hashing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = replace(
+                fixture_config(root / "outputs", root / "temp"),
+                frozen_input_manifest=root / "frozen.json",
+                attrition_policy=root / "policy.json",
+            )
+            with (
+                mock.patch(
+                    "homology_cluster_benchmark.pipeline.load_frozen_input_manifest",
+                    return_value=mock.Mock(sha256="a" * 64),
+                ),
+                mock.patch(
+                    "homology_cluster_benchmark.pipeline.load_attrition_policy",
+                    side_effect=ValueError("template placeholder"),
+                ),
+                mock.patch(
+                    "homology_cluster_benchmark.pipeline._resolved_inputs"
+                ) as resolve_inputs,
+            ):
+                with self.assertRaisesRegex(ValueError, "template placeholder"):
+                    build_benchmark(config)
+            resolve_inputs.assert_not_called()
 
     def test_rehashed_scope_and_missing_fingerprint_metadata_are_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -347,7 +450,9 @@ class PipelineTests(unittest.TestCase):
             for name in ("a", "b"):
                 result = build_benchmark(fixture_config(
                     root / name, root / "temp",
-                    goa=InputSpec("goa", goa, release="234"),
+                    goa=InputSpec(
+                        "goa", goa, release="234", source_population="uniprotkb-goa"
+                    ),
                     excluded_sample_per_reason=3,
                 ))
                 outputs.append(result.output_dir)
@@ -439,6 +544,46 @@ class PipelineTests(unittest.TestCase):
             ))
             with self.assertRaisesRegex(ValueError, "scientific fingerprint"):
                 _cross_threshold_reports([*roots[:5], different.output_dir], root / "mismatch")
+
+            base = fixture_config(root / "unused", root / "temp", identity=0.05)
+            trembl = build_benchmark(replace(
+                base,
+                output_dir=root / "timestamped-trembl-5",
+                uniprot_source_scope="trembl-only",
+                uniprot_sprot_sequences=None,
+                uniprot_trembl_sequences=replace(
+                    base.uniprot_sprot_sequences,
+                    name="uniprot_trembl_sequences",
+                    source_population="trembl",
+                ),
+            ))
+            with self.assertRaisesRegex(ValueError, "source scope|do not share"):
+                _cross_threshold_reports(
+                    [*roots[:5], trembl.output_dir], root / "mixed-source"
+                )
+
+            changed_manifest = build_benchmark(replace(
+                base,
+                output_dir=root / "timestamped-manifest-5",
+                uniref90_fasta=replace(
+                    base.uniref90_fasta,
+                    url="https://synthetic.invalid/alternate-uniref90.fasta",
+                ),
+            ))
+            with self.assertRaisesRegex(ValueError, "frozen manifest|do not share"):
+                _cross_threshold_reports(
+                    [*roots[:5], changed_manifest.output_dir], root / "mixed-manifest"
+                )
+
+            changed_commit = build_benchmark(replace(
+                base, output_dir=root / "timestamped-commit-5"
+            ))
+            _rewrite_fixture_repository_commit(changed_commit.output_dir, "b" * 40)
+            validate_publication(changed_commit.output_dir)
+            with self.assertRaisesRegex(ValueError, "framework revision|do not share"):
+                _cross_threshold_reports(
+                    [*roots[:5], changed_commit.output_dir], root / "mixed-commit"
+                )
 
     def test_immutable_pfp_preparation_consumes_all_nine_csvs(self):
         pfp_root = Path(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import re
 
 from .models import InputSpec
 
@@ -38,6 +39,8 @@ PREFIX_TO_NAMESPACE = {
 SPLITS = ("training", "validation", "test")
 SPLIT_POLICIES = ("cluster-count-random", "sequence-balanced")
 TRAINING_POPULATIONS = ("annotated-only", "all-cluster-members")
+UNIPROT_SOURCE_SCOPES = ("sprot-only", "trembl-only", "sprot-and-trembl")
+FRAMEWORK_REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 def parse_identity(value: str | int | float) -> float:
@@ -64,7 +67,9 @@ class BuildConfig:
     temp_dir: Path
     uniref90_fasta: InputSpec
     idmapping: InputSpec
-    uniprot_sequences: InputSpec
+    uniprot_source_scope: str
+    uniprot_sprot_sequences: InputSpec | None
+    uniprot_trembl_sequences: InputSpec | None
     goa: InputSpec
     go_obo: InputSpec
     split_policy: str = "sequence-balanced"
@@ -73,8 +78,15 @@ class BuildConfig:
     expected_mmseqs_version: str | None = None
     cluster_assignments: Path | None = None
     frozen_input_manifest: Path | None = None
+    attrition_policy: Path | None = None
+    attrition_override: Path | None = None
+    framework_revision: str | None = None
     fixture_mode: bool = False
+    diagnostic_pilot: bool = False
     threads: int = 1
+    requested_slots: int | None = None
+    allocated_slots: int | None = None
+    run_id: str = "local"
     seed: int = 0
     min_count: int = 50
     development_fraction: float = 0.80
@@ -117,6 +129,17 @@ class BuildConfig:
                 "rows without an approved label and embedding-cost policy; unannotated members "
                 "remain visible only in retained-member manifests"
             )
+        if self.uniprot_source_scope not in UNIPROT_SOURCE_SCOPES:
+            raise ValueError(
+                "--uniprot-source-scope must be explicitly set to one of "
+                + ", ".join(UNIPROT_SOURCE_SCOPES)
+            )
+        if self.fixture_mode and self.diagnostic_pilot:
+            raise ValueError("fixture mode and diagnostic-pilot mode are mutually exclusive")
+        if self.diagnostic_pilot and self.identity != 0.30:
+            raise ValueError("Diagnostic pilot mode is locked to task 1 / 30% identity")
+        if self.attrition_override is not None and self.attrition_policy is None:
+            raise ValueError("An attrition override requires an explicit reviewed attrition policy")
         if self.coverage != 0.80:
             raise ValueError("Coverage is methodologically locked to exactly 0.80")
         if self.cov_mode != 0:
@@ -136,6 +159,20 @@ class BuildConfig:
             raise ValueError("MMseqs2 E-value is methodologically locked to exactly 1e-4")
         if self.threads < 1:
             raise ValueError("threads must be positive")
+        if self.requested_slots is not None and self.requested_slots < 1:
+            raise ValueError("requested_slots must be positive when recorded")
+        if self.allocated_slots is not None and self.allocated_slots < 1:
+            raise ValueError("allocated_slots must be positive when recorded")
+        if self.allocated_slots is not None and self.threads != self.allocated_slots:
+            raise ValueError("MMseqs2 threads must equal the scheduler-provided allocated slots")
+        if (
+            self.run_id.strip() != self.run_id
+            or not re.fullmatch(r"[A-Za-z0-9._-]+", self.run_id)
+            or re.search(r"[A-Za-z0-9]", self.run_id) is None
+        ):
+            raise ValueError(
+                "run_id must contain safe path characters and at least one alphanumeric"
+            )
         if self.min_count < 1:
             raise ValueError("min_count must be positive")
         if not self.fixture_mode and self.min_count < 50:
@@ -173,6 +210,14 @@ class BuildConfig:
                 raise ValueError(
                     "Production requires an exact non-placeholder --expected-mmseqs-version"
                 )
+            if not self.diagnostic_pilot and self.attrition_policy is None:
+                raise ValueError("Production requires a reviewed --attrition-policy JSON file")
+            revision = (self.framework_revision or "").strip()
+            if FRAMEWORK_REVISION_RE.fullmatch(revision) is None:
+                raise ValueError(
+                    "Production and diagnostic pilots require --framework-revision as exactly "
+                    "40 lowercase hexadecimal characters"
+                )
         frozen = {
             "UniProt/UniRef": (self.release_uniprot, FROZEN_UNIPROT_RELEASE),
             "GOA": (self.release_goa, FROZEN_GOA_RELEASE),
@@ -186,12 +231,48 @@ class BuildConfig:
         expected_spec_releases = {
             "uniref90_fasta": self.release_uniprot,
             "idmapping": self.release_uniprot,
-            "uniprot_sequences": self.release_uniprot,
             "goa": self.release_goa,
             "go_obo": self.release_ontology,
         }
+        required_uniprot_sources = {
+            "sprot-only": ("uniprot_sprot_sequences",),
+            "trembl-only": ("uniprot_trembl_sequences",),
+            "sprot-and-trembl": (
+                "uniprot_sprot_sequences", "uniprot_trembl_sequences",
+            ),
+        }[self.uniprot_source_scope]
+        expected_spec_releases.update(
+            {name: self.release_uniprot for name in required_uniprot_sources}
+        )
+        all_uniprot_sources = {
+            "uniprot_sprot_sequences", "uniprot_trembl_sequences",
+        }
+        for name in sorted(all_uniprot_sources):
+            spec = getattr(self, name)
+            required = name in required_uniprot_sources
+            declared = spec is not None and (spec.path is not None or bool(spec.url))
+            if required and not declared:
+                raise ValueError(
+                    f"Source scope {self.uniprot_source_scope} requires {name}"
+                )
+            if not required and declared:
+                raise ValueError(
+                    f"Source scope {self.uniprot_source_scope} forbids irrelevant source {name}"
+                )
+            if required and not self.fixture_mode:
+                assert spec is not None
+                source_name = (
+                    spec.path.name if spec.path is not None
+                    else Path(str(spec.url).split("?", 1)[0]).name
+                )
+                if not (source_name.endswith(".dat") or source_name.endswith(".dat.gz")):
+                    raise ValueError(
+                        f"Production selected-UniProt source {name} must be a frozen DAT file; "
+                        "FASTA is diagnostic/fixture-only because it lacks secondary accessions"
+                    )
         for name, expected_release in expected_spec_releases.items():
             spec = getattr(self, name)
+            assert spec is not None
             if spec.release != expected_release:
                 raise ValueError(
                     f"{name} release metadata {spec.release!r} does not match {expected_release!r}"
@@ -218,10 +299,34 @@ class BuildConfig:
 
     @property
     def publication_relative_path(self) -> Path:
+        revision_component = (
+            f"framework_{self.framework_revision[:12]}"
+            if self.framework_revision else "framework_fixture"
+        )
         return (
-            Path(self.identity_directory)
+            Path(f"source_{self.uniprot_source_scope}")
+            / revision_component
+            / self.identity_directory
             / self.split_policy
             / self.training_population
             / f"seed_{self.seed}"
             / f"min_count_{self.min_count}"
         )
+
+    @property
+    def benchmark_scope(self) -> str:
+        if self.fixture_mode:
+            return "fixture-only"
+        if self.diagnostic_pilot:
+            return "diagnostic-pilot"
+        return "dissertation-production"
+
+    @property
+    def selected_uniprot_input_names(self) -> tuple[str, ...]:
+        return {
+            "sprot-only": ("uniprot_sprot_sequences",),
+            "trembl-only": ("uniprot_trembl_sequences",),
+            "sprot-and-trembl": (
+                "uniprot_sprot_sequences", "uniprot_trembl_sequences",
+            ),
+        }[self.uniprot_source_scope]

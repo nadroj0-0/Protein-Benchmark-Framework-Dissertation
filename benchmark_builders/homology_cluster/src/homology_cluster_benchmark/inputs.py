@@ -140,4 +140,5 @@ def resolve_input(spec: InputSpec, download_dir: Path, allow_downloads: bool = T
         sha256=actual,
         expected_sha256=expected,
         acquisition=acquisition,
+        source_population=spec.source_population,
     )

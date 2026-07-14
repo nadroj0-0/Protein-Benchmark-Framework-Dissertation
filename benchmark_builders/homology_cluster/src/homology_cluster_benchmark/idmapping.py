@@ -82,9 +82,43 @@ def load_uniref90_mappings(
         else:
             protein_id = catalog.alias_to_primary.get(raw_accession, raw_accession)
             accession_action = "exact" if protein_id == raw_accession else "secondary-to-primary"
+        source_population = (
+            catalog.alias_source.get(raw_accession)
+            or catalog.primary_source.get(protein_id)
+            or "not-in-selected-scope"
+        )
 
         candidates = candidate_sets.pop(raw_accession)
-        if len(candidates) > 1:
+        if raw_accession in catalog.ambiguous_aliases:
+            decisions.append(MappingDecision(
+                raw_accession=raw_accession,
+                protein_id=protein_id,
+                accession_action=accession_action,
+                status="ambiguous-secondary",
+                detail="secondary accession maps to more than one selected-UniProt primary",
+                exists_in_fasta=None,
+                canonical_sequence_available=False,
+                accession_lifecycle_status="ambiguous-secondary",
+                source_population="ambiguous",
+            ))
+        elif protein_id not in catalog.records:
+            present = sorted(candidates & present_uniref_ids)
+            decisions.append(MappingDecision(
+                raw_accession=raw_accession,
+                protein_id=protein_id,
+                accession_action=accession_action,
+                status="not-in-selected-uniprot",
+                detail=(
+                    "GOA accession is absent from the explicitly selected UniProt source scope; "
+                    "idmapping candidates cannot authorize cluster retention; present_in_fasta="
+                    + (";".join(present) or "none")
+                ),
+                exists_in_fasta=None,
+                canonical_sequence_available=False,
+                accession_lifecycle_status="not-in-selected-uniprot",
+                source_population="not-in-selected-scope",
+            ))
+        elif len(candidates) > 1:
             present = sorted(candidates & present_uniref_ids)
             missing = sorted(candidates - present_uniref_ids)
             decisions.append(MappingDecision(
@@ -103,6 +137,7 @@ def load_uniref90_mappings(
                     else "ambiguous-secondary" if accession_action == "ambiguous-secondary"
                     else "active-or-unverified"
                 ),
+                source_population=source_population,
             ))
         elif not candidates:
             seen_mapping_row = raw_accession in seen or protein_id in seen
@@ -125,6 +160,7 @@ def load_uniref90_mappings(
                     if not seen_mapping_row
                     else "present-in-idmapping"
                 ),
+                source_population=source_population,
             ))
         else:
             uniref90_id = next(iter(candidates))
@@ -141,6 +177,7 @@ def load_uniref90_mappings(
                     else "ambiguous-secondary" if accession_action == "ambiguous-secondary"
                     else "active-or-unverified"
                 ),
+                source_population=source_population,
             ))
     LOGGER.info(
         "ID mapping scan completed: lines=%d decisions=%d requested_rows_seen=%d "

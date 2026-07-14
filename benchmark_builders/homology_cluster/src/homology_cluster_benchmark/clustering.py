@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import replace
+from typing import Any
 
 from .models import ClusterInfo, MappingDecision
 from .mmseqs import ClusterIndex
@@ -35,7 +36,11 @@ def retained_cluster_info(
 ) -> dict[str, ClusterInfo]:
     labelled_pairs = {
         (decision.mmseqs_cluster_id, decision.protein_id) for decision in decisions
-        if decision.status == "mapped" and decision.mmseqs_cluster_id
+        if (
+            decision.status == "mapped"
+            and decision.mmseqs_cluster_id
+            and decision.canonical_sequence_available
+        )
     }
     labelled = Counter(cluster_id for cluster_id, _ in labelled_pairs)
     retained_ids = set(labelled)
@@ -68,3 +73,45 @@ def mapping_counters(decisions: list[MappingDecision]) -> dict[str, int]:
     )
     counts["mapped_to_cluster"] = sum(bool(decision.mmseqs_cluster_id) for decision in decisions)
     return {key: int(counts[key]) for key in sorted(counts)}
+
+
+def mapping_counters_by_source(
+    decisions: list[MappingDecision],
+    selected_populations: set[str],
+    source_counts: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, int]]:
+    populations = sorted(
+        {item.source_population for item in decisions} | selected_populations
+    )
+    result: dict[str, dict[str, int]] = {}
+    for population in populations:
+        selected = [item for item in decisions if item.source_population == population]
+        resolved_primary = sum(
+            item.canonical_sequence_available and item.accession_action == "exact"
+            for item in selected
+        )
+        resolved_secondary = sum(
+            item.canonical_sequence_available
+            and item.accession_action == "secondary-to-primary"
+            for item in selected
+        )
+        result[population] = {
+            "goa_accessions": len(selected),
+            "selected_uniprot_by_primary_id": resolved_primary,
+            "selected_uniprot_by_secondary_alias": resolved_secondary,
+            # Compatibility aliases now explicitly describe selected-UniProt resolution.
+            "mapped_by_primary_id": resolved_primary,
+            "mapped_by_secondary_alias": resolved_secondary,
+            "ambiguous": sum("ambiguous" in item.status for item in selected),
+            "conflicting_sequences": int(
+                source_counts.get(population, {}).get("conflicting_sequences", 0)
+            ),
+            "mapped_to_uniref90": sum(
+                bool(item.uniref90_id) and item.exists_in_fasta is True
+                for item in selected
+            ),
+            "mapped_to_mmseqs_cluster": sum(
+                bool(item.mmseqs_cluster_id) for item in selected
+            ),
+        }
+    return result

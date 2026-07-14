@@ -5,33 +5,39 @@
       "acquisition": "REPLACE_ME_ACQUISITION_RECORD",
       "embedded_metadata": {},
       "local_filename": "REPLACE_ME_UNIREF90_FILENAME",
+      "logical_role": "uniref90_fasta",
       "name": "uniref90_fasta",
       "notes": "REPLACE_ME_PROVENANCE_NOTES",
       "release": "2026_02",
       "sha256": "REPLACE_ME_64_HEX",
       "size_bytes": 0,
+      "source_population": "uniref90-clustering-scaffold",
       "url": "https://example.invalid/REPLACE_ME"
     },
     {
       "acquisition": "REPLACE_ME_ACQUISITION_RECORD",
       "embedded_metadata": {},
       "local_filename": "REPLACE_ME_IDMAPPING_FILENAME",
+      "logical_role": "idmapping",
       "name": "idmapping",
       "notes": "REPLACE_ME_PROVENANCE_NOTES",
       "release": "2026_02",
       "sha256": "REPLACE_ME_64_HEX",
       "size_bytes": 0,
+      "source_population": "uniprotkb-shared-mapping",
       "url": "https://example.invalid/REPLACE_ME"
     },
     {
       "acquisition": "REPLACE_ME_ACQUISITION_RECORD",
       "embedded_metadata": {},
-      "local_filename": "REPLACE_ME_UNIPROT_SEQUENCE_FILENAME",
-      "name": "uniprot_sequences",
+      "local_filename": "REPLACE_ME_SPROT_DAT_FILENAME",
+      "logical_role": "uniprot_sprot_sequences",
+      "name": "uniprot_sprot_sequences",
       "notes": "REPLACE_ME_PROVENANCE_NOTES",
       "release": "2026_02",
       "sha256": "REPLACE_ME_64_HEX",
       "size_bytes": 0,
+      "source_population": "sprot",
       "url": "https://example.invalid/REPLACE_ME"
     },
     {
@@ -42,11 +48,13 @@
         "go_version": "2026-06-15"
       },
       "local_filename": "REPLACE_ME_GOA_FILENAME",
+      "logical_role": "goa",
       "name": "goa",
       "notes": "REPLACE_ME_PROVENANCE_NOTES",
       "release": "234",
       "sha256": "REPLACE_ME_64_HEX",
       "size_bytes": 0,
+      "source_population": "uniprotkb-goa",
       "url": "https://example.invalid/REPLACE_ME"
     },
     {
@@ -55,11 +63,13 @@
         "data_version": "releases/2026-06-15"
       },
       "local_filename": "REPLACE_ME_GO_OBO_FILENAME",
+      "logical_role": "go_obo",
       "name": "go_obo",
       "notes": "REPLACE_ME_PROVENANCE_NOTES",
       "release": "releases/2026-06-15",
       "sha256": "REPLACE_ME_64_HEX",
       "size_bytes": 0,
+      "source_population": "gene-ontology",
       "url": "https://example.invalid/REPLACE_ME"
     }
   ],
@@ -70,5 +80,6 @@
     "status": "authoritative-source-reviewed"
   },
   "schema_name": "homology-cluster-frozen-inputs",
-  "schema_version": 1
+  "schema_version": 2,
+  "uniprot_source_scope": "sprot-only"
 }

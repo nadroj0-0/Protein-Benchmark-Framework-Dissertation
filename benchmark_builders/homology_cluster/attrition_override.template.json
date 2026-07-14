@@ -1,0 +1,17 @@
+{
+  "failed_metrics": [
+    {
+      "name": "REPLACE_WITH_EXACT_FAILED_METRIC",
+      "observed_ratio": null
+    }
+  ],
+  "framework_commit": "REPLACE_WITH_40_HEX_COMMIT",
+  "input_manifest_sha256": "REPLACE_WITH_64_HEX_RUN_INPUT_MANIFEST_SHA256",
+  "justification": "REPLACE_WITH_REVIEWED_JUSTIFICATION",
+  "pilot_or_run_identifier": "REPLACE_ME",
+  "review_date": "REPLACE_WITH_ISO_DATE",
+  "reviewer": "REPLACE_ME",
+  "schema_name": "homology-cluster-attrition-override",
+  "schema_version": 1,
+  "uniprot_source_scope": "REPLACE_WITH_EXPLICIT_SCOPE"
+}

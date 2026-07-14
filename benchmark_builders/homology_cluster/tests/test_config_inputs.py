@@ -45,6 +45,13 @@ class ConfigAndInputTests(unittest.TestCase):
                             fixture_config(root / field, root / "temp"),
                             **{field: value},
                         ).validate()
+            for run_id in (".", "..", "---"):
+                with self.subTest(run_id=run_id), self.assertRaisesRegex(
+                    ValueError, "at least one alphanumeric"
+                ):
+                    fixture_config(
+                        root / "unsafe-run", root / "temp", run_id=run_id
+                    ).validate()
 
     def test_precomputed_assignments_and_low_min_count_require_fixture_scope(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -76,8 +83,51 @@ class ConfigAndInputTests(unittest.TestCase):
                 replace(
                     config,
                     frozen_input_manifest=root / "declared.json",
+                    attrition_policy=root / "attrition.json",
+                    framework_revision="a" * 40,
                     expected_mmseqs_version="15-6f452",
+                    uniprot_sprot_sequences=InputSpec(
+                        "uniprot_sprot_sequences", root / "sprot.dat",
+                        release="2026_02", source_population="sprot",
+                    ),
                 ).validate()
+
+    def test_production_requires_attrition_policy_after_other_pins_are_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = fixture_config(root / "out", root / "temp")
+
+            def pinned(spec: InputSpec, *, path: Path | None = None) -> InputSpec:
+                return replace(
+                    spec,
+                    path=path or spec.path,
+                    expected_sha256="a" * 64,
+                )
+
+            config = replace(
+                base,
+                fixture_mode=False,
+                cluster_assignments=None,
+                min_count=50,
+                frozen_input_manifest=root / "frozen.json",
+                expected_mmseqs_version="15-6f452",
+                framework_revision="b" * 40,
+                attrition_policy=None,
+                uniref90_fasta=pinned(base.uniref90_fasta),
+                idmapping=pinned(base.idmapping),
+                uniprot_sprot_sequences=pinned(
+                    base.uniprot_sprot_sequences,
+                    path=root / "uniprot_sprot.dat.gz",
+                ),
+                goa=pinned(base.goa),
+                go_obo=pinned(base.go_obo),
+            )
+            with self.assertRaisesRegex(ValueError, "reviewed --attrition-policy"):
+                config.validate()
+
+            diagnostic = replace(config, diagnostic_pilot=True)
+            diagnostic.validate()
+            self.assertEqual(diagnostic.benchmark_scope, "diagnostic-pilot")
 
     def test_frozen_manifest_schema_binding_and_fixture_boundary(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -86,7 +136,7 @@ class ConfigAndInputTests(unittest.TestCase):
             specs = {
                 name: getattr(config, name)
                 for name in (
-                    "uniref90_fasta", "idmapping", "uniprot_sequences", "goa", "go_obo"
+                    "uniref90_fasta", "idmapping", "uniprot_sprot_sequences", "goa", "go_obo"
                 )
             }
             resolved = {
@@ -94,12 +144,16 @@ class ConfigAndInputTests(unittest.TestCase):
                 for name, spec in specs.items()
             }
             manifest_path = root / "fixture-manifest.json"
-            manifest = write_synthetic_fixture_manifest(manifest_path, specs, resolved)
+            manifest = write_synthetic_fixture_manifest(
+                manifest_path, specs, resolved, "sprot-only"
+            )
             self.assertFalse(manifest.authoritative_origin_recorded)
             self.assertTrue(all(bind_frozen_inputs(manifest, specs, resolved).values()) is False)
 
             payload = json.loads(manifest_path.read_text())
             payload["inputs"][1]["name"] = payload["inputs"][0]["name"]
+            payload["inputs"][1]["logical_role"] = payload["inputs"][0]["logical_role"]
+            payload["inputs"][1]["source_population"] = payload["inputs"][0]["source_population"]
             duplicate = root / "duplicate.json"
             duplicate.write_text(json.dumps(payload))
             with self.assertRaisesRegex(ValueError, "Duplicate"):

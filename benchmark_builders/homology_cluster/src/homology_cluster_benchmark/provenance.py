@@ -21,6 +21,7 @@ from .models import ResolvedInput
 VARIABLE_FILES = frozenset({
     "disk_preflight.json",
     "input_manifest.json",
+    "attrition_report.json",
     "publication_metadata.json",
     "run_provenance.json",
     "output_manifest.json",
@@ -177,7 +178,11 @@ def verify_output_manifest(directory: Path) -> None:
 PUBLICATION_MARKER_KEYS = (
     "fixture_mode", "production_eligible", "benchmark_scope", "identity_percent",
     "identities", "split_policy", "training_population", "seed", "min_count",
+    "uniprot_source_scope", "framework_revision", "run_id",
     "run_input_manifest_sha256", "frozen_input_manifest_sha256",
+    "attrition_policy_sha256", "attrition_report_sha256",
+    "attrition_override_sha256", "attrition_policy_passed", "attrition_override_valid",
+    "requested_slots", "allocated_slots", "mmseqs_threads",
     "expected_mmseqs_version", "observed_mmseqs_version", "repository_commit",
     "mmseqs_resolved_executable", "mmseqs_executable_sha256", "scientific_fingerprint",
 )
