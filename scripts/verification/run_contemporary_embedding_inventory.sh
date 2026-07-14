@@ -12,7 +12,10 @@ REQUIRED_CSVS=(
   cc-training.csv cc-validation.csv cc-test.csv
   mf-training.csv mf-validation.csv mf-test.csv
 )
-TARGET_OVERRIDES=()
+# The empty sentinel keeps older cluster Bash versions happy under `set -u`.
+# TARGET_OVERRIDE_COUNT remains the authoritative number of supplied overrides.
+TARGET_OVERRIDES=("")
+TARGET_OVERRIDE_COUNT=0
 
 BENCHMARK_DIR=""
 SOURCE_BENCHMARK_DIR=""
@@ -82,6 +85,7 @@ override_for() {
   local requested="$1"
   local entry name
   for entry in "${TARGET_OVERRIDES[@]}"; do
+    [[ -n "$entry" ]] || continue
     name="${entry%%=*}"
     if [[ "$name" == "$requested" ]]; then
       printf '%s\n' "${entry#*=}"
@@ -147,6 +151,7 @@ while [[ $# -gt 0 ]]; do
     --benchmark-csv)
       [[ $# -ge 2 ]] || die "--benchmark-csv requires NAME=PATH"
       TARGET_OVERRIDES+=("$2")
+      TARGET_OVERRIDE_COUNT=$((TARGET_OVERRIDE_COUNT + 1))
       shift 2
       ;;
     --source-benchmark-dir)
@@ -206,7 +211,7 @@ done
 
 [[ -n "$WORK_DIR" ]] || die "--work-dir is required"
 [[ -n "$OUTPUT_DIR" ]] || die "--output-dir is required"
-[[ -n "$BENCHMARK_DIR" || ${#TARGET_OVERRIDES[@]} -gt 0 ]] || \
+[[ -n "$BENCHMARK_DIR" || "$TARGET_OVERRIDE_COUNT" -gt 0 ]] || \
   die "Supply --benchmark-dir or all nine --benchmark-csv overrides"
 [[ "$POLICY" == "paper-faithful" || "$POLICY" == "maximize-coverage" ]] || \
   die "Unsupported policy: $POLICY"
@@ -216,6 +221,7 @@ done
 command -v "$PYTHON_BIN" >/dev/null 2>&1 || die "Python executable not found: $PYTHON_BIN"
 
 for entry in "${TARGET_OVERRIDES[@]}"; do
+  [[ -n "$entry" ]] || continue
   [[ "$entry" == *=* ]] || die "Invalid --benchmark-csv value: $entry"
   name="${entry%%=*}"
   path="${entry#*=}"
