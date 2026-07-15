@@ -117,6 +117,11 @@ class RuntimeHPCEntrypointTests(unittest.TestCase):
             self.assertNotIn("wget ", text)
             self.assertNotIn("rm -rf", text)
 
+    def test_runtime_driver_supports_the_clusters_legacy_git(self):
+        driver = DRIVER.read_text()
+        self.assertIn("git_in_dir()", driver)
+        self.assertNotIn("git -C", driver)
+
 
 if __name__ == "__main__":
     unittest.main()

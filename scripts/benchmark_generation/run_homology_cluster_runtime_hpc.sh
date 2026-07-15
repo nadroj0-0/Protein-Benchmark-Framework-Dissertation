@@ -3,6 +3,12 @@
 
 set -euo pipefail
 
+git_in_dir() {
+    local directory="$1"
+    shift
+    (cd "$directory" && git "$@")
+}
+
 RUNTIME_KIND="${HOMOLOGY_RUNTIME_KIND:-}"
 case "$RUNTIME_KIND" in
     pilot|array) ;;
@@ -65,7 +71,7 @@ SUBMISSION_ROOT="$(cd "$SUBMISSION_ROOT" && pwd -P)"
 FRAMEWORK_REPO_URL="${FRAMEWORK_REPO_URL:-https://github.com/nadroj0-0/Protein-Benchmark-Framework-Dissertation.git}"
 FRAMEWORK_REVISION="${FRAMEWORK_REVISION:-}"
 if [[ "$TEST_MODE" != "1" && -z "$FRAMEWORK_REVISION" ]]; then
-    FRAMEWORK_REVISION="$(git -C "$SUBMISSION_ROOT" rev-parse HEAD)"
+    FRAMEWORK_REVISION="$(git_in_dir "$SUBMISSION_ROOT" rev-parse HEAD)"
 fi
 if [[ "$TEST_MODE" == "1" && -z "$FRAMEWORK_REVISION" ]]; then
     FRAMEWORK_REVISION="$(printf 'a%.0s' {1..40})"
@@ -335,12 +341,12 @@ echo "Using existing Conda environment: $CONDA_PREFIX"
 
 echo "Cloning the pinned framework revision into scratch"
 git clone --quiet "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"
-git -C "$FRAMEWORK_DIR" checkout --quiet --detach "$FRAMEWORK_REVISION"
-[[ "$(git -C "$FRAMEWORK_DIR" rev-parse HEAD)" == "$FRAMEWORK_REVISION" ]] || {
+git_in_dir "$FRAMEWORK_DIR" checkout --quiet --detach "$FRAMEWORK_REVISION"
+[[ "$(git_in_dir "$FRAMEWORK_DIR" rev-parse HEAD)" == "$FRAMEWORK_REVISION" ]] || {
     echo "Scratch checkout does not match FRAMEWORK_REVISION" >&2
     exit 1
 }
-[[ -z "$(git -C "$FRAMEWORK_DIR" status --porcelain)" ]] || {
+[[ -z "$(git_in_dir "$FRAMEWORK_DIR" status --porcelain)" ]] || {
     echo "Scratch framework checkout is unexpectedly dirty" >&2
     exit 1
 }
