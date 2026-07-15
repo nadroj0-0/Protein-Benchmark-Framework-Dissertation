@@ -5,7 +5,8 @@
 #$ -l tscratch=100G
 #$ -l scratch0free=300G
 #$ -l h_rt=96:0:0
-#$ -q gpu.q@zeus1.local,gpu.q@zeus2.local
+# Optional Zeus-only restriction (currently disabled because both queues are offline):
+# #$ -q gpu.q@zeus1.local,gpu.q@zeus2.local
 #$ -l gpu=true
 #$ -pe gpu 3
 #$ -j y
