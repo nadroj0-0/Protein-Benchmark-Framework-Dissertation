@@ -34,6 +34,12 @@ die() {
   exit 2
 }
 
+git_in_dir() {
+  local directory="$1"
+  shift
+  (cd "$directory" && git "$@")
+}
+
 copy_results() {
   local workflow_status="$1"
   local copy_status=0
@@ -122,17 +128,17 @@ echo
 if [[ -z "$FRAMEWORK_COMMIT" ]]; then
   [[ -d "$SUBMISSION_DIR/.git" ]] || \
     die "Submit from a clean framework Git checkout or pass FRAMEWORK_COMMIT"
-  [[ -z "$(git -C "$SUBMISSION_DIR" status --porcelain)" ]] || \
+  [[ -z "$(git_in_dir "$SUBMISSION_DIR" status --porcelain)" ]] || \
     die "Submission checkout has uncommitted changes; commit them before qsub"
-  FRAMEWORK_COMMIT="$(git -C "$SUBMISSION_DIR" rev-parse HEAD)"
+  FRAMEWORK_COMMIT="$(git_in_dir "$SUBMISSION_DIR" rev-parse HEAD)"
 fi
 [[ "$FRAMEWORK_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]] || \
   die "FRAMEWORK_COMMIT must be a complete 40-character Git commit"
 
 echo "Framework Git: $FRAMEWORK_COMMIT"
 git clone --no-checkout "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"
-git -C "$FRAMEWORK_DIR" checkout --detach "$FRAMEWORK_COMMIT"
-[[ "$(git -C "$FRAMEWORK_DIR" rev-parse HEAD)" == "$FRAMEWORK_COMMIT" ]] || \
+git_in_dir "$FRAMEWORK_DIR" checkout --detach "$FRAMEWORK_COMMIT"
+[[ "$(git_in_dir "$FRAMEWORK_DIR" rev-parse HEAD)" == "$FRAMEWORK_COMMIT" ]] || \
   die "Scratch checkout does not match FRAMEWORK_COMMIT"
 cd "$FRAMEWORK_DIR"
 
