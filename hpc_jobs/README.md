@@ -96,6 +96,58 @@ qsub -v TARGET_BENCHMARK_DIR="$HOME/contemporary_cafa_benchmark_results/7065592_
   hpc_jobs/active/hpc_contemporary_benchmark_reuse_plan.sh
 ```
 
+### Contemporary embedding generation and assembly
+
+`hpc_contemporary_embedding_generation.sh` is the overnight continuation of
+the CSV-only reuse plan. It auto-discovers the latest completed contemporary
+benchmark and matching completed reuse plan, or accepts explicit paths:
+
+```bash
+qsub -v TARGET_BENCHMARK_DIR="$HOME/contemporary_cafa_benchmark_results/7065592_20260714_090900/outputs",REUSE_PLAN_DIR="$HOME/contemporary_benchmark_reuse_results/7069671_20260715_054253/plan" \
+  hpc_jobs/active/hpc_contemporary_embedding_generation.sh
+```
+
+The job requests three GPU slots and preserves the established PFP parallel
+layout: ProtT5 on GPU 0, PubMedBERT text on GPU 1, ESM-IF1 on GPU 2, and STRING
+PPI extraction on CPU. It first runs a bounded preflight, then expands the same
+scratch workspace to the complete `regenerate` partition. The PFP checkout is
+pinned and disposable. A UniProt-only PPI denominator guard is made in a
+separate, checksummed scratch copy; upstream PFP is not edited.
+
+The wrapper downloads and authenticates Zijian's three published embedding
+archives in scratch. Assembly uses published arrays only for planner-approved
+`reuse` proteins and newly generated arrays only for `regenerate` proteins.
+ProtT5 regeneration is mandatory for every regenerate protein. Missing text,
+structure, or PPI source coverage is recorded and left absent so PFP retains
+its existing zero-vector/mask behavior. PubMedBERT hidden states are reduced
+incrementally to the exact `(768,)` CLS vector consumed by PFP, avoiding a
+roughly 151 GiB raw text cache.
+
+Successful results are published under
+`$HOME/contemporary_embedding_generation_results` and contain:
+
+```text
+archives/contemporary_embedding_cache.tar.gz
+archives/generated_prott5.tar.gz
+archives/generated_text.tar.gz
+archives/generated_structure.tar.gz
+archives/generated_ppi.tar.gz
+reports/assembly/assembly_summary.json
+reports/assembly/embedding_assembly.tsv.gz
+reports/reuse_plan/{RUN_COMPLETE,output_manifest,run_manifest,summary}.json
+reports/archive_manifest.tsv
+logs/{preflight,full}/
+WORKFLOW_COMPLETE.json
+```
+
+Unpacked `.npy` files and large external inputs are never copied home. Failed
+runs retain compact logs/reports and any generated modality archives completed
+before the failure under a `.failed` result directory. Scratch cleanup remains
+unconditional even if home publication fails. Optional overrides include
+`TARGET_BENCHMARK_DIR`, `REUSE_PLAN_DIR`, `TEXT_CUTOFF_DATE`, `RESULTS_ROOT`,
+`PREFLIGHT_PER_SPLIT`, the complete `FRAMEWORK_COMMIT`, and the pinned
+`PFP_COMMIT`.
+
 ## Homology-cluster identity array
 
 ### Final scratch-first runtime entrypoints

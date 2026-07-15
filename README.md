@@ -22,6 +22,7 @@ contracts before expensive training is launched.
 .
 ├── benchmark_builders/
 │   └── contemporary_cafa/                 # 2025→2026 CAFA-style benchmark builder
+├── benchmark_reuse_planner/                # Exact CSV-to-CSV reuse/regenerate partition
 ├── embedding_inventory/                    # CSV-native embedding inventory/reuse planner
 ├── scripts/
 │   ├── reproduction/                      # Main PFP reproduction entrypoints
@@ -93,6 +94,22 @@ the two binary manifests, per-modality ID lists, and the ProtT5 generation
 FASTA. It does not generate embeddings. The scheduler-neutral implementation is
 `scripts/verification/run_contemporary_embedding_inventory.sh`; both a single
 benchmark directory and per-CSV path overrides are supported.
+
+The overnight generation-and-assembly workflow consumes the stricter CSV-only
+reuse plan, regenerates only its `regenerate` partition, extracts only its
+`reuse` partition from authenticated published caches, and packages the merged
+cache for PFP:
+
+```bash
+qsub hpc_jobs/active/hpc_contemporary_embedding_generation.sh
+```
+
+The four modalities run concurrently using the existing three-GPU plus CPU
+layout. Large dependencies, models, PDBs, and unpacked arrays remain in
+job-owned scratch. Only compressed generated-cache archives, the final merged
+cache archive, logs, provenance, coverage reports, and assembly reports are
+published home. See [`scripts/embeddings/README.md`](scripts/embeddings/README.md)
+and [`hpc_jobs/README.md`](hpc_jobs/README.md) for the contract and overrides.
 
 ## Local path configuration
 

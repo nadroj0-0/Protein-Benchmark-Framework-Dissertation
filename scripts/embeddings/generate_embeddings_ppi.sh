@@ -17,6 +17,7 @@ fi
 export STRING_H5_FILE="${STRING_H5_FILE:-external/string/protein.network.embeddings.v12.0.h5}"
 export STRING_ALIAS_FILE="${STRING_ALIAS_FILE:-external/string/protein.aliases.v12.0.txt}"
 export CAFA_ASSESSMENT_DIR="${CAFA_ASSESSMENT_DIR:-external/CAFA_assessment_tool}"
+PPI_EXTRACT_SCRIPT="${PPI_EXTRACT_SCRIPT:-scripts/extract_ppi_embeddings.py}"
 if [ ! -f "${STRING_H5_FILE}" ]; then
   echo "Missing STRING network embeddings file: ${STRING_H5_FILE}" >&2
   echo "Set STRING_H5_FILE in configs/paths.local.sh or the environment." >&2
@@ -32,8 +33,12 @@ if [ ! -d "${CAFA_ASSESSMENT_DIR}" ]; then
   echo "Set CAFA_ASSESSMENT_DIR in configs/paths.local.sh or the environment." >&2
   exit 1
 fi
+if [ ! -f "${PPI_EXTRACT_SCRIPT}" ]; then
+  echo "Missing PPI extraction script: ${PPI_EXTRACT_SCRIPT}" >&2
+  exit 1
+fi
 
-python scripts/extract_ppi_embeddings.py \
+python "${PPI_EXTRACT_SCRIPT}" \
   --string-h5 "${STRING_H5_FILE}" \
   --string-alias "${STRING_ALIAS_FILE}" \
   --cafa-assessment-dir "${CAFA_ASSESSMENT_DIR}" \
