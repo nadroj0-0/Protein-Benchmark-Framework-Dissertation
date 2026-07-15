@@ -116,7 +116,10 @@ layout: ProtT5 on GPU 0, PubMedBERT text on GPU 1, ESM-IF1 on GPU 2, and STRING
 PPI extraction on CPU. It first runs a bounded preflight, then expands the same
 scratch workspace to the complete `regenerate` partition. The PFP checkout is
 pinned and disposable. A UniProt-only PPI denominator guard is made in a
-separate, checksummed scratch copy; upstream PFP is not edited.
+separate, checksummed scratch copy. IF1 receives a scratch-local NumPy 1.26.4
+overlay for compatibility with Biotite 0.38.0 and a checksummed extractor copy
+that places fair-esm encoder inputs on the CUDA model device. Upstream PFP and
+the primary author-pinned MMFP environment are not edited.
 
 The wrapper downloads and authenticates Zijian's three published embedding
 archives in scratch. Assembly uses published arrays only for planner-approved
@@ -140,6 +143,8 @@ reports/assembly/assembly_summary.json
 reports/assembly/embedding_assembly.tsv.gz
 reports/reuse_plan/{RUN_COMPLETE,output_manifest,run_manifest,summary}.json
 reports/archive_manifest.tsv
+reports/if1_environment.json
+reports/pfp_if1_compatibility.json
 logs/{preflight,full}/
 WORKFLOW_COMPLETE.json
 ```

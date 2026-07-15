@@ -22,6 +22,18 @@ if [ ! -d "${CAFA_ASSESSMENT_DIR}" ]; then
   exit 1
 fi
 DEVICE="${DEVICE:-cuda}"
+IF1_EXTRACT_SCRIPT="${IF1_EXTRACT_SCRIPT:-scripts/extract_esm_if1_embeddings.py}"
+IF1_PYTHON_BIN="${IF1_PYTHON_BIN:-python}"
+IF1_PYTHONPATH="${IF1_PYTHONPATH:-}"
+
+[ -f "$IF1_EXTRACT_SCRIPT" ] || {
+  echo "Missing IF1 extractor: $IF1_EXTRACT_SCRIPT" >&2
+  exit 1
+}
+command -v "$IF1_PYTHON_BIN" >/dev/null 2>&1 || {
+  echo "Missing IF1 Python entrypoint: $IF1_PYTHON_BIN" >&2
+  exit 1
+}
 
 python scripts/check_alphafold_coverage.py \
   --cafa-assessment-dir "${CAFA_ASSESSMENT_DIR}" \
@@ -29,8 +41,18 @@ python scripts/check_alphafold_coverage.py \
   --pdb-output-dir data/alphafold_structures \
   --output-file data/alphafold_coverage_results.txt
 
-python scripts/extract_esm_if1_embeddings.py \
-    --pdb_dir data/alphafold_structures \
-    --output_dir data/embedding_cache/IF1 \
-    --pooling mean \
-    --device "${DEVICE}"
+if [ -n "$IF1_PYTHONPATH" ]; then
+  SINGULARITYENV_PYTHONPATH="$IF1_PYTHONPATH" \
+    MMFP_PYTHONPATH="$IF1_PYTHONPATH" \
+    "$IF1_PYTHON_BIN" "$IF1_EXTRACT_SCRIPT" \
+      --pdb_dir data/alphafold_structures \
+      --output_dir data/embedding_cache/IF1 \
+      --pooling mean \
+      --device "$DEVICE"
+else
+  "$IF1_PYTHON_BIN" "$IF1_EXTRACT_SCRIPT" \
+      --pdb_dir data/alphafold_structures \
+      --output_dir data/embedding_cache/IF1 \
+      --pooling mean \
+      --device "$DEVICE"
+fi

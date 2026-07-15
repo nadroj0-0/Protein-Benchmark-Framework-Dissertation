@@ -69,6 +69,23 @@ values and mapping logic are unchanged; `generate_embeddings_ppi.sh` keeps its
 original source path by default and accepts the copied path through
 `PPI_EXTRACT_SCRIPT` only for this workflow.
 
+### ESM-IF1 compatibility
+
+Zijian's stated NumPy 2.0.2 and Biotite 0.38.0 pins cannot import the compiled
+`biotite.structure` extension from the published Biotite wheel. The main MMFP
+environment keeps those author-supplied pins. During this workflow only, an
+isolated NumPy 1.26.4 overlay is installed into job-owned scratch and exposed
+only to the IF1 process. The overlay is reported in
+`reports/if1_environment.json` and is removed with the rest of scratch.
+
+fair-esm 2.0.0's `get_encoder_output()` creates its coordinate, confidence, and
+mask tensors on CPU even when PFP moves the IF1 model to CUDA.
+`build_pfp_if1_compat_copy.py` validates the exact upstream source blocks and
+writes a separate scratch copy that creates the same encoder inputs explicitly
+on the model device. It also exits non-zero when dependencies cannot import or
+all PDB files fail. The source PFP checkout is not modified, and the source and
+compatibility-copy hashes are recorded in `reports/pfp_if1_compatibility.json`.
+
 ## Final artifact
 
 `assemble_contemporary_embedding_cache.py` writes the standard PFP layout:
@@ -96,6 +113,7 @@ tests:
 ```bash
 python -m unittest discover -s scripts/embeddings/tests -v
 bash -n scripts/embeddings/run_contemporary_embedding_generation.sh
+bash -n scripts/embeddings/generate_embeddings_structure.sh
 bash -n hpc_jobs/active/hpc_contemporary_embedding_generation.sh
 ```
 

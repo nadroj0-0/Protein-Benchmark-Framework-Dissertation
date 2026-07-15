@@ -20,3 +20,8 @@ constraints.
 The launcher requests `--nv` for GPU passthrough. A login node without a GPU may
 print `Could not find any nv files`; this is expected. CUDA availability must be
 confirmed in a scheduled GPU smoke test.
+
+`mmfp_singularity_python.sh` also accepts `MMFP_PYTHONPATH` for an explicitly
+scoped container-side overlay. The contemporary embedding workflow uses this
+only for its scratch-local NumPy 1.26.4 IF1 compatibility layer; the default
+launcher and the primary MMFP environment remain on NumPy 2.0.2.

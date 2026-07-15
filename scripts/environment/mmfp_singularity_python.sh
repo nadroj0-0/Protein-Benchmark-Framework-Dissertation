@@ -31,4 +31,10 @@ if [[ -n "$scratch_target" && -d "$scratch_target" ]]; then
   fi
 fi
 
-exec "$singularity_bin" "${singularity_args[@]}" "$image" "$venv/bin/python" "$@"
+container_command=("$venv/bin/python")
+if [[ -n "${MMFP_PYTHONPATH:-}" ]]; then
+  container_command=(env "PYTHONPATH=${MMFP_PYTHONPATH}" "$venv/bin/python")
+fi
+
+exec "$singularity_bin" "${singularity_args[@]}" "$image" \
+  "${container_command[@]}" "$@"

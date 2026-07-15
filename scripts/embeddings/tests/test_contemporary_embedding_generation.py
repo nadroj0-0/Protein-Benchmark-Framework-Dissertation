@@ -195,6 +195,58 @@ class PpiCompatibilityTests(unittest.TestCase):
             self.assertFalse(json.loads(report.read_text())["upstream_source_modified"])
 
 
+class If1CompatibilityTests(unittest.TestCase):
+    def test_compatibility_copy_is_cuda_safe_and_keeps_source_unchanged(self) -> None:
+        module = load_script("build_pfp_if1_compat_copy.py")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source.py"
+            output = root / "compat.py"
+            report = root / "report.json"
+            original = (
+                "def extract():\n"
+                + module.IMPORT_OLD
+                + module.ENCODER_OLD
+                + module.SUMMARY_OLD
+            )
+            source.write_text(original, encoding="utf-8")
+
+            with mock.patch.object(
+                sys,
+                "argv",
+                ["compat", "--source", str(source), "--output", str(output), "--report", str(report)],
+            ):
+                self.assertEqual(module.main(), 0)
+
+            compat = output.read_text(encoding="utf-8")
+            self.assertEqual(source.read_text(encoding="utf-8"), original)
+            self.assertIn("batch_converter(batch, device=device)", compat)
+            self.assertIn('encoder_out["encoder_out"][0][1:-1, 0]', compat)
+            self.assertIn("failed for all", compat)
+            payload = json.loads(report.read_text(encoding="utf-8"))
+            self.assertFalse(payload["upstream_source_modified"])
+            self.assertFalse(payload["scientific_output_change"])
+
+    def test_compatibility_copy_rejects_unvalidated_source_drift(self) -> None:
+        module = load_script("build_pfp_if1_compat_copy.py")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source.py"
+            source.write_text(module.IMPORT_OLD, encoding="utf-8")
+            with mock.patch.object(
+                sys,
+                "argv",
+                [
+                    "compat",
+                    "--source", str(source),
+                    "--output", str(root / "compat.py"),
+                    "--report", str(root / "report.json"),
+                ],
+            ):
+                with self.assertRaisesRegex(SystemExit, "IF1 encoder-output"):
+                    module.main()
+
+
 class AssemblyTests(unittest.TestCase):
     def write_array(self, root: Path, directory: str, protein_id: str, dimension: int, value: float) -> None:
         path = root / directory / f"{protein_id}.npy"

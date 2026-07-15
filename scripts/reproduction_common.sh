@@ -161,6 +161,84 @@ PY
   "$python_bin" -m pip check
 }
 
+validate_mmfp_if1_env() {
+  local python_bin="$1"
+  local numpy_overlay="$2"
+
+  [[ -n "$python_bin" && -x "$python_bin" ]] || {
+    echo "Cannot validate IF1 runtime: Python executable is unavailable: $python_bin" >&2
+    return 1
+  }
+  [[ -d "$numpy_overlay/numpy" ]] || {
+    echo "Cannot validate IF1 runtime: NumPy overlay is unavailable: $numpy_overlay" >&2
+    return 1
+  }
+
+  SINGULARITYENV_PYTHONPATH="$numpy_overlay" \
+    MMFP_PYTHONPATH="$numpy_overlay" \
+    "$python_bin" - <<'PY'
+from importlib.metadata import PackageNotFoundError, version
+import json
+import platform
+
+EXPECTED = {
+    "numpy": "1.26.4",
+    "biotite": "0.38.0",
+}
+
+observed = {}
+errors = []
+for distribution, expected in EXPECTED.items():
+    try:
+        observed[distribution] = version(distribution)
+    except PackageNotFoundError:
+        errors.append(f"{distribution}: missing (expected {expected})")
+        continue
+    if observed[distribution] != expected:
+        errors.append(
+            f"{distribution}: expected {expected}, found {observed[distribution]}"
+        )
+
+try:
+    observed["fair-esm"] = version("fair-esm")
+except PackageNotFoundError:
+    errors.append("fair-esm: missing")
+
+for module in ("biotite.structure", "esm.inverse_folding"):
+    try:
+        __import__(module)
+    except Exception as exc:
+        errors.append(f"import {module}: {type(exc).__name__}: {exc}")
+
+if errors:
+    for error in errors:
+        print(f"IF1 runtime error: {error}")
+    raise SystemExit(1)
+
+print(json.dumps({
+    "biotite": observed["biotite"],
+    "fair_esm": observed["fair-esm"],
+    "numpy": observed["numpy"],
+    "numpy_overlay": True,
+    "python": platform.python_version(),
+}, indent=2, sort_keys=True))
+PY
+}
+
+install_mmfp_if1_numpy_overlay() {
+  local python_bin="$1"
+  local numpy_overlay="$2"
+
+  rm -rf -- "$numpy_overlay"
+  mkdir -p "$numpy_overlay"
+  "$python_bin" -m pip install \
+    --disable-pip-version-check \
+    --no-deps \
+    --only-binary=:all: \
+    --target "$numpy_overlay" \
+    "numpy==1.26.4"
+}
+
 validate_mmfp_creation_host() {
   if [[ "$(uname -s)" != "Linux" || "$MMFP_TORCH_INDEX_URL" != *download.pytorch.org* ]]; then
     return 0

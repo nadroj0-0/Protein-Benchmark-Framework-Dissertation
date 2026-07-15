@@ -6,6 +6,8 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 FRAMEWORK_ROOT="$(cd "${HERE}/../.." && pwd)"
+# shellcheck source=../reproduction_common.sh
+source "$FRAMEWORK_ROOT/scripts/reproduction_common.sh"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 MMFP_BASE_URL="${MMFP_BASE_URL:-https://zenodo.org/records/19498341/files}"
 PREFLIGHT_PER_SPLIT="${PREFLIGHT_PER_SPLIT:-2}"
@@ -212,14 +214,26 @@ PUBLISHED_CACHE="$PUBLISHED_ROOT/data/embedding_cache"
 [[ "$(file_count "$PUBLISHED_CACHE/IF1")" == "67948" ]] || die "Published IF1 count mismatch"
 [[ "$(file_count "$PUBLISHED_CACHE/ppi")" == "58294" ]] || die "Published PPI count mismatch"
 
-echo "==> [5/10] Build the UniProt-only PPI compatibility copy"
+echo "==> [5/10] Prepare the isolated IF1 runtime and compatibility copies"
+IF1_NUMPY_OVERLAY="$WORK_DIR/if1_numpy_1_26_4"
+install_mmfp_if1_numpy_overlay "$PYTHON_BIN" "$IF1_NUMPY_OVERLAY"
+validate_mmfp_if1_env "$PYTHON_BIN" "$IF1_NUMPY_OVERLAY" \
+  > "$OUTPUT_DIR/reports/if1_environment.json"
+
 "$PYTHON_BIN" "$HERE/build_pfp_ppi_compat_copy.py" \
   --source "$PFP_ROOT/scripts/extract_ppi_embeddings.py" \
   --output "$RUNTIME_COMPAT/extract_ppi_embeddings.py" \
   --report "$OUTPUT_DIR/reports/pfp_ppi_compatibility.json"
+"$PYTHON_BIN" "$HERE/build_pfp_if1_compat_copy.py" \
+  --source "$PFP_ROOT/scripts/extract_esm_if1_embeddings.py" \
+  --output "$RUNTIME_COMPAT/extract_esm_if1_embeddings.py" \
+  --report "$OUTPUT_DIR/reports/pfp_if1_compatibility.json"
 
 export CAFA_ASSESSMENT_DIR STRING_H5_FILE STRING_ALIAS_FILE
 export PPI_EXTRACT_SCRIPT="$RUNTIME_COMPAT/extract_ppi_embeddings.py"
+export IF1_EXTRACT_SCRIPT="$RUNTIME_COMPAT/extract_esm_if1_embeddings.py"
+export IF1_PYTHON_BIN="$PYTHON_BIN"
+export IF1_PYTHONPATH="$IF1_NUMPY_OVERLAY"
 export TEXT_CUTOFF_DATE
 export TEXT_REPORT_DIR="$PFP_ROOT/results/embedding_reports/text"
 export HF_HOME="$WORK_DIR/model_cache/huggingface"
