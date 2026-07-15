@@ -101,11 +101,14 @@ qsub hpc_jobs/active/hpc_homology_cluster_runtime_array.sh
 The array maps tasks `1-6` to `30, 25, 20, 15, 10, 5%` and uses `-tc 2` to avoid six
 simultaneous copies of the roughly 170 GB compressed source collection. Node-local scratch is not
 shared between array tasks, so every task with missing path overrides downloads its own inputs.
-The 30% diagnostic pilot requests `300G` scratch. The unsupported parser/MMseqs/publication
+The 30% diagnostic pilot requests approximately `300G` scratch in total. UCL Grid Engine accounts
+the consumable `tmem` and `tscratch` requests per SMP slot, so both wrappers request `tmem=8G` and
+`tscratch=38G` across eight slots: 64 GB memory and 304 GB scratch per task. The non-consumable
+`scratch0free=300G` remains a host-free-space threshold. The unsupported parser/MMseqs/publication
 defaults are reduced globally to neutral `1x` bookkeeping; the pilot records rather than enforces
-the resulting estimate. The
-six-task wrapper retains its older conservative request until this pilot has measured real usage;
-do not submit that array before reviewing the pilot's disk report.
+the resulting estimate. The six-task wrapper uses the same provisional per-task request, but do
+not submit that array before
+reviewing the pilot's disk report.
 
 Both wrappers delegate to
 `scripts/benchmark_generation/run_homology_cluster_runtime_hpc.sh`. That driver:

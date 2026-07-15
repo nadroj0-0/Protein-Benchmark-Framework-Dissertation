@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Direct qsub entrypoint for all six homology identity thresholds.
 
-#$ -l tmem=64G
-#$ -l tscratch=1200G
-#$ -l scratch0free=1200G
+# UCL Grid Engine charges consumable tmem/tscratch per SMP slot:
+# 8 slots x 8G = 64G memory; 8 slots x 38G = 304G scratch per array task.
+#$ -l tmem=8G
+#$ -l tscratch=38G
+#$ -l scratch0free=300G
 #$ -l h_rt=96:0:0
 #$ -pe smp 8
 #$ -t 1-6

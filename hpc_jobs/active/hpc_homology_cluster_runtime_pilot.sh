@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Direct qsub entrypoint for the recommended 30% homology pilot.
 
-#$ -l tmem=64G
-#$ -l tscratch=300G
+# UCL Grid Engine charges consumable tmem/tscratch per SMP slot:
+# 8 slots x 8G = 64G memory; 8 slots x 38G = 304G scratch.
+#$ -l tmem=8G
+#$ -l tscratch=38G
 #$ -l scratch0free=300G
 #$ -l h_rt=96:0:0
 #$ -pe smp 8
