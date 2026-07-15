@@ -1,4 +1,5 @@
 import csv
+from dataclasses import replace
 from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 
@@ -6,12 +7,15 @@ import numpy as np
 
 from pfp_embedding_inventory.models import (
     ArtifactScopeSpec,
+    ArtifactVerification,
+    BenchmarkData,
     BenchmarkContract,
     MODALITIES,
     ModalitySpec,
     PlannerConfig,
     ProvenanceSpec,
 )
+from pfp_embedding_inventory.provenance import compute_cache_catalog
 
 
 DIMS = {"prott5": 1024, "text": 768, "structure": 512, "ppi": 512}
@@ -52,8 +56,6 @@ def make_config(
             expected_dim=DIMS[modality],
             sequence_dependent=modality in {"prott5", "structure"},
             allow_sequence_hash_reuse=modality == "prott5",
-            missing_action="generate" if modality in {"prott5", "text"} else "unavailable",
-            invalid_action="generate" if modality in {"prott5", "text"} else "unavailable",
             provenance=ProvenanceSpec(
                 compatibility=state,
                 label="test-%s" % modality,
@@ -65,7 +67,7 @@ def make_config(
             ),
         )
     return PlannerConfig(
-        schema_version=2,
+        schema_version=3,
         name="synthetic",
         target_benchmark_contract=target_contract or make_contract(),
         source_benchmark_contract=source_contract or make_contract(),
@@ -84,6 +86,38 @@ def make_config(
             reference_files=(),
         ),
     )
+
+
+def bind_verified_cache(
+    config: PlannerConfig, source: BenchmarkData, cache: Path
+) -> Tuple[PlannerConfig, ArtifactVerification]:
+    catalog = compute_cache_catalog(cache, config)
+    artifact_id = "synthetic-verified-cache"
+    scope = replace(
+        config.artifact_scope,
+        mode="verified-published-cache",
+        artifact_id=artifact_id,
+        expected_benchmark_fingerprint=source.fingerprint,
+        expected_cache_catalog_fingerprint=catalog.fingerprint,
+        expected_modality_counts=catalog.modality_counts,
+        expected_total_files=catalog.total_files,
+        expected_total_bytes=catalog.total_bytes,
+    )
+    bound_config = replace(config, artifact_scope=scope)
+    proof = ArtifactVerification(
+        configured=True,
+        verified=True,
+        artifact_id=artifact_id,
+        checks={"synthetic-cache-proof": True},
+        reasons=[],
+        expected={},
+        observed={
+            "source_benchmark_fingerprint": source.fingerprint,
+            "embedding_cache_root": str(cache.resolve()),
+            "cache_catalog": catalog.as_dict(),
+        },
+    )
+    return bound_config, proof
 
 
 def write_nine_csvs(

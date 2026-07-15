@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "name": "homology-benchmark-conservative",
   "target_benchmark_contract": {
     "id_overlap": "global-evaluation-disjoint",
@@ -13,12 +13,50 @@
     "protein_id_pattern": "^[^\\s/\\\\]+$",
     "sequence_pattern": "^[A-Za-z*.-]+$"
   },
-  "artifact_scope": {"mode": "none"},
+  "artifact_scope": {
+    "mode": "verified-published-cache",
+    "artifact_id": "mmfp-zenodo-19498341-cafa3-published",
+    "metadata_url": "https://zenodo.org/records/19498341",
+    "expected_benchmark_fingerprint": "acefa0e59449fdef5cad19cf6ea042860dbeb0b0b01d4ed326627cddea048590",
+    "expected_cache_catalog_fingerprint": "43b00628558e59a2b454459a2cdfc32cc20ce4c3095a92553ba775c6177eae72",
+    "expected_modality_counts": {
+      "prott5": 69811,
+      "text": 69517,
+      "structure": 67948,
+      "ppi": 58294
+    },
+    "expected_total_files": 265570,
+    "expected_total_bytes": 732345600,
+    "archives": [
+      {
+        "path": "mmfp_embeddings_prott5.tar.gz",
+        "sha256": "30dd88fc4acbe3bc267bd8d5ae05e4d967fa7c169a6f063f12d2395fb0ffb00f"
+      },
+      {
+        "path": "mmfp_embeddings_struct_ppi.tar.gz",
+        "sha256": "6d7a243f2c5e2149c162698b4e6a5e297731a4fea835d57b9049bb31f4af32de"
+      },
+      {
+        "path": "mmfp_embeddings_text_temporal.tar.gz",
+        "sha256": "df1bf558fab1c018286a5b389665245917ba951f2c6cd8558546d0b1a3b47e36"
+      }
+    ],
+    "expected_reference_commit": "1e04fd6d6d3c40458fd41ec1a881ed6e24de768e",
+    "reference_files": [
+      {"path": "mmfp/dataset.py", "sha256": "cea645fb4d84757779d17a1418d7b9932ba88da158176d688240a585abf6b846"},
+      {"path": "README.md", "sha256": "98b55eaaf823621fa0a83b75134188a261247ecfa28842210d16a4e71e685f2f"},
+      {"path": "scripts/reproduce_full_model.py", "sha256": "c05490924e4c2776957e43f4245a3743206f1c2c6fef5723e532c82b277607bc"},
+      {"path": "scripts/extract_uniprot_text.py", "sha256": "7f4bd9058caabff25949acec1de26ca568dbd3bafc260d86098591ee224b36b5"},
+      {"path": "scripts/embed_uniprot_descriptions.py", "sha256": "12b2e6d55491069e9655d9936c571d9a24ff81f2911132846e782e9df4c16254"},
+      {"path": "scripts/extract_ppi_embeddings.py", "sha256": "3f5a4a94a3ab2e3f3a829cd214a887caf2019cc38f0e5137df5e70fb9bb59ecd"},
+      {"path": "scripts/extract_esm_if1_embeddings.py", "sha256": "2acd1314a5d845123324d1c90327e6f6a68eec086562ed9bd96095bb1058b5ec"},
+      {"path": "scripts/extract_prott5_embeddings.py", "sha256": "91ce6cb37ee28c0044422866bdc220fc2e1bbb36b6c2ab7695d37389b5b1097c"}
+    ]
+  },
   "modalities": {
     "prott5": {
       "directory": "prott5", "expected_dim": 1024,
       "sequence_dependent": true, "allow_sequence_hash_reuse": true,
-      "missing_action": "generate", "invalid_action": "generate",
       "provenance": {
         "compatibility": "compatible", "label": "published-prott5-xl-uniref50",
         "source_identity": "Rostlab/prot_t5_xl_half_uniref50-enc|PFP-published-extraction|1024",
@@ -30,7 +68,6 @@
     "text": {
       "directory": "exp_text_embeddings_temporal", "expected_dim": 768,
       "sequence_dependent": false, "allow_sequence_hash_reuse": false,
-      "missing_action": "manual-review", "invalid_action": "manual-review",
       "provenance": {
         "compatibility": "unknown", "label": "homology-target-text-context-unresolved",
         "source_identity": "", "target_identity": "", "evidence": "",
@@ -40,7 +77,6 @@
     "structure": {
       "directory": "IF1", "expected_dim": 512,
       "sequence_dependent": true, "allow_sequence_hash_reuse": false,
-      "missing_action": "manual-review", "invalid_action": "manual-review",
       "provenance": {
         "compatibility": "unknown", "label": "homology-target-structure-provenance-unresolved",
         "source_identity": "", "target_identity": "", "evidence": "",
@@ -50,7 +86,6 @@
     "ppi": {
       "directory": "ppi", "expected_dim": 512,
       "sequence_dependent": false, "allow_sequence_hash_reuse": false,
-      "missing_action": "manual-review", "invalid_action": "manual-review",
       "provenance": {
         "compatibility": "unknown", "label": "homology-target-string-mapping-unresolved",
         "source_identity": "", "target_identity": "", "evidence": "",

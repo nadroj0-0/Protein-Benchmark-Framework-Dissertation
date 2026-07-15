@@ -243,6 +243,52 @@ The full launcher re-hashes pilot evidence when called; the queued worker checks
 hashes and re-runs authorization from its detached framework checkout before input staging. This
 closes the queue-time mutation window.
 
+## Final scratch-first HPC workflow
+
+The guarded workflow below remains available when a persistent, manually reviewed frozen-input
+collection exists. For the current limited-home-quota setup, use the newer final runtime wrappers:
+
+```bash
+# Recommended 30% pilot plus automatic review; does not submit the full array.
+qsub hpc_jobs/active/hpc_homology_cluster_runtime_pilot.sh
+
+# All six identities. A pilot is recommended but is not mechanically required.
+qsub hpc_jobs/active/hpc_homology_cluster_runtime_array.sh
+```
+
+Both are thin Grid Engine wrappers around
+`scripts/benchmark_generation/run_homology_cluster_runtime_hpc.sh`. Inputs supplied through
+`UNIREF90_FASTA`, `IDMAPPING`, `UNIPROT_SPROT_SEQUENCES`, `UNIPROT_TREMBL_SEQUENCES`, `GOA`, and
+`GO_OBO` are copied to node-local scratch. Any omitted input is downloaded from its reviewed
+official source at runtime. The driver checks that the moving UniProt/GOA endpoints still identify
+UniProt `2026_02` and GOA `234` before accepting their bytes, validates GOA and GO metadata,
+computes complete SHA-256 manifests, and installs pinned MMseqs2 `18-8cc5c` into scratch when no
+executable path is supplied.
+
+The default source scope is `sprot-and-trembl`; set `UNIPROT_SOURCE_SCOPE=sprot-only` or
+`trembl-only` to run another declared population. Every array task has independent node-local
+scratch, so missing inputs are downloaded once per active task. The 30% pilot requests 300 GB and
+runs as a measurement job: the old speculative multiplier defaults are reduced globally to neutral
+`1x` values, and the pilot records rather than enforces the resulting estimate. The full wrapper's resource request must be recalibrated from the
+pilot before submission; it is not evidence that the old 1200 GB estimate was necessary.
+
+The runtime driver records job-owned allocated bytes every 120 seconds and at explicit checkpoints
+covering input staging, MMseqs2 installation, builder execution, and validation. Copied results
+include `logs/disk_usage.tsv`, a per-directory `logs/disk_usage_by_path.tsv`, and
+`logs/disk_usage_summary.tsv`. The summary's `peak_work_bytes` is the measured pilot high-water
+mark; apply deliberate headroom before converting it into a future Grid Engine request.
+
+Each task writes the five DeepGOPlus-shaped pickles, nine PFP CSVs, provenance, validation,
+attrition observations, automatic review, and logs below
+`$HOME/homology_cluster_benchmark_results` (or `RESULTS_ROOT`). Inputs and disposable clustering
+state are never copied home. The final copy is staged and atomically renamed. Copy failure is
+reported as a failed job, any incomplete home copy is removed, and job-owned scratch is still
+deleted as required by cluster etiquette.
+
+The runtime policy intentionally uses non-blocking bounds while preserving all attrition
+measurements for review. This allows the six-task array to run without treating a pilot as an
+authorization dependency. It validates software and output contracts, not biological optimality.
+
 ## Pilot-first production workflow (future commands only)
 
 These commands are documentation for Jordan to run after review. They were not executed while

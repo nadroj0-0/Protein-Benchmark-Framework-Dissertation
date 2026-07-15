@@ -31,8 +31,6 @@ class ConfigTests(unittest.TestCase):
                 "expected_dim": dimension,
                 "sequence_dependent": name in {"prott5", "structure"},
                 "allow_sequence_hash_reuse": name == "prott5",
-                "missing_action": "generate",
-                "invalid_action": "generate",
                 "provenance": {
                     "compatibility": "compatible",
                     "label": name,
@@ -43,7 +41,7 @@ class ConfigTests(unittest.TestCase):
                 },
             }
         return {
-            "schema_version": 2,
+            "schema_version": 3,
             "name": "test",
             "target_benchmark_contract": {
                 "id_overlap": "allow", "sequence_overlap": "allow",
@@ -59,14 +57,13 @@ class ConfigTests(unittest.TestCase):
             "modalities": modalities,
         }
 
-    def test_schema_one_is_rejected_instead_of_silently_reinterpreted(self):
+    def test_legacy_schema_is_rejected_instead_of_silently_reinterpreted(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "config.json"
             payload = self._base_config()
-            payload["schema_version"] = 1
-            payload["benchmark_contract"] = payload.pop("target_benchmark_contract")
+            payload["schema_version"] = 2
             path.write_text(json.dumps(payload))
-            with self.assertRaisesRegex(ConfigError, "schema_version 1 is not accepted"):
+            with self.assertRaisesRegex(ConfigError, "schema_version 2 is not accepted"):
                 load_config(path)
 
     def test_non_object_config_root_is_rejected_cleanly(self):
@@ -144,8 +141,50 @@ class ConfigTests(unittest.TestCase):
                 with self.assertRaisesRegex(ConfigError, message):
                     load_config(path)
 
+    def test_direct_id_reuse_is_restricted_to_compatible_ppi(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            payload = self._base_config()
+            payload["modalities"]["ppi"]["provenance"]["allow_direct_id_reuse"] = True
+            path.write_text(json.dumps(payload))
+            self.assertTrue(load_config(path).modalities["ppi"].provenance.allow_direct_id_reuse)
+
+            payload = self._base_config()
+            payload["modalities"]["text"]["provenance"]["allow_direct_id_reuse"] = True
+            path.write_text(json.dumps(payload))
+            with self.assertRaisesRegex(ConfigError, "restricted to compatible PPI"):
+                load_config(path)
+
+    def test_contemporary_config_declares_fixed_string_v12_direct_id_rule(self):
+        config = load_config(REPO_ROOT / "configs" / "embedding_inventory.contemporary.json")
+        self.assertTrue(config.modalities["ppi"].provenance.allow_direct_id_reuse)
+        self.assertIn("STRING-v12.0", config.modalities["ppi"].provenance.source_identity)
+        self.assertFalse(config.modalities["text"].provenance.allow_direct_id_reuse)
+        self.assertFalse(config.modalities["structure"].provenance.allow_direct_id_reuse)
+
 
 class LegacyRegressionTests(unittest.TestCase):
+    def test_hpc_inventory_wrapper_is_pinned_atomic_and_cleans_scratch(self):
+        wrapper = (
+            REPO_ROOT
+            / "hpc_jobs"
+            / "active"
+            / "hpc_contemporary_embedding_inventory.sh"
+        ).read_text()
+        for required in (
+            'git clone --no-checkout "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"',
+            'git -C "$FRAMEWORK_DIR" checkout --detach "$FRAMEWORK_COMMIT"',
+            'git -C "$SUBMISSION_DIR" status --porcelain',
+            '[[ -f "$staging/WORKFLOW_COMPLETE.json" ]]',
+            '[[ -f "$staging/inventory/RUN_COMPLETE.json" ]]',
+            '[[ -f "$staging/inventory/output_manifest.json" ]]',
+            'mv "$staging" "$destination"',
+            'rm -rf "$WORK"',
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, wrapper)
+        self.assertNotIn('git clone "$FRAMEWORK_REPO_URL"', wrapper)
+
     def test_inventory_cli_writes_compact_provenance_run(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

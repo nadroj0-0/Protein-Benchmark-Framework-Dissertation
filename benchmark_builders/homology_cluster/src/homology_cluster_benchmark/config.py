@@ -108,11 +108,11 @@ class BuildConfig:
     release_goa: str = "234"
     release_ontology: str = "releases/2026-06-15"
     giant_cluster_threshold: int = 10000
-    scratch_safety_multiplier: float = 8.0
+    scratch_safety_multiplier: float = 1.0
     minimum_free_disk_bytes: int = 0
     persistent_results_root: Path | None = None
-    mmseqs_work_multiplier: float = 8.0
-    publication_safety_multiplier: float = 2.0
+    mmseqs_work_multiplier: float = 1.0
+    publication_safety_multiplier: float = 1.0
     excluded_sample_per_reason: int = 1000
 
     def validate(self, require_pinned_inputs: bool = True) -> None:

@@ -1,11 +1,12 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 
 
 MODALITIES = ("prott5", "text", "structure", "ppi")
 ONTOLOGIES = ("BP", "CC", "MF")
 SPLITS = ("training", "validation", "test")
+Action = Literal["reuse", "regenerate"]
 
 
 @dataclass
@@ -38,6 +39,7 @@ class ProvenanceSpec:
     evidence: str
     text_role_policy: str = "none"
     requires_mapping_evidence: bool = False
+    allow_direct_id_reuse: bool = False
 
 
 @dataclass(frozen=True)
@@ -47,8 +49,6 @@ class ModalitySpec:
     expected_dim: int
     sequence_dependent: bool
     allow_sequence_hash_reuse: bool
-    missing_action: str
-    invalid_action: str
     provenance: ProvenanceSpec
 
 
@@ -162,7 +162,7 @@ class ArrayInfo:
     error: str = ""
 
 
-@dataclass
+@dataclass(frozen=True)
 class InventoryRecord:
     protein_id: str
     sequence_sha256: str
@@ -181,8 +181,14 @@ class InventoryRecord:
     sequence_match: str
     provenance: str
     factual_status: str
-    requested_action: str
+    requested_action: Action
     reason: str
+
+    def __post_init__(self) -> None:
+        if self.requested_action not in {"reuse", "regenerate"}:
+            raise ValueError(
+                "requested_action must be exactly 'reuse' or 'regenerate'"
+            )
 
     def as_dict(self) -> Dict[str, str]:
         return {

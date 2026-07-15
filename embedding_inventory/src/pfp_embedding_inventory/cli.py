@@ -9,7 +9,6 @@ from .inventory import InventoryError, build_inventory
 from .provenance import (
     HashCache,
     ProvenanceError,
-    assert_cache_catalog_unchanged,
     build_run_provenance,
     compute_cache_catalog,
     verify_artifact_scope,
@@ -95,8 +94,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             benchmark,
             source_benchmark,
             catalog,
+            args.embedding_cache,
             artifact_root,
-            args.policy,
             hash_cache,
         )
         print("[5/7] Validating arrays and planning modality-specific actions", flush=True)
@@ -109,9 +108,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             aliases=aliases,
             artifact_verification=verification,
         )
-        print("[6/7] Rechecking cache bytes after array validation", flush=True)
-        final_catalog = compute_cache_catalog(args.embedding_cache, config)
-        assert_cache_catalog_unchanged(catalog, final_catalog)
+        print("[6/7] Capturing immutable run provenance", flush=True)
         command = list(sys.argv) if argv is None else ["inventory_embeddings.py", *argv]
         repository = Path(__file__).resolve().parents[3]
         provenance = build_run_provenance(
@@ -134,7 +131,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 "artifact_root": str(artifact_root.resolve()),
                 "output_dir": str(args.output_dir.resolve()),
                 "aliases": str(args.aliases.resolve()) if args.aliases else None,
-                "cache_catalog_reverified_after_array_validation": True,
+                "cache_catalog_reverified_at_report_publication": True,
             },
             hash_cache=hash_cache,
         )
@@ -172,7 +169,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
     )
     print(
-        "Verified exact artifact scope: %s"
+        "Published cache authenticated: %s"
         % str(summary["artifact_verification"]["verified"]).lower()
     )
     return 0

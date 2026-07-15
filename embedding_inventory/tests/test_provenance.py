@@ -23,12 +23,11 @@ from pfp_embedding_inventory.models import (  # noqa: E402
 )
 from pfp_embedding_inventory.provenance import (  # noqa: E402
     HashCache,
-    assert_cache_catalog_unchanged,
     build_run_provenance,
     compute_cache_catalog,
     verify_artifact_scope,
 )
-from pfp_embedding_inventory.reports import write_reports  # noqa: E402
+from pfp_embedding_inventory.reports import ReportError, write_reports  # noqa: E402
 
 from helpers import DIRS, make_cache, make_config, write_nine_csvs  # noqa: E402
 
@@ -72,9 +71,9 @@ class ProvenanceAndArtifactTests(unittest.TestCase):
 
     def test_exact_benchmark_and_cache_pass_artifact_scope(self):
         with tempfile.TemporaryDirectory() as tmp:
-            benchmark, config, artifact_root, _, catalog = self._verified_fixture(Path(tmp))
+            benchmark, config, artifact_root, cache, catalog = self._verified_fixture(Path(tmp))
             proof = verify_artifact_scope(
-                config, benchmark, benchmark, catalog, artifact_root, "paper-faithful"
+                config, benchmark, benchmark, catalog, cache, artifact_root
             )
             self.assertTrue(proof.verified, proof.reasons)
             self.assertTrue(all(proof.checks.values()))
@@ -95,19 +94,19 @@ class ProvenanceAndArtifactTests(unittest.TestCase):
             self.assertEqual(text.match_route, "exact-id")
 
             maximum_proof = verify_artifact_scope(
-                config, benchmark, benchmark, catalog, artifact_root, "maximize-coverage"
+                config, benchmark, benchmark, catalog, cache, artifact_root
             )
-            self.assertFalse(maximum_proof.verified)
+            self.assertTrue(maximum_proof.verified)
             maximum = build_inventory(
                 benchmark, benchmark, self._cache_from_root(artifact_root), config,
                 "maximize-coverage", artifact_verification=maximum_proof,
             )
             self.assertEqual(
                 next(r for r in maximum.records if r.modality == "text").requested_action,
-                "manual-review",
+                "regenerate",
             )
 
-    def test_changed_benchmark_fails_and_alias_cannot_establish_scope(self):
+    def test_changed_target_keeps_cache_proof_but_alias_cannot_establish_reuse(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             source, config, artifact_root, cache, catalog = self._verified_fixture(root)
@@ -117,14 +116,14 @@ class ProvenanceAndArtifactTests(unittest.TestCase):
             write_nine_csvs(changed_dir, rows_by_file=rows)
             target = parse_benchmark(changed_dir, config.target_benchmark_contract)
             proof = verify_artifact_scope(
-                config, target, source, catalog, artifact_root, "paper-faithful"
+                config, target, source, catalog, cache, artifact_root
             )
-            self.assertFalse(proof.verified)
-            self.assertFalse(proof.checks["target_benchmark_fingerprint"])
+            self.assertTrue(proof.verified)
+            self.assertNotIn("target_benchmark_fingerprint", proof.checks)
             aliases = {
-                ("P1", "text"): [
+                ("P2", "text"): [
                     AliasEntry(
-                        "P1", "P1", "text", "attempted-scope-alias", "test-text-v1",
+                        "P2", "P1", "text", "attempted-scope-alias", "test-text-v1",
                         "description-sha256:" + ("b" * 64) + ";temporal-context:test-text-v1",
                     )
                 ]
@@ -134,32 +133,39 @@ class ProvenanceAndArtifactTests(unittest.TestCase):
                 aliases=aliases,
                 artifact_verification=proof,
             )
-            text = next(r for r in result.records if r.protein_id == "P1" and r.modality == "text")
-            self.assertEqual(text.requested_action, "manual-review")
-            self.assertIn("config labels and aliases are not proof", text.reason)
+            text = next(r for r in result.records if r.protein_id == "P2" and r.modality == "text")
+            self.assertEqual(text.requested_action, "regenerate")
+            self.assertIn("canonical target fingerprint", text.reason)
             self.assertTrue(text.match_route.startswith("explicit-alias:"))
 
             canonical_proof = verify_artifact_scope(
-                config, source, source, catalog, artifact_root, "paper-faithful"
+                config, source, source, catalog, cache, artifact_root
             )
-            with self.assertRaisesRegex(ValueError, "not bound to this target"):
-                build_inventory(
-                    target, source, cache, config, "paper-faithful",
-                    artifact_verification=canonical_proof,
-                )
+            rebound = build_inventory(
+                target, source, cache, config, "paper-faithful",
+                artifact_verification=canonical_proof,
+            )
+            self.assertEqual(
+                next(
+                    record.requested_action
+                    for record in rebound.records
+                    if record.protein_id == "P1" and record.modality == "text"
+                ),
+                "regenerate",
+            )
 
     def test_archive_and_reference_corruption_invalidate_scope(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            benchmark, config, artifact_root, _, catalog = self._verified_fixture(root)
+            benchmark, config, artifact_root, cache, catalog = self._verified_fixture(root)
             (artifact_root / "published.tar.gz").write_bytes(b"corrupt archive")
             archive_proof = verify_artifact_scope(
-                config, benchmark, benchmark, catalog, artifact_root, "paper-faithful"
+                config, benchmark, benchmark, catalog, cache, artifact_root
             )
             self.assertFalse(archive_proof.checks["archive:published.tar.gz"])
             (artifact_root / "reference.txt").write_text("changed source\n")
             reference_proof = verify_artifact_scope(
-                config, benchmark, benchmark, catalog, artifact_root, "paper-faithful"
+                config, benchmark, benchmark, catalog, cache, artifact_root
             )
             self.assertFalse(reference_proof.checks["reference_file:reference.txt"])
 
@@ -184,25 +190,42 @@ class ProvenanceAndArtifactTests(unittest.TestCase):
             root = Path(tmp)
             benchmark, config, artifact_root, cache, catalog = self._verified_fixture(root)
             proof = verify_artifact_scope(
-                config, benchmark, benchmark, catalog, artifact_root, "paper-faithful"
+                config, benchmark, benchmark, catalog, cache, artifact_root
             )
             self.assertTrue(proof.verified)
-            build_inventory(
+            result = build_inventory(
                 benchmark, benchmark, cache, config, "paper-faithful",
                 artifact_verification=proof,
             )
             import numpy as np
             np.save(cache / DIRS["ppi"] / "P1.npy", np.ones(512, dtype=np.float32))
-            with self.assertRaisesRegex(ValueError, "cache changed"):
-                assert_cache_catalog_unchanged(
-                    catalog, compute_cache_catalog(cache, config)
+            output = root / "mutated-cache-output"
+            with self.assertRaisesRegex(ReportError, "changed before report publication"):
+                write_reports(result, output, cache)
+            self.assertFalse(output.exists())
+
+    def test_verified_proof_cannot_be_rebound_to_another_cache_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            benchmark, config, artifact_root, cache, catalog = self._verified_fixture(root)
+            proof = verify_artifact_scope(
+                config, benchmark, benchmark, catalog, cache, artifact_root
+            )
+            other_cache = root / "other-cache"
+            make_cache(other_cache, ["P1"])
+            with self.assertRaisesRegex(ValueError, "not bound to this source benchmark"):
+                build_inventory(
+                    benchmark, benchmark, other_cache, config, "paper-faithful",
+                    artifact_verification=proof,
                 )
 
     def test_run_provenance_hashes_shared_target_source_csvs_once(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             benchmark, config, artifact_root, cache, catalog = self._verified_fixture(root)
-            proof = verify_artifact_scope(config, benchmark, benchmark, catalog, artifact_root, "paper-faithful")
+            proof = verify_artifact_scope(
+                config, benchmark, benchmark, catalog, cache, artifact_root
+            )
             config_path = root / "config.json"
             config_path.write_text(json.dumps({"version": 1}))
             hashes = HashCache()
@@ -236,7 +259,7 @@ class ProvenanceAndArtifactTests(unittest.TestCase):
             unverified_catalog = compute_cache_catalog(cache, unverified_config)
             unverified_proof = verify_artifact_scope(
                 unverified_config, benchmark, benchmark, unverified_catalog,
-                artifact_root, "paper-faithful",
+                cache, artifact_root,
             )
             unverified = build_run_provenance(
                 command=("inventory", "--test"), repository=root,
@@ -252,7 +275,9 @@ class ProvenanceAndArtifactTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             benchmark, config, artifact_root, cache, catalog = self._verified_fixture(root)
-            proof = verify_artifact_scope(config, benchmark, benchmark, catalog, artifact_root, "paper-faithful")
+            proof = verify_artifact_scope(
+                config, benchmark, benchmark, catalog, cache, artifact_root
+            )
             result = build_inventory(benchmark, benchmark, cache, config, "paper-faithful", artifact_verification=proof)
             write_reports(result, root / "compact", cache, report_level="compact")
             self.assertTrue((root / "compact" / "embedding_inventory.tsv.gz").exists())
@@ -279,7 +304,7 @@ class ProvenanceAndArtifactTests(unittest.TestCase):
             root = Path(tmp)
             benchmark, config, artifact_root, cache, catalog = self._verified_fixture(root)
             proof = verify_artifact_scope(
-                config, benchmark, benchmark, catalog, artifact_root, "paper-faithful"
+                config, benchmark, benchmark, catalog, cache, artifact_root
             )
             result = build_inventory(
                 benchmark, benchmark, cache, config, "paper-faithful",
@@ -296,7 +321,7 @@ class ProvenanceAndArtifactTests(unittest.TestCase):
             root = Path(tmp)
             benchmark, config, artifact_root, cache, catalog = self._verified_fixture(root)
             proof = verify_artifact_scope(
-                config, benchmark, benchmark, catalog, artifact_root, "paper-faithful"
+                config, benchmark, benchmark, catalog, cache, artifact_root
             )
             result = build_inventory(
                 benchmark, benchmark, cache, config, "paper-faithful",

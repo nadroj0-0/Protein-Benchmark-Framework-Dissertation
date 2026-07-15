@@ -139,6 +139,25 @@ changed shell files passed. ShellCheck was not installed and therefore was not r
 - No embedding generation, PFP training, or PFP evaluation.
 - No real production publication or capacity validation.
 
+## Final runtime wrapper added after the original report
+
+Two thin direct-`qsub` wrappers now support the limited-home-quota cluster workflow. The pilot
+wrapper runs only task 1 / 30% and automatic review. The array wrapper runs all six fixed identity
+tasks and does not require prior pilot evidence. Both delegate to one scratch-first orchestration
+script; no scientific transformation was duplicated in the HPC layer.
+
+When local input variables are absent, every task downloads UniRef90, idmapping, the selected
+Swiss-Prot/TrEMBL DAT source(s), GOA 234, and GO OBO into node-local scratch after checking the
+moving endpoint release markers. Pinned MMseqs2 `18-8cc5c` is also installed into scratch when no
+binary path is supplied. Complete hashes, frozen manifest, automatic attrition observations,
+strict output validation, five pickles, nine CSVs, and review reports are copied home; inputs and
+temporary indexes are discarded.
+
+The full array limits concurrency to two and requests 1200 GB scratch per active task. Copy-back is
+atomic. A full home filesystem or quota error makes the task fail but never changes the requirement
+to delete owned scratch. These behaviors are fixture-tested; no full download, real MMseqs2 run,
+or Grid Engine submission was performed while adding the wrappers.
+
 ## Remaining decisions and risks
 
 Daniel still needs to select the production UniProt source scope. A reviewer must set every

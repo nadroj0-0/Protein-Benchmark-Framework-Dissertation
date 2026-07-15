@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "name": "published-cafa3-pfp-cache-verified",
   "target_benchmark_contract": {
     "id_overlap": "global-evaluation-disjoint",
@@ -59,8 +59,6 @@
       "expected_dim": 1024,
       "sequence_dependent": true,
       "allow_sequence_hash_reuse": true,
-      "missing_action": "generate",
-      "invalid_action": "generate",
       "provenance": {
         "compatibility": "compatible",
         "label": "published-prott5-xl-uniref50",
@@ -75,8 +73,6 @@
       "expected_dim": 768,
       "sequence_dependent": false,
       "allow_sequence_hash_reuse": false,
-      "missing_action": "manual-review",
-      "invalid_action": "manual-review",
       "provenance": {
         "compatibility": "artifact-scoped",
         "label": "published-cafa3-temporal-text-exact-artifact-only",
@@ -92,8 +88,6 @@
       "expected_dim": 512,
       "sequence_dependent": true,
       "allow_sequence_hash_reuse": false,
-      "missing_action": "manual-review",
-      "invalid_action": "manual-review",
       "provenance": {
         "compatibility": "artifact-scoped",
         "label": "published-cafa3-esm-if1-exact-artifact-only",
@@ -108,8 +102,6 @@
       "expected_dim": 512,
       "sequence_dependent": false,
       "allow_sequence_hash_reuse": false,
-      "missing_action": "manual-review",
-      "invalid_action": "manual-review",
       "provenance": {
         "compatibility": "artifact-scoped",
         "label": "published-cafa3-string-v12-exact-artifact-only",

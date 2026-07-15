@@ -2,7 +2,7 @@
 
 This package reads the nine `{bp,cc,mf}-{training,validation,test}.csv` files,
 inventories an existing PFP cache in place, validates every selected NumPy
-array, and emits reuse/generation/masking plans. It never generates, downloads,
+array, and emits a binary reuse/regeneration plan. It never generates, downloads,
 extracts, copies, or links embeddings.
 
 ## What is being decided
@@ -16,9 +16,10 @@ The planner keeps four questions separate:
    benchmark context?
 
 Consequently, `present-valid`, `missing`, `unreadable`, `wrong-dimension`,
-`non-finite`, `sequence-mismatch`, and `provenance-unknown` are factual states;
-`reuse`, `generate`, `leave-masked`, `unavailable`, and `manual-review` are
-requested actions. Missing or unreadable arrays are compatible with PFP's
+`non-finite`, `sequence-mismatch`, and `provenance-unknown` are factual states.
+The action is always exactly `reuse` or `regenerate`. Missing, unreadable,
+ambiguous, incompatible, and unproven arrays all require regeneration. This is
+compatible with PFP's
 `MultiModalDataset._load_embedding_raw()` behavior: PFP substitutes a zero
 vector and mask `0.0`.
 
@@ -30,23 +31,27 @@ The modality rules are intentionally asymmetric:
 - **Temporal text** depends on the description and time context. The exact
   published CAFA3 text bytes can be reused for the verified published artifact;
   that does not establish a generation recipe for a 2025 t0 benchmark. The
-  pooling/provenance gap remains unresolved, so new-context transfer and text
-  generation stay manual.
+  pooling/provenance gap remains unresolved, so new-context text embeddings
+  receive action `regenerate`.
 - **Structure** requires compatible ID, exact sequence, and structure
   source/version evidence. Same-sequence cross-ID reuse is not inferred.
-- **PPI** requires a defensible protein-to-node mapping and the same STRING
-  release (the published PFP source is STRING v12). A same-named file is not
-  mapping evidence.
+- **PPI** requires the same STRING release and extractor policy (the published
+  PFP source is STRING v12). In the contemporary config, a valid authenticated
+  published array can be reused for the same source and target UniProt
+  accession. Cross-ID PPI reuse is unsupported until an authenticated STRING
+  mapping artifact is integrated.
 
-Aliases are accepted only from an explicit TSV. They are never fuzzy, must
-carry the modality evidence described by `--help`/the tests, and cannot create
-artifact ownership.
+Aliases are accepted only from an explicit TSV and are never fuzzy. ProtT5 may
+use an alias only after exact full-sequence equality. Text, structure, and PPI
+aliases are retained as diagnostics but cannot authorize reuse without a future
+authenticated external mapping/input artifact.
 
 ## Separate target and source contracts
 
-Schema version 2 requires both `target_benchmark_contract` and
-`source_benchmark_contract`; schema version 1 is rejected rather than silently
-reinterpreted. The target contract is the leakage gate. The source contract
+Schema version 3 requires both `target_benchmark_contract` and
+`source_benchmark_contract` and defines the binary reuse/regenerate action
+contract; earlier schemas are rejected rather than silently reinterpreted. The
+target contract is the leakage gate. The source contract
 only validates the identities, sequences, and memberships represented by a
 pre-existing cache, so it may deliberately allow a split policy that would be
 unacceptable for a new target.
@@ -69,17 +74,19 @@ assignment manifest and a future explicit checker.
 
 ## Deterministic artifact proof
 
-An `artifact-scoped` label is not authority. Exact published-artifact reuse is
-enabled only when every configured proof passes:
+An `artifact-scoped` label is not authority. Cache authentication first requires:
 
-- target and source equal the pinned canonical benchmark fingerprint;
-- target and source fingerprints equal each other;
+- the source benchmark equals the pinned canonical benchmark fingerprint;
 - the full embedding-cache catalog fingerprint, modality counts, file count,
   and logical byte count match;
 - all available published archive SHA-256 values match;
 - the immutable PFP reference commit and pinned workflow/source file hashes
-  match; and
-- the selected policy is `paper-faithful`.
+  match.
+
+Authentication establishes what the cache is; it does not by itself authorize
+reuse for a changed target. An `artifact-scoped` record receives action `reuse`
+only when the target also has the pinned canonical fingerprint, the policy is
+`paper-faithful`, and the valid array is selected by direct protein ID.
 
 The benchmark fingerprint hashes canonical JSON lines sorted by protein ID.
 Each line includes the exact protein ID, full sequence SHA-256, sequence length,
@@ -114,12 +121,13 @@ protein/action tables without repeating sequences, plus:
 - `embedding_summary.{json,md}` and `run_provenance.{json,md}`;
 - `benchmark_proteins.tsv.gz`, `protein_embedding_summary.tsv.gz`;
 - full-field, gzip row-level `embedding_inventory.tsv.gz`;
-- `reuse_manifest.tsv.gz`, `generation_manifest.tsv`,
-  `manual_review.tsv.gz`, `cache_extras.tsv.gz`;
-- per-modality reuse, missing, masked, generation, unavailable, and manual
-  lists;
-- `exact_sequence_reuse.tsv`, `manual_review_reasons.tsv`, and `errors.tsv`;
-- actionable `generate_prott5.fasta` when ProtT5 generation is requested.
+- primary `reuse.tsv` and `regenerate.tsv` action manifests;
+- `reuse/{prott5,text,structure,ppi}.txt` reusable ID lists;
+- `regenerate/{prott5,text,structure,ppi}.txt` generation ID lists and
+  `regenerate/prott5.fasta`;
+- `regenerate_reasons.tsv` with compact factual/reason counts;
+- `cache_extras.tsv.gz`, `exact_sequence_reuse.tsv`, and `errors.tsv` as
+  supporting diagnostics;
 
 `--report-level full` adds `benchmark_proteins_full.tsv.gz`; it is the only general table that
 repeats complete sequences. Gzip output is deterministic. Output must be a new
@@ -207,11 +215,13 @@ bash scripts/verification/run_contemporary_embedding_inventory.sh \
 The result root contains `job_summary.md`, acquisition provenance,
 `physical_coverage/{valid,not_valid,missing}_{modality}.txt` convenience lists, and an
 `inventory/` directory with the normal manifests and completion marker.
-`generate_prott5.fasta` is immediately actionable because ProtT5 transfer is
-approved only for an exact complete-sequence match. The contemporary config
-keeps text, structure, and PPI in manual review when their temporal/source/node
-provenance is unresolved; their `missing_*.txt` files are physical generation
-candidates, not automatic scientific approval.
+`regenerate/prott5.fasta` is immediately actionable because ProtT5 transfer
+is approved only for an exact complete-sequence match. The contemporary config
+regenerates text and structure unless the exact original description or
+AlphaFold structure input is positively proven. It permits direct-ID PPI reuse
+only for the fixed STRING v12 published extractor identity. Missing, invalid,
+ambiguous, unavailable, and unknown-provenance cases all receive action
+`regenerate`; their detailed reasons remain auditable.
 
 Future homology benchmark uses the same executable and nine CSV interface:
 

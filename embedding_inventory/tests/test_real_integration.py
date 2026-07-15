@@ -86,8 +86,8 @@ class RealDataIntegrationTests(unittest.TestCase):
         }
 
         canonical_proof = verify_artifact_scope(
-            config, canonical_target, source, catalog, CACHE.parent.parent,
-            "paper-faithful", hash_cache,
+            config, canonical_target, source, catalog, CACHE, CACHE.parent.parent,
+            hash_cache,
         )
         self.assertTrue(canonical_proof.verified, canonical_proof.reasons)
         canonical_result = build_inventory(
@@ -113,10 +113,10 @@ class RealDataIntegrationTests(unittest.TestCase):
                 target = parse_benchmark(historical_dir, config.target_benchmark_contract)
                 independent_target = independent_parse(historical_dir)
                 proof = verify_artifact_scope(
-                    config, target, source, catalog, CACHE.parent.parent,
-                    "maximize-coverage", hash_cache,
+                    config, target, source, catalog, CACHE, CACHE.parent.parent,
+                    hash_cache,
                 )
-                self.assertFalse(proof.verified)
+                self.assertTrue(proof.verified, proof.reasons)
                 result = build_inventory(
                     target,
                     source,
@@ -167,7 +167,9 @@ class RealDataIntegrationTests(unittest.TestCase):
     def _assert_golden(self, result, summary, independent, cache_ids):
         records = {(record.protein_id, record.modality): record for record in result.records}
         self.assertEqual(len(records), 4 * len(independent["sequences"]))
-        self.assertFalse(any(record.requested_action == "generate" for record in result.records))
+        self.assertTrue(
+            all(record.requested_action in {"reuse", "regenerate"} for record in result.records)
+        )
         for modality in MODALITIES:
             direct = sum(protein_id in cache_ids[modality] for protein_id in independent["sequences"])
             inventory_present = summary["coverage"]["global"]["by_modality"][modality]["present"]["count"]
@@ -182,7 +184,7 @@ class RealDataIntegrationTests(unittest.TestCase):
                     self.assertEqual(record.requested_action, "reuse")
                 else:
                     self.assertEqual(record.factual_status, "missing")
-                    self.assertEqual(record.requested_action, "leave-masked")
+                    self.assertEqual(record.requested_action, "regenerate")
 
         for split, ids in independent["by_split"].items():
             for modality in MODALITIES:
@@ -204,7 +206,6 @@ class RealDataIntegrationTests(unittest.TestCase):
             summary["coverage"]["global"]["complete_four_modalities_reusable"]["count"],
             sum(all(protein_id in cache_ids[m] for m in MODALITIES) for protein_id in all_ids),
         )
-        self.assertFalse(any(record.requested_action == "manual-review" for record in result.records))
         self.assertEqual(sum(record.valid for record in result.records), 265570)
         self.assertIn("zero vectors with mask 0.0", summary["pfp_missing_behavior"])
 
@@ -238,7 +239,7 @@ class RealDataIntegrationTests(unittest.TestCase):
         expected_generation = target_ids - expected_prott5_reuse
         actual_generation = {
             r.protein_id for r in result.records
-            if r.modality == "prott5" and r.requested_action == "generate"
+            if r.modality == "prott5" and r.requested_action == "regenerate"
         }
         self.assertEqual(actual_generation, expected_generation)
         expected_cross_id_new = {
@@ -257,7 +258,7 @@ class RealDataIntegrationTests(unittest.TestCase):
                 self.assertEqual(record.match_route, "sequence-sha256")
             else:
                 self.assertEqual(record.factual_status, "missing")
-                self.assertEqual(record.requested_action, "generate")
+                self.assertEqual(record.requested_action, "regenerate")
 
         for protein_id in changed:
             self.assertNotEqual(records[(protein_id, "prott5")].match_route, "exact-id")
@@ -270,11 +271,8 @@ class RealDataIntegrationTests(unittest.TestCase):
             self.assertFalse(
                 any(record.requested_action == "reuse" for record in modality_records)
             )
-            self.assertFalse(
-                any(record.requested_action == "generate" for record in modality_records)
-            )
             self.assertTrue(
-                all(record.requested_action == "manual-review" for record in modality_records)
+                all(record.requested_action == "regenerate" for record in modality_records)
             )
             expected_present = len(target_ids & cache_ids[modality])
             observed_present = summary["coverage"]["global"]["by_modality"][modality][

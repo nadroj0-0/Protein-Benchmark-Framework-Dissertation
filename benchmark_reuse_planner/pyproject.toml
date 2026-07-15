@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pfp-benchmark-reuse"
+version = "0.1.0"
+description = "Deterministic benchmark-level embedding reuse planner for PFP CSVs"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+pfp-benchmark-reuse = "pfp_benchmark_reuse.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py39"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["E402"]

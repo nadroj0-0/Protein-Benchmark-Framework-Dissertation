@@ -113,11 +113,11 @@ def _parser() -> argparse.ArgumentParser:
         "--evalue", type=float, default=1e-4,
         help="Locked at 1e-4 by the reviewed MMseqs2 contract",
     )
-    build.add_argument("--scratch-safety-multiplier", type=float, default=8.0)
+    build.add_argument("--scratch-safety-multiplier", type=float, default=1.0)
     build.add_argument("--minimum-free-disk-gb", type=float, default=0.0)
     build.add_argument("--persistent-results-root", type=Path)
-    build.add_argument("--mmseqs-work-multiplier", type=float, default=8.0)
-    build.add_argument("--publication-safety-multiplier", type=float, default=2.0)
+    build.add_argument("--mmseqs-work-multiplier", type=float, default=1.0)
+    build.add_argument("--publication-safety-multiplier", type=float, default=1.0)
     build.add_argument("--excluded-sample-per-reason", type=int, default=1000)
     build.add_argument("--uniprot-release", default="2026_02")
     build.add_argument("--goa-release", default="234")

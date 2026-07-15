@@ -47,9 +47,17 @@ The benchmark path is supplied at submission time, never embedded in the
 wrapper. The job downloads Zenodo records 7409660 and 19498341 into scratch,
 authenticates the nine source CSVs and three embedding archives, validates the
 published cache, and runs the existing provenance-aware planner. Only compact
-reports, manifests, ID lists, and `generate_prott5.fasta` are copied to
+reports, the binary `reuse`/`regenerate` manifests and lists, and
+`regenerate/prott5.fasta` are copied to
 `$HOME/contemporary_embedding_inventory_results`; archive/cache bytes are not.
 Scratch is removed after success, failure, or termination.
+The wrapper must be submitted from a clean framework Git checkout unless a
+complete `FRAMEWORK_COMMIT` is supplied. It checks out that exact commit in
+scratch, so queue delay cannot silently change the reviewed code. Persistent
+results are copied to a sibling staging directory and atomically renamed only
+after success markers are present. Failed runs are published under a `.failed`
+suffix without a success marker. Scratch cleanup remains unconditional even if
+home-directory publication fails.
 
 The common submission form is:
 
@@ -61,14 +69,78 @@ qsub -v BENCHMARK_DIR="$HOME/contemporary_cafa_benchmark_results/<run>/outputs" 
 Any role can be overridden with `BP_TRAINING_CSV`, `BP_VALIDATION_CSV`,
 `BP_TEST_CSV`, and corresponding `CC_*`/`MF_*` variables. With no
 `BENCHMARK_DIR`, all nine variables are required. Optional overrides are
-`SOURCE_BENCHMARK_DIR`, `PUBLISHED_EMBEDDING_ARCHIVE_DIR`, `ALIASES_FILE`,
-`INVENTORY_CONFIG`, `INVENTORY_POLICY`, `REPORT_LEVEL`, and `RESULTS_ROOT`.
+`SOURCE_BENCHMARK_DIR`, `PUBLISHED_EMBEDDING_ARCHIVE_DIR`, `PFP_REFERENCE_DIR`, `ALIASES_FILE`,
+`INVENTORY_CONFIG`, `INVENTORY_POLICY`, `REPORT_LEVEL`, `RESULTS_ROOT`, and the
+complete 40-character `FRAMEWORK_COMMIT`.
 The default is to download the canonical source CSVs and published embedding
 archives during each job, as requested.
 
 ## Homology-cluster identity array
 
-The homology benchmark has three components:
+### Final scratch-first runtime entrypoints
+
+The normal no-persistent-input workflow now has two thin direct `qsub` entrypoints:
+
+```text
+hpc_jobs/active/hpc_homology_cluster_runtime_pilot.sh
+hpc_jobs/active/hpc_homology_cluster_runtime_array.sh
+```
+
+Submit the recommended one-item 30% pilot with:
+
+```bash
+qsub hpc_jobs/active/hpc_homology_cluster_runtime_pilot.sh
+```
+
+Submit all six identities without a pilot prerequisite with:
+
+```bash
+qsub hpc_jobs/active/hpc_homology_cluster_runtime_array.sh
+```
+
+The array maps tasks `1-6` to `30, 25, 20, 15, 10, 5%` and uses `-tc 2` to avoid six
+simultaneous copies of the roughly 170 GB compressed source collection. Node-local scratch is not
+shared between array tasks, so every task with missing path overrides downloads its own inputs.
+The 30% diagnostic pilot requests `300G` scratch. The unsupported parser/MMseqs/publication
+defaults are reduced globally to neutral `1x` bookkeeping; the pilot records rather than enforces
+the resulting estimate. The
+six-task wrapper retains its older conservative request until this pilot has measured real usage;
+do not submit that array before reviewing the pilot's disk report.
+
+Both wrappers delegate to
+`scripts/benchmark_generation/run_homology_cluster_runtime_hpc.sh`. That driver:
+
+- uses the existing `mmfp` environment and clones the exact submitted framework commit;
+- defaults to `sprot-and-trembl`, while accepting `sprot-only` and `trembl-only` explicitly;
+- stages any supplied source paths into task-owned scratch and downloads only missing sources;
+- checks that current UniProt and GOA endpoints still mean UniProt `2026_02` and GOA `234` before
+  downloading, and checks the embedded GOA/GO ontology release metadata afterwards;
+- downloads pinned MMseqs2 `18-8cc5c` into scratch when `MMSEQS_BIN` is not supplied;
+- creates the checksum-bound frozen-input manifest and a clearly labelled automatic, non-blocking
+  runtime attrition policy;
+- calls the normal homology builder and strict publication validator, then writes an automatic
+  review beside every task's five pickles and nine CSVs;
+- samples allocated bytes in the job-owned scratch tree every 120 seconds and at named stage
+  boundaries, writing `logs/disk_usage.tsv`, `logs/disk_usage_by_path.tsv`, and
+  `logs/disk_usage_summary.tsv` with the measured peak;
+- copies important results and logs atomically under
+  `$HOME/homology_cluster_benchmark_results` by default; and
+- always removes the task-owned scratch directory, including when home copy-back fails. A copy
+  failure returns non-zero and leaves the Grid Engine `.o` log as the diagnostic.
+
+Optional local inputs use the existing variables `UNIREF90_FASTA`, `IDMAPPING`,
+`UNIPROT_SPROT_SEQUENCES`, `UNIPROT_TREMBL_SEQUENCES`, `GOA`, and `GO_OBO`. Each may be paired with
+its existing `*_SHA256` variable. Missing paths are downloaded into scratch. `RESULTS_ROOT`,
+`FRAMEWORK_REVISION`, `MMSEQS_BIN`, `UNIPROT_SOURCE_SCOPE`, `SPLIT_POLICY`, `SEED`, and `MIN_COUNT`
+are also overridable. Large source bytes and MMseqs2 temporary data are never copied home.
+
+The automatic runtime review proves the software/output contract; its permissive attrition bounds
+are not a substitute for biological interpretation. Running the pilot first remains good practice,
+but no pilot file, approval, or completion marker is required by the full runtime array.
+
+### Pre-staged reviewed-input launchers
+
+The older, more restrictive reviewed-input workflow has three components:
 
 ```text
 hpc_jobs/active/hpc_homology_cluster_benchmark.sh
@@ -103,12 +175,13 @@ Production arrays require:
 - reviewed attrition policy, task context, separately sourced runtime/memory/scratch/output
   measurements, and human approval.
 
-The full launcher rechecks approval evidence before constructing the command. The queued worker
+The full launcher in this older workflow rechecks approval evidence before constructing the command. The queued worker
 rechecks launcher-time evidence hashes and reruns approval from its detached checkout before input
 staging. Approval binds the reviewed attrition-policy hash and a common pilot run ID across the
 marker, task context, and measurement evidence. Authorization reconstructs the pilot ratios and
 requires the reviewed policy to accept them; diagnostic reports remain explicitly non-authorizing.
-No bypass exists. One array-wide attrition override is rejected because observed failures can
+That strict reviewed-input path deliberately has no bypass. It is separate from the final
+scratch-first runtime array above, whose pilot is optional. One array-wide attrition override is rejected because observed failures can
 differ across identities.
 
 Task paths include source scope, framework revision, run ID, Grid Engine job ID, task ID, identity,

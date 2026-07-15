@@ -302,14 +302,16 @@ def _disk_preflight(
     required_scratch_filesystem = (
         estimated_scratch + estimated_publication if same_filesystem else estimated_scratch
     )
-    if scratch_usage.free < required_scratch_filesystem:
+    estimate_enforced = not config.diagnostic_pilot
+    estimate_exceeds_available_space = scratch_usage.free < required_scratch_filesystem
+    if estimate_enforced and estimate_exceeds_available_space:
         raise OSError(
             "Scratch preflight failed: "
             f"free={scratch_usage.free} bytes, estimate={required_scratch_filesystem} bytes. "
             "Increase scratch, reduce only the explicit safety multiplier with measured evidence, "
             "or set a site-specific minimum."
         )
-    if not same_filesystem and publication_usage.free < estimated_publication:
+    if estimate_enforced and not same_filesystem and publication_usage.free < estimated_publication:
         raise OSError(
             "Publication-filesystem preflight failed: "
             f"free={publication_usage.free} bytes, estimate={estimated_publication} bytes."
@@ -320,7 +322,7 @@ def _disk_preflight(
     )
     persistent_path.mkdir(parents=True, exist_ok=True)
     persistent_usage = shutil.disk_usage(persistent_path)
-    if persistent_usage.free < estimated_publication:
+    if estimate_enforced and persistent_usage.free < estimated_publication:
         raise OSError(
             "Persistent-results preflight failed before benchmark execution: "
             f"free={persistent_usage.free} bytes, estimate={estimated_publication} bytes."
@@ -344,6 +346,14 @@ def _disk_preflight(
         "estimated_publication_bytes": estimated_publication,
         "required_on_scratch_filesystem_bytes": required_scratch_filesystem,
         "estimate_is_exact": False,
+        "estimate_enforced": estimate_enforced,
+        "estimate_exceeds_available_space": estimate_exceeds_available_space,
+        "measurement_note": (
+            "Diagnostic pilots record but do not enforce speculative multiplier estimates; "
+            "use the runtime disk-usage report to calibrate production requests."
+            if config.diagnostic_pilot else
+            "Production runs enforce the configured conservative estimate."
+        ),
     }
 
 

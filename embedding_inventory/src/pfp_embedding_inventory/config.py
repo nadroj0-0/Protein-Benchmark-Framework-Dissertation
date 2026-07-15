@@ -26,7 +26,6 @@ _OVERLAP_POLICIES = {
     "per-ontology-disjoint",
 }
 _COMPATIBILITY = {"compatible", "artifact-scoped", "unknown", "incompatible"}
-_PLAN_ACTIONS = {"generate", "unavailable", "leave-masked", "manual-review"}
 _EXPECTED_DIMS = {"prott5": 1024, "text": 768, "structure": 512, "ppi": 512}
 _ARTIFACT_MODES = {"none", "verified-published-cache"}
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -42,13 +41,13 @@ def load_config(path: Path) -> PlannerConfig:
     if not isinstance(raw, dict):
         raise ConfigError("configuration root must be a JSON object")
     version = raw.get("schema_version")
-    if version != 2:
-        if version == 1:
+    if version != 3:
+        if version in {1, 2}:
             raise ConfigError(
-                "schema_version 1 is not accepted: migrate benchmark_contract to explicit "
-                "target_benchmark_contract and source_benchmark_contract"
+                "schema_version %s is not accepted: migrate to schema_version 3, "
+                "which uses the binary reuse/regenerate action contract" % version
             )
-        raise ConfigError("schema_version must be 2")
+        raise ConfigError("schema_version must be 3")
     if "benchmark_contract" in raw:
         raise ConfigError("schema v2 forbids the ambiguous benchmark_contract key")
     _exact_keys(
@@ -82,8 +81,6 @@ def load_config(path: Path) -> PlannerConfig:
                 "expected_dim",
                 "sequence_dependent",
                 "allow_sequence_hash_reuse",
-                "missing_action",
-                "invalid_action",
                 "provenance",
             },
             "modality %s" % name,
@@ -105,11 +102,6 @@ def load_config(path: Path) -> PlannerConfig:
                 "modality %s expected_dim must be the PFP dimension %d"
                 % (name, _EXPECTED_DIMS[name])
             )
-        missing_action = str(item.get("missing_action", "manual-review"))
-        invalid_action = str(item.get("invalid_action", "manual-review"))
-        if missing_action not in _PLAN_ACTIONS or invalid_action not in _PLAN_ACTIONS:
-            raise ConfigError("modality %s has an unsupported planning action" % name)
-
         provenance_raw = _mapping(item, "provenance")
         _allowed_keys(
             provenance_raw,
@@ -121,6 +113,7 @@ def load_config(path: Path) -> PlannerConfig:
                 "evidence",
                 "text_role_policy",
                 "requires_mapping_evidence",
+                "allow_direct_id_reuse",
             },
             "modality %s provenance" % name,
         )
@@ -146,6 +139,11 @@ def load_config(path: Path) -> PlannerConfig:
         requires_mapping_evidence = _required_bool(
             provenance_raw, "requires_mapping_evidence", name
         )
+        allow_direct_id_reuse = provenance_raw.get("allow_direct_id_reuse", False)
+        if type(allow_direct_id_reuse) is not bool:
+            raise ConfigError(
+                "modality %s allow_direct_id_reuse must be a JSON boolean" % name
+            )
         expected_mapping_evidence = name != "prott5"
         if requires_mapping_evidence != expected_mapping_evidence:
             raise ConfigError(
@@ -165,6 +163,14 @@ def load_config(path: Path) -> PlannerConfig:
         if compatibility == "artifact-scoped" and artifact_scope.mode == "none":
             raise ConfigError(
                 "modality %s cannot be artifact-scoped without verified artifact metadata" % name
+            )
+        if allow_direct_id_reuse and (
+            name != "ppi" or compatibility != "compatible" or not requires_mapping_evidence
+        ):
+            raise ConfigError(
+                "allow_direct_id_reuse is restricted to compatible PPI provenance; "
+                "cross-ID reuse remains unsupported without an authenticated "
+                "external mapping/input artifact"
             )
 
         sequence_dependent = _required_bool(item, "sequence_dependent", name)
@@ -190,8 +196,6 @@ def load_config(path: Path) -> PlannerConfig:
             expected_dim=expected_dim,
             sequence_dependent=sequence_dependent,
             allow_sequence_hash_reuse=allow_sequence_hash_reuse,
-            missing_action=missing_action,
-            invalid_action=invalid_action,
             provenance=ProvenanceSpec(
                 compatibility=compatibility,
                 label=label,
@@ -200,6 +204,7 @@ def load_config(path: Path) -> PlannerConfig:
                 evidence=evidence,
                 text_role_policy=str(provenance_raw.get("text_role_policy", "none")),
                 requires_mapping_evidence=requires_mapping_evidence,
+                allow_direct_id_reuse=allow_direct_id_reuse,
             ),
         )
 
@@ -208,7 +213,7 @@ def load_config(path: Path) -> PlannerConfig:
         raise ConfigError("each modality must use a distinct cache directory")
 
     return PlannerConfig(
-        schema_version=2,
+        schema_version=3,
         name=str(raw.get("name", path.stem)),
         target_benchmark_contract=target_contract,
         source_benchmark_contract=source_contract,

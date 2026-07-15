@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Sequence, Set, TextIO
 
 from .models import InventoryRecord, InventoryResult, MODALITIES, ONTOLOGIES, SPLITS
-from .provenance import provenance_markdown
+from .provenance import compute_cache_catalog, provenance_markdown
 
 
 class ReportError(ValueError):
@@ -33,6 +33,12 @@ ACTION_FIELDS = [
     "protein_id", "sequence_sha256", "modality", "source_protein_id", "source_file",
     "match_route", "factual_status", "requested_action", "provenance", "reason",
 ]
+PLAN_FIELDS = [
+    "protein_id", "modality", "requested_action", "factual_status",
+    "source_protein_id", "source_file", "reason",
+]
+
+
 def write_reports(
     result: InventoryResult,
     output_dir: Path,
@@ -44,6 +50,7 @@ def write_reports(
 ) -> Dict[str, Any]:
     if report_level not in {"compact", "full"}:
         raise ReportError("report_level must be compact or full")
+    _revalidate_verified_cache(result, embedding_cache)
     _prepare_output(output_dir, result, embedding_cache, protected_roots)
     staging = Path(
         tempfile.mkdtemp(prefix=".%s.staging-" % output_dir.name, dir=str(output_dir.parent))
@@ -66,6 +73,63 @@ def write_reports(
     return summary
 
 
+def _revalidate_verified_cache(result: InventoryResult, embedding_cache: Path) -> None:
+    verification = result.artifact_verification
+    if not verification.verified:
+        return
+    expected_root = verification.observed.get("embedding_cache_root")
+    actual_root = str(embedding_cache.resolve())
+    if expected_root != actual_root:
+        raise ReportError(
+            "verified cache proof is bound to %s, not %s"
+            % (expected_root or "an unspecified cache", actual_root)
+        )
+    expected_catalog = verification.observed.get("cache_catalog")
+    current_catalog = compute_cache_catalog(embedding_cache, result.config).as_dict()
+    if current_catalog != expected_catalog:
+        raise ReportError(
+            "verified embedding cache changed before report publication"
+        )
+
+
+def _validate_binary_partition(result: InventoryResult) -> None:
+    expected = {
+        (protein_id, modality)
+        for protein_id in result.benchmark.proteins
+        for modality in MODALITIES
+    }
+    observed = [(record.protein_id, record.modality) for record in result.records]
+    counts = Counter(observed)
+    duplicates = sorted(pair for pair, count in counts.items() if count != 1)
+    missing = sorted(expected - set(observed))
+    unexpected = sorted(set(observed) - expected)
+    invalid_actions = sorted(
+        (record.protein_id, record.modality, record.requested_action)
+        for record in result.records
+        if record.requested_action not in {"reuse", "regenerate"}
+    )
+    inconsistent = sorted(
+        (record.protein_id, record.modality)
+        for record in result.records
+        if (record.requested_action == "reuse") != record.scientifically_eligible
+    )
+    if (
+        duplicates
+        or missing
+        or unexpected
+        or invalid_actions
+        or inconsistent
+    ):
+        raise ReportError(
+            "binary reuse partition is invalid: duplicates=%s missing=%s unexpected=%s "
+            "invalid_actions=%s inconsistent=%s"
+            % (
+                duplicates[:5], missing[:5], unexpected[:5],
+                invalid_actions[:5], inconsistent[:5],
+            )
+        )
+
+
 def _write_reports_staged(
     result: InventoryResult,
     output_dir: Path,
@@ -77,23 +141,23 @@ def _write_reports_staged(
     records_by_protein: Dict[str, Dict[str, InventoryRecord]] = defaultdict(dict)
     for record in result.records:
         records_by_protein[record.protein_id][record.modality] = record
+    _validate_binary_partition(result)
 
     _write_benchmark_proteins(result, output_dir / "benchmark_proteins.tsv.gz", False)
     _write_inventory(result.records, output_dir / "embedding_inventory.tsv.gz")
     _write_protein_summary(
         result, records_by_protein, output_dir / "protein_embedding_summary.tsv.gz"
     )
-    _write_action_manifest(result.records, output_dir / "reuse_manifest.tsv.gz", "reuse")
-    _write_action_manifest(
-        result.records, output_dir / "generation_manifest.tsv", "generate"
+    _write_plan_manifest(
+        result.records, output_dir / "reuse.tsv", "reuse"
     )
-    _write_action_manifest(
-        result.records, output_dir / "manual_review.tsv.gz", "manual-review"
+    _write_plan_manifest(
+        result.records, output_dir / "regenerate.tsv", "regenerate"
     )
     extras = _write_cache_extras(result, output_dir / "cache_extras.tsv.gz")
     _write_modality_lists(result, output_dir)
     _write_exact_sequence_reuse(result, output_dir / "exact_sequence_reuse.tsv")
-    _write_reason_counts(result, output_dir / "manual_review_reasons.tsv")
+    _write_regeneration_reason_counts(result, output_dir / "regenerate_reasons.tsv")
     _write_errors(result, output_dir / "errors.tsv")
     if report_level == "full":
         _write_benchmark_proteins(
@@ -180,7 +244,7 @@ def _write_output_integrity(staging: Path) -> None:
 def _file_manifest(root: Path, excluded: Set[str]) -> List[Dict[str, Any]]:
     return [
         _path_identity(root, path)
-        for path in sorted(root.iterdir(), key=lambda item: item.name)
+        for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix())
         if path.is_file() and path.name not in excluded
     ]
 
@@ -280,16 +344,18 @@ def _write_inventory(records: Iterable[InventoryRecord], path: Path) -> None:
             writer.writerow(record.as_dict())
 
 
-def _write_action_manifest(
+def _write_plan_manifest(
     records: Iterable[InventoryRecord], path: Path, action: str
 ) -> None:
     with _text_writer(path) as handle:
-        writer = csv.DictWriter(handle, fieldnames=ACTION_FIELDS, delimiter="\t", lineterminator="\n")
+        writer = csv.DictWriter(
+            handle, fieldnames=PLAN_FIELDS, delimiter="\t", lineterminator="\n"
+        )
         writer.writeheader()
         for record in records:
             if record.requested_action == action:
                 row = record.as_dict()
-                writer.writerow({field: row[field] for field in ACTION_FIELDS})
+                writer.writerow({field: row[field] for field in PLAN_FIELDS})
 
 
 def _write_protein_summary(
@@ -300,8 +366,7 @@ def _write_protein_summary(
     fields = [
         "protein_id", "sequence_sha256", "sequence_length", "has_any_embedding",
         "has_prott5", "has_text", "has_structure", "has_ppi", "valid_modalities",
-        "reusable_modalities", "missing_modalities", "generation_modalities",
-        "masked_modalities", "unavailable_modalities", "manual_review_modalities",
+        "missing_modalities", "reuse_modalities", "regenerate_modalities",
     ]
     with _text_writer(path) as handle:
         writer = csv.DictWriter(handle, fieldnames=fields, delimiter="\t", lineterminator="\n")
@@ -321,12 +386,13 @@ def _write_protein_summary(
                     "has_structure": _bool("structure" in present),
                     "has_ppi": _bool("ppi" in present),
                     "valid_modalities": ";".join(m for m in MODALITIES if records[m].valid),
-                    "reusable_modalities": ";".join(_modalities_with_action(records, "reuse")),
                     "missing_modalities": ";".join(m for m in MODALITIES if records[m].factual_status == "missing"),
-                    "generation_modalities": ";".join(_modalities_with_action(records, "generate")),
-                    "masked_modalities": ";".join(_modalities_with_action(records, "leave-masked")),
-                    "unavailable_modalities": ";".join(_modalities_with_action(records, "unavailable")),
-                    "manual_review_modalities": ";".join(_modalities_with_action(records, "manual-review")),
+                    "reuse_modalities": ";".join(
+                        m for m in MODALITIES if records[m].requested_action == "reuse"
+                    ),
+                    "regenerate_modalities": ";".join(
+                        m for m in MODALITIES if records[m].requested_action == "regenerate"
+                    ),
                 }
             )
 
@@ -357,31 +423,41 @@ def _write_modality_lists(result: InventoryResult, output_dir: Path) -> None:
     by_modality: Dict[str, List[InventoryRecord]] = defaultdict(list)
     for record in result.records:
         by_modality[record.modality].append(record)
+    reuse_dir = output_dir / "reuse"
+    regenerate_dir = output_dir / "regenerate"
+    reuse_dir.mkdir()
+    regenerate_dir.mkdir()
     for modality in MODALITIES:
-        _write_id_list(output_dir / ("reuse_%s.txt" % modality), by_modality[modality], "reuse")
-        _write_status_list(output_dir / ("missing_%s.txt" % modality), by_modality[modality], "missing")
-        _write_id_list(output_dir / ("masked_%s.txt" % modality), by_modality[modality], "leave-masked")
-        _write_id_list(output_dir / ("%s_manual_review.txt" % modality), by_modality[modality], "manual-review")
-    _write_fasta(output_dir / "generate_prott5.fasta", by_modality["prott5"], result)
-    _write_id_list(output_dir / "generate_text.txt", by_modality["text"], "generate")
-    _write_id_list(output_dir / "generate_structure.txt", by_modality["structure"], "generate")
-    _write_id_list(output_dir / "structure_unavailable.txt", by_modality["structure"], "unavailable")
-    _write_id_list(output_dir / "extract_ppi.txt", by_modality["ppi"], "generate")
-    _write_id_list(output_dir / "ppi_unavailable.txt", by_modality["ppi"], "unavailable")
+        _write_decision_id_list(
+            reuse_dir / (modality + ".txt"), by_modality[modality], "reuse"
+        )
+        _write_decision_id_list(
+            regenerate_dir / (modality + ".txt"),
+            by_modality[modality],
+            "regenerate",
+        )
+    _write_decision_fasta(
+        regenerate_dir / "prott5.fasta", by_modality["prott5"], result
+    )
 
 
-def _write_id_list(path: Path, records: Sequence[InventoryRecord], action: str) -> None:
-    ids = sorted(record.protein_id for record in records if record.requested_action == action)
+def _write_decision_id_list(
+    path: Path, records: Sequence[InventoryRecord], action: str
+) -> None:
+    ids = sorted(
+        record.protein_id for record in records if record.requested_action == action
+    )
     path.write_text("".join(protein_id + "\n" for protein_id in ids), encoding="utf-8")
 
 
-def _write_status_list(path: Path, records: Sequence[InventoryRecord], status: str) -> None:
-    ids = sorted(record.protein_id for record in records if record.factual_status == status)
-    path.write_text("".join(protein_id + "\n" for protein_id in ids), encoding="utf-8")
-
-
-def _write_fasta(path: Path, records: Sequence[InventoryRecord], result: InventoryResult) -> None:
-    ids = sorted(record.protein_id for record in records if record.requested_action == "generate")
+def _write_decision_fasta(
+    path: Path, records: Sequence[InventoryRecord], result: InventoryResult
+) -> None:
+    ids = sorted(
+        record.protein_id
+        for record in records
+        if record.requested_action == "regenerate"
+    )
     with path.open("w", encoding="utf-8") as handle:
         for protein_id in ids:
             sequence = result.benchmark.proteins[protein_id].sequence
@@ -400,10 +476,11 @@ def _write_exact_sequence_reuse(result: InventoryResult, path: Path) -> None:
                 writer.writerow({field: record.as_dict()[field] for field in fields})
 
 
-def _write_reason_counts(result: InventoryResult, path: Path) -> None:
+def _write_regeneration_reason_counts(result: InventoryResult, path: Path) -> None:
     counts = Counter(
         (record.modality, record.factual_status, record.reason)
-        for record in result.records if record.requested_action == "manual-review"
+        for record in result.records
+        if record.requested_action == "regenerate"
     )
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
@@ -438,7 +515,7 @@ def _build_summary(
         for ontology in ONTOLOGIES for split in SPLITS
     }
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "config_name": result.config.name,
         "policy": result.policy,
         "report_level": report_level,
@@ -480,19 +557,19 @@ def _group_coverage(
         by_modality[modality] = {
             "present": _metric(sum(record.exists for record in records), total),
             "valid": _metric(sum(record.valid for record in records), total),
-            "reusable": _metric(actions["reuse"], total),
             "missing": _metric(statuses["missing"], total),
-            "generation": _metric(actions["generate"], total),
-            "masked": _metric(actions["leave-masked"], total),
-            "unavailable": _metric(actions["unavailable"], total),
-            "manual_review": _metric(actions["manual-review"], total),
+            "reuse": _metric(actions["reuse"], total),
+            "regenerate": _metric(actions["regenerate"], total),
             "factual_status_counts": dict(sorted(statuses.items())),
             "requested_action_counts": dict(sorted(actions.items())),
         }
     at_least_one = sum(any(records_by_protein[p][m].exists for m in MODALITIES) for p in protein_ids)
     complete_present = sum(all(records_by_protein[p][m].exists for m in MODALITIES) for p in protein_ids)
     complete_valid = sum(all(records_by_protein[p][m].valid for m in MODALITIES) for p in protein_ids)
-    complete_reusable = sum(all(records_by_protein[p][m].requested_action == "reuse" for m in MODALITIES) for p in protein_ids)
+    complete_reusable = sum(
+        all(records_by_protein[p][m].requested_action == "reuse" for m in MODALITIES)
+        for p in protein_ids
+    )
     actions = Counter(records_by_protein[p][m].requested_action for p in protein_ids for m in MODALITIES)
     return {
         "population": total,
@@ -512,29 +589,24 @@ def _summary_markdown(summary: Mapping[str, Any]) -> str:
         "- Configuration: `%s`" % summary["config_name"],
         "- Policy / report level: `%s` / `%s`" % (summary["policy"], summary["report_level"]),
         "- Benchmark proteins / unique sequences: %s / %s" % (_integer(summary["population"]), _integer(summary["unique_sequences"])),
-        "- Verified exact artifact scope: `%s`" % str(summary["artifact_verification"]["verified"]).lower(),
+        "- Published cache authenticated: `%s`" % str(summary["artifact_verification"]["verified"]).lower(),
         "- At least one physical modality: %s" % _format_metric(global_coverage["at_least_one_modality"]),
         "- Complete four-modality physical coverage: %s" % _format_metric(global_coverage["complete_four_modalities_present"]),
         "- Complete four-modality reusable coverage: %s" % _format_metric(global_coverage["complete_four_modalities_reusable"]),
-        "", "## Global modality coverage", "",
-        "| Modality | Present | Valid | Reuse | Missing | Generate | Masked | Unavailable | Manual review |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "", "## Binary generation plan", "",
+        "| Modality | Present | Valid | Reuse | Regenerate |",
+        "|---|---:|---:|---:|---:|",
     ]
     for modality in MODALITIES:
         values = global_coverage["by_modality"][modality]
-        lines.append("| %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
+        lines.append("| %s | %s | %s | %s | %s |" % (
             modality, _format_metric(values["present"]), _format_metric(values["valid"]),
-            _format_metric(values["reusable"]), _format_metric(values["missing"]),
-            _format_metric(values["generation"]), _format_metric(values["masked"]),
-            _format_metric(values["unavailable"]), _format_metric(values["manual_review"]),
+            _format_metric(values["reuse"]),
+            _format_metric(values["regenerate"]),
         ))
     lines.extend(["", "## Interpretation", "", summary["pfp_missing_behavior"], "",
-        "Physical validity and scientific reuse eligibility are separate. Exact published-artifact reuse requires the recorded cryptographic proof. Cross-benchmark temporal text, structure, and PPI remain conservative when their required context or mapping evidence is absent.", ""])
+        "Physical validity and scientific reuse eligibility are separate. Only positively proven reuse receives action `reuse`; every other status receives action `regenerate`. Detailed factual status and reasons are retained in the manifests. PPI direct-ID reuse is limited to the fixed STRING v12 published extractor identity; cross-ID PPI reuse is unsupported.", ""])
     return "\n".join(lines)
-
-
-def _modalities_with_action(records: Mapping[str, InventoryRecord], action: str) -> List[str]:
-    return [m for m in MODALITIES if records[m].requested_action == action]
 
 
 def _metric(count: int, total: int) -> Dict[str, Any]:

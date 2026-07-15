@@ -17,7 +17,10 @@ RUN_TAG="${JOB_TOKEN}_$(date +%Y%m%d_%H%M%S)"
 WORK="/scratch0/contemporary_embedding_inventory_${JOB_TOKEN}"
 RESULTS_ROOT="${RESULTS_ROOT:-$HOME/contemporary_embedding_inventory_results}"
 FINAL_RUN_ROOT="${RESULTS_ROOT}/${RUN_TAG}"
+FAILED_RUN_ROOT="${FINAL_RUN_ROOT}.failed"
 FRAMEWORK_REPO_URL="${FRAMEWORK_REPO_URL:-https://github.com/nadroj0-0/Protein-Benchmark-Framework-Dissertation.git}"
+SUBMISSION_DIR="${SGE_O_WORKDIR:-$PWD}"
+FRAMEWORK_COMMIT="${FRAMEWORK_COMMIT:-}"
 FRAMEWORK_DIR="${WORK}/Protein-Benchmark-Framework-Dissertation"
 WORKFLOW_WORK_DIR="${WORK}/inventory_work"
 SCRATCH_RESULT_ROOT="${WORK}/result"
@@ -32,23 +35,45 @@ die() {
 }
 
 copy_results() {
+  local workflow_status="$1"
   local copy_status=0
+  local destination="$FINAL_RUN_ROOT"
+  local staging="${FINAL_RUN_ROOT}.staging-${JOB_TOKEN}"
   if [[ "$RESULTS_COPIED" == "1" ]]; then
     return 0
   fi
-  if [[ -e "$FINAL_RUN_ROOT" ]]; then
-    echo "Refusing to overwrite result directory: $FINAL_RUN_ROOT" >&2
+  if [[ "$workflow_status" != "0" ]]; then
+    destination="$FAILED_RUN_ROOT"
+    staging="${FAILED_RUN_ROOT}.staging-${JOB_TOKEN}"
+  fi
+  if [[ -e "$destination" || -e "$staging" ]]; then
+    echo "Refusing to overwrite result or staging directory: $destination / $staging" >&2
     return 1
   fi
-  mkdir -p "$FINAL_RUN_ROOT/logs" || return 1
+  mkdir -p "$staging/logs" || return 1
   if [[ -d "$SCRATCH_RESULT_ROOT" ]]; then
-    cp -a "$SCRATCH_RESULT_ROOT/." "$FINAL_RUN_ROOT/" || copy_status=$?
+    cp -a "$SCRATCH_RESULT_ROOT/." "$staging/" || copy_status=$?
   fi
   if [[ -f "$WORKFLOW_LOG" ]]; then
-    cp -p "$WORKFLOW_LOG" "$FINAL_RUN_ROOT/logs/workflow.log" || copy_status=$?
+    cp -p "$WORKFLOW_LOG" "$staging/logs/workflow.log" || copy_status=$?
+  fi
+  if [[ "$copy_status" == "0" && "$workflow_status" == "0" ]]; then
+    [[ -f "$staging/WORKFLOW_COMPLETE.json" ]] || copy_status=1
+    [[ -f "$staging/inventory/RUN_COMPLETE.json" ]] || copy_status=1
+    [[ -f "$staging/inventory/output_manifest.json" ]] || copy_status=1
+  elif [[ "$workflow_status" != "0" ]]; then
+    rm -f "$staging/WORKFLOW_COMPLETE.json"
+    printf '{"complete":false,"workflow_exit_status":%s}\n' "$workflow_status" \
+      > "$staging/WORKFLOW_FAILED.json" || copy_status=$?
+  fi
+  if [[ "$copy_status" == "0" ]]; then
+    mv "$staging" "$destination" || copy_status=$?
   fi
   if [[ "$copy_status" == "0" ]]; then
     RESULTS_COPIED=1
+    echo "==> Published result directory atomically: $destination"
+  elif [[ -d "$staging" && ! -L "$staging" ]]; then
+    rm -rf "$staging"
   fi
   return "$copy_status"
 }
@@ -59,8 +84,8 @@ cleanup() {
   set +e
   echo
   echo "==> Final workflow status: $status"
-  echo "==> Copying reports and lists to: $FINAL_RUN_ROOT"
-  copy_results || copy_status=$?
+  echo "==> Publishing reports and lists"
+  copy_results "$status" || copy_status=$?
 
   if [[ "$WORK_OWNED" == "1" ]]; then
     if [[ "$WORK" == /scratch0/contemporary_embedding_inventory_* && ! -L "$WORK" ]]; then
@@ -98,8 +123,22 @@ echo "Report level  : ${REPORT_LEVEL:-compact}"
 echo "Started       : $(date)"
 echo
 
-echo "==> Cloning the dissertation framework into scratch"
-git clone "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"
+if [[ -z "$FRAMEWORK_COMMIT" ]]; then
+  [[ -d "$SUBMISSION_DIR/.git" ]] || \
+    die "Submit from a clean framework Git checkout or pass FRAMEWORK_COMMIT"
+  [[ -z "$(git -C "$SUBMISSION_DIR" status --porcelain)" ]] || \
+    die "Submission checkout has uncommitted changes; commit them before qsub"
+  FRAMEWORK_COMMIT="$(git -C "$SUBMISSION_DIR" rev-parse HEAD)"
+fi
+[[ "$FRAMEWORK_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]] || \
+  die "FRAMEWORK_COMMIT must be a complete 40-character Git commit"
+
+echo "Framework Git: $FRAMEWORK_COMMIT"
+echo "==> Cloning the pinned dissertation framework into scratch"
+git clone --no-checkout "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"
+git -C "$FRAMEWORK_DIR" checkout --detach "$FRAMEWORK_COMMIT"
+[[ "$(git -C "$FRAMEWORK_DIR" rev-parse HEAD)" == "$FRAMEWORK_COMMIT" ]] || \
+  die "Scratch checkout does not match FRAMEWORK_COMMIT"
 cd "$FRAMEWORK_DIR"
 
 # Use the normal shared environment. On the configured UCL cluster this reuses
@@ -148,6 +187,9 @@ fi
 if [[ -n "${PUBLISHED_EMBEDDING_ARCHIVE_DIR:-}" ]]; then
   COMMAND+=(--embedding-archive-dir "$PUBLISHED_EMBEDDING_ARCHIVE_DIR")
 fi
+if [[ -n "${PFP_REFERENCE_DIR:-}" ]]; then
+  COMMAND+=(--pfp-reference-dir "$PFP_REFERENCE_DIR")
+fi
 if [[ -n "${ALIASES_FILE:-}" ]]; then
   COMMAND+=(--aliases "$ALIASES_FILE")
 fi
@@ -176,7 +218,7 @@ if [[ "$WORKFLOW_STATUS" != "0" ]]; then
   exit "$WORKFLOW_STATUS"
 fi
 
-copy_results
+copy_results 0
 echo
 echo "Finished successfully: $(date)"
 echo "Read first: ${FINAL_RUN_ROOT}/job_summary.md"

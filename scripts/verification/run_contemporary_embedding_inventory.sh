@@ -20,6 +20,7 @@ TARGET_OVERRIDE_COUNT=0
 BENCHMARK_DIR=""
 SOURCE_BENCHMARK_DIR=""
 EMBEDDING_ARCHIVE_DIR=""
+PFP_REFERENCE_DIR=""
 OUTPUT_DIR=""
 WORK_DIR=""
 ALIASES_FILE=""
@@ -30,6 +31,8 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 CAFA3_BASE_URL="${CAFA3_BASE_URL:-https://zenodo.org/records/7409660/files}"
 MMFP_BASE_URL="${MMFP_BASE_URL:-https://zenodo.org/records/19498341/files}"
+PFP_REFERENCE_URL="${PFP_REFERENCE_URL:-https://github.com/psipred/PFP.git}"
+PFP_REFERENCE_COMMIT="1e04fd6d6d3c40458fd41ec1a881ed6e24de768e"
 
 usage() {
   cat <<'EOF'
@@ -54,6 +57,8 @@ Optional inputs:
   --embedding-archive-dir PATH  Directory containing Zijian's three published
                                 embedding tarballs. Default: download them from
                                 Zenodo 19498341 into the work directory.
+  --pfp-reference-dir PATH      Local PFP Git clone containing the pinned
+                                reference commit. Default: clone psipred/PFP.
   --aliases PATH                Explicit inventory alias TSV.
   --config PATH                 Inventory config (default: contemporary config).
   --policy NAME                 paper-faithful or maximize-coverage.
@@ -162,6 +167,11 @@ while [[ $# -gt 0 ]]; do
     --embedding-archive-dir)
       [[ $# -ge 2 ]] || die "--embedding-archive-dir requires a path"
       EMBEDDING_ARCHIVE_DIR="$2"
+      shift 2
+      ;;
+    --pfp-reference-dir)
+      [[ $# -ge 2 ]] || die "--pfp-reference-dir requires a path"
+      PFP_REFERENCE_DIR="$2"
       shift 2
       ;;
     --output-dir)
@@ -410,7 +420,24 @@ for name in "${ARCHIVE_NAMES[@]}"; do
 done
 
 echo "==> [4/7] Extract the authenticated published cache in work space"
+if [[ -n "$PFP_REFERENCE_DIR" ]]; then
+  [[ -d "${PFP_REFERENCE_DIR}/.git" ]] || \
+    die "PFP reference directory is not a Git clone: $PFP_REFERENCE_DIR"
+  git clone --no-checkout "$PFP_REFERENCE_DIR" "$PUBLISHED_ROOT"
+  PFP_REFERENCE_ORIGIN="$PFP_REFERENCE_DIR"
+else
+  git clone --no-checkout "$PFP_REFERENCE_URL" "$PUBLISHED_ROOT"
+  PFP_REFERENCE_ORIGIN="$PFP_REFERENCE_URL"
+fi
+git -C "$PUBLISHED_ROOT" checkout --detach "$PFP_REFERENCE_COMMIT"
+[[ "$(git -C "$PUBLISHED_ROOT" rev-parse HEAD)" == "$PFP_REFERENCE_COMMIT" ]] || \
+  die "PFP reference checkout did not resolve to the pinned commit"
+printf 'pfp-reference\tcommit\t%s\t%s\tgit-commit\t%s\tauthenticated\n' \
+  "$PFP_REFERENCE_ORIGIN" "$PUBLISHED_ROOT" "$PFP_REFERENCE_COMMIT" >> "$ACQUISITION_LOG"
+
 for name in "${ARCHIVE_NAMES[@]}"; do
+  ln "${ARCHIVE_STAGE}/${name}" "${PUBLISHED_ROOT}/${name}" 2>/dev/null || \
+    cp -p "${ARCHIVE_STAGE}/${name}" "${PUBLISHED_ROOT}/${name}"
   tar -xzf "${ARCHIVE_STAGE}/${name}" -C "$PUBLISHED_ROOT"
 done
 
@@ -510,20 +537,18 @@ lines = [
     "",
     "## Global result",
     "",
-    "| Modality | Physically present | Valid | Approved reuse | Physically missing | Generate | Manual review |",
-    "|---|---:|---:|---:|---:|---:|---:|",
+    "| Modality | Physically present | Valid | Reuse | Regenerate |",
+    "|---|---:|---:|---:|---:|",
 ]
 for modality in ("prott5", "text", "structure", "ppi"):
     lines.append(
-        "| %s | %s | %s | %s | %s | %s | %s |"
+        "| %s | %s | %s | %s | %s |"
         % (
             modality,
             format(metric(modality, "present"), ","),
             format(metric(modality, "valid"), ","),
-            format(metric(modality, "reusable"), ","),
-            format(metric(modality, "missing"), ","),
-            format(metric(modality, "generation"), ","),
-            format(metric(modality, "manual_review"), ","),
+            format(metric(modality, "reuse"), ","),
+            format(metric(modality, "regenerate"), ","),
         )
     )
 
@@ -532,24 +557,22 @@ lines.extend(
         "",
         "## Files for the next stage",
         "",
-        "- `inventory/reuse_prott5.txt`: target proteins with an approved published ProtT5 reuse route.",
-        "- `inventory/generate_prott5.fasta`: complete sequences requiring new ProtT5 generation.",
-        "- `inventory/missing_text.txt`: target IDs with no physical published text file.",
-        "- `inventory/missing_structure.txt`: target IDs with no physical published IF1 file.",
-        "- `inventory/missing_ppi.txt`: target IDs with no physical published PPI file.",
-        "- `inventory/{text,structure,ppi}_manual_review.txt`: IDs whose reuse/generation decision needs provenance review.",
-        "- `inventory/generation_manifest.tsv`: actions currently approved as `generate`.",
-        "- `inventory/manual_review.tsv.gz`: unresolved modality decisions with reasons.",
+        "- `inventory/reuse.tsv`: every positively proven protein/modality reuse action with evidence.",
+        "- `inventory/regenerate.tsv`: every remaining protein/modality pair with the reason regeneration is required.",
+        "- `inventory/reuse/{prott5,text,structure,ppi}.txt`: actionable reuse ID lists.",
+        "- `inventory/regenerate/prott5.fasta`: complete sequences requiring ProtT5 generation.",
+        "- `inventory/regenerate/{text,structure,ppi}.txt`: actionable generation ID lists.",
+        "- `inventory/regenerate_reasons.tsv`: compact reason counts for the regeneration workload.",
         "- `physical_coverage/valid_{modality}.txt`: IDs with a loadable, finite, correctly shaped published array.",
         "- `physical_coverage/not_valid_{modality}.txt`: IDs with no currently usable published array, including missing or invalid files.",
         "- `physical_coverage/missing_{modality}.txt`: IDs with no same-ID/candidate published array.",
         "",
         "## Interpretation",
         "",
-        "ProtT5 reuse is approved only by exact complete-sequence SHA-256 and is therefore immediately actionable. "
-        "Text, structure, and PPI are context/mapping dependent; physical presence or absence is reported, but "
-        "the contemporary configuration deliberately routes them to manual review until their provenance rules are resolved. "
-        "The missing lists are generation candidates, not an automatic scientific approval to reuse or regenerate them.",
+        "The operational plan has exactly two buckets. ProtT5 reuse requires an exact complete-sequence SHA-256. "
+        "PPI direct-ID reuse requires a valid published array for the same UniProt accession under the fixed STRING v12 source/extractor identity; cross-ID PPI reuse is unsupported. "
+        "Text and structure are regenerated unless their original description or AlphaFold structure inputs can be positively proven identical. "
+        "Missing, invalid, ambiguous, unavailable, incompatible, and unknown-provenance cases all receive action `regenerate`; their finer reasons remain in the TSV reports.",
         "",
         "This run did not generate, modify, or persist any embedding arrays.",
         "",

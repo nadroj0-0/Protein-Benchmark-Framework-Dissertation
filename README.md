@@ -51,14 +51,16 @@ the excluded paths.
 
 `embedding_inventory/` provides a benchmark-agnostic planner that reads the
 nine PFP-compatible CSVs directly, validates existing arrays, applies
-modality-specific scientific reuse rules, and emits reuse/generation/masking
-manifests without copying or generating embeddings.
+modality-specific scientific reuse rules, and emits an operational two-bucket
+plan (`reuse` or `regenerate`) without copying or generating
+embeddings.
 
 It supports `paper-faithful` and `maximize-coverage`, separate strict target
 and permissive source contracts, exact-sequence-only cross-ID ProtT5 reuse, and
-explicit aliases. Exact canonical text/structure/PPI reuse additionally
+explicit diagnostic aliases. Exact canonical text/structure/PPI reuse additionally
 requires deterministic benchmark, cache, archive, and PFP-reference proof;
-cross-benchmark uncertainty remains manual review.
+cross-benchmark uncertainty is retained as a detailed reason and receives
+action `regenerate`.
 
 Run it from the repository root:
 
@@ -87,8 +89,8 @@ qsub -v BENCHMARK_DIR=/path/to/contemporary/run/outputs \
 ```
 
 This downloads the published embedding archives only into scratch and returns
-compact reuse, missing, generation, and manual-review manifests. It does not
-generate embeddings. The scheduler-neutral implementation is
+the two binary manifests, per-modality ID lists, and the ProtT5 generation
+FASTA. It does not generate embeddings. The scheduler-neutral implementation is
 `scripts/verification/run_contemporary_embedding_inventory.sh`; both a single
 benchmark directory and per-CSV path overrides are supported.
 

@@ -128,8 +128,8 @@ def verify_artifact_scope(
     target: BenchmarkData,
     source: BenchmarkData,
     catalog: CacheCatalog,
+    embedding_cache: Path,
     artifact_root: Path,
-    policy: str,
     hash_cache: Optional[HashCache] = None,
 ) -> ArtifactVerification:
     spec = config.artifact_scope
@@ -145,16 +145,14 @@ def verify_artifact_scope(
                 "target_benchmark_fingerprint": target.fingerprint,
                 "source_benchmark_fingerprint": source.fingerprint,
                 "cache_catalog_fingerprint": catalog.fingerprint,
+                "embedding_cache_root": str(embedding_cache.resolve()),
             },
         )
 
     hashes = hash_cache or HashCache()
     root = artifact_root.resolve()
     checks: Dict[str, bool] = {
-        "paper_faithful_policy": policy == "paper-faithful",
-        "target_benchmark_fingerprint": target.fingerprint == spec.expected_benchmark_fingerprint,
         "source_benchmark_fingerprint": source.fingerprint == spec.expected_benchmark_fingerprint,
-        "target_source_benchmark_identity": target.fingerprint == source.fingerprint,
         "cache_catalog_fingerprint": catalog.fingerprint == spec.expected_cache_catalog_fingerprint,
         "cache_modality_counts": catalog.modality_counts == spec.expected_modality_counts,
         "cache_total_files": catalog.total_files == spec.expected_total_files,
@@ -202,7 +200,7 @@ def verify_artifact_scope(
         checks=checks,
         reasons=["failed artifact proof: %s" % name for name in failures],
         expected={
-            "benchmark_fingerprint": spec.expected_benchmark_fingerprint,
+            "source_benchmark_fingerprint": spec.expected_benchmark_fingerprint,
             "cache_catalog_fingerprint": spec.expected_cache_catalog_fingerprint,
             "modality_counts": spec.expected_modality_counts,
             "total_files": spec.expected_total_files,
@@ -213,6 +211,7 @@ def verify_artifact_scope(
         observed={
             "target_benchmark_fingerprint": target.fingerprint,
             "source_benchmark_fingerprint": source.fingerprint,
+            "embedding_cache_root": str(embedding_cache.resolve()),
             "cache_catalog": catalog.as_dict(),
             "archives": archive_observed,
             "reference_commit": commit,
@@ -296,7 +295,7 @@ def provenance_markdown(provenance: Mapping[str, Any]) -> str:
         "- Target benchmark fingerprint: `%s`" % inputs["target_benchmark_fingerprint"],
         "- Source benchmark fingerprint: `%s`" % inputs["source_benchmark_fingerprint"],
         "- Cache catalog fingerprint: `%s`" % inputs["cache_catalog"]["fingerprint"],
-        "- Artifact scope verified: `%s`" % str(artifact["verified"]).lower(),
+        "- Published cache authenticated: `%s`" % str(artifact["verified"]).lower(),
         "- Policy / report level: `%s` / `%s`"
         % (provenance["run"]["compatibility_policy"], provenance["run"]["report_level"]),
         "",

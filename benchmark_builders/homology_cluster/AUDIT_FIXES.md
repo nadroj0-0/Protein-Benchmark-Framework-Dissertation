@@ -166,3 +166,35 @@ publication, or owned-scratch cleanup logic.
 
 Therefore the implementation should be pushed for reproducibility and cluster staging, but it must
 not yet be described as production-validated or submitted as the full sensitivity array.
+
+## Scratch-first runtime submission follow-up — 2026-07-15
+
+The earlier readiness verdict described only the pre-staged, human-approved launcher. Two final
+runtime entrypoints now remove those operational blockers without changing the scientific builder:
+
+- `hpc_homology_cluster_runtime_pilot.sh` submits task 1 / 30% and performs automatic review only.
+- `hpc_homology_cluster_runtime_array.sh` submits tasks 1-6 directly; the pilot is recommended but
+  is not required or consumed as authorization evidence.
+
+Their shared driver installs exact MMseqs2 `18-8cc5c` in job-owned scratch when needed, stages
+provided inputs or downloads missing official UniProt 2026_02, GOA 234, GO 2026-06-15, UniRef90,
+and idmapping bytes into scratch, validates release markers and embedded metadata, creates the
+frozen manifest, delegates to the existing builder, validates every publication, and copies only
+outputs/reports/logs home. The six-task wrapper caps concurrency at two because array tasks cannot
+share node-local scratch and therefore independently download omitted inputs.
+
+The combined-scope full-array scratch request was set to 1200 GB rather than the old provisional 200 GB. This is
+based on the builder's conservative input, parser-index, MMseqs-work, and publication estimates;
+it remains unmeasured until a real pilot. Runtime tests prove success copy-back, direct array
+execution with no pilot variables, and the required behavior when home copy-back fails: non-zero
+exit, incomplete-home cleanup, and unconditional owned-scratch deletion.
+
+This follow-up resolves software installation, missing persistent input, and mechanically mandatory
+pilot blockers for the scratch-first workflow. It does not claim that a full production task has
+run, that 1200 GB is an empirically optimized request, or that automatic non-blocking attrition
+bounds replace scientific review.
+
+The subsequent diagnostic-pilot wrapper reduces the requested scratch to 300 GB and records actual
+job-owned usage every 120 seconds plus explicit stage checkpoints. Pilot mode records rather than
+enforces the speculative preflight estimate and uses neutral `1x` multipliers. The resulting peak
+measurement is intended to replace the provisional full-array request after review.

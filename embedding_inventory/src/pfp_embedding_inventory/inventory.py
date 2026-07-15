@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from pathlib import Path
-import re
 from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
@@ -62,7 +61,7 @@ def build_inventory(
         observed={},
     )
     _validate_artifact_verification_binding(
-        artifact_verification, benchmark, source_benchmark, config, policy
+        artifact_verification, embedding_cache, source_benchmark, config
     )
     array_cache = array_cache if array_cache is not None else {}
     embedding_cache = embedding_cache.resolve()
@@ -114,6 +113,10 @@ def build_inventory(
                 array_cache=array_cache,
                 policy=policy,
                 artifact_verification=artifact_verification,
+                target_matches_artifact=(
+                    benchmark.fingerprint
+                    == config.artifact_scope.expected_benchmark_fingerprint
+                ),
             )
             records.append(record)
             if record.requested_action == "reuse" and record.source_protein_id:
@@ -133,36 +136,30 @@ def build_inventory(
 
 def _validate_artifact_verification_binding(
     verification: ArtifactVerification,
-    benchmark: BenchmarkData,
+    embedding_cache: Path,
     source_benchmark: BenchmarkData,
     config: PlannerConfig,
-    policy: str,
 ) -> None:
-    """Refuse a successful proof computed for any other run inputs.
-
-    This closes an integration-error route where a caller might accidentally
-    reuse a canonical proof object while planning a changed target.
-    """
+    """Refuse a successful proof for a different published cache or source."""
     if not verification.verified:
         return
     observed_catalog = verification.observed.get("cache_catalog", {})
     bound = (
         config.artifact_scope.mode == "verified-published-cache"
         and verification.artifact_id == config.artifact_scope.artifact_id
-        and policy == "paper-faithful"
         and bool(verification.checks)
         and all(verification.checks.values())
-        and verification.observed.get("target_benchmark_fingerprint")
-        == benchmark.fingerprint
         and verification.observed.get("source_benchmark_fingerprint")
         == source_benchmark.fingerprint
+        and verification.observed.get("embedding_cache_root")
+        == str(embedding_cache.resolve())
         and observed_catalog.get("fingerprint")
         == config.artifact_scope.expected_cache_catalog_fingerprint
     )
     if not bound:
         raise InventoryError(
-            "successful artifact verification is not bound to this target, source, "
-            "cache catalog, configuration, and paper-faithful policy"
+            "successful artifact verification is not bound to this source benchmark, "
+            "cache catalog, and published-artifact configuration"
         )
 
 
@@ -225,6 +222,7 @@ def _inventory_one(
     array_cache: ArrayCache,
     policy: str,
     artifact_verification: ArtifactVerification,
+    target_matches_artifact: bool,
 ) -> InventoryRecord:
     candidate = _select_candidate(
         target,
@@ -235,7 +233,7 @@ def _inventory_one(
         source_by_sequence,
         alias_entries,
         array_cache,
-        artifact_verification.verified and policy == "paper-faithful",
+        artifact_verification.verified,
     )
     if candidate.ambiguity:
         candidate_paths = sorted(
@@ -253,7 +251,7 @@ def _inventory_one(
         dtypes = sorted({info.dtype for _, info in existing if info.dtype})
         source_files = [str(Path(spec.directory) / path.name) for path, _ in existing]
         status = "provenance-unknown"
-        action = "manual-review"
+        action = "regenerate"
         reason = "ambiguous explicit alias mapping: %s" % candidate.ambiguity
         return InventoryRecord(
             protein_id=target.protein_id,
@@ -274,7 +272,7 @@ def _inventory_one(
             provenance="unknown",
             factual_status=status,
             requested_action=action,
-            reason=_with_policy_reason(reason, action, policy),
+            reason=_with_action_reason(reason, action),
         )
 
     source_id = candidate.source_id
@@ -317,10 +315,17 @@ def _inventory_one(
     elif modality == "text" and not _text_roles_compatible(target, source, spec):
         status = "provenance-incompatible"
         factual_reason = "source and target temporal text roles differ"
+    elif not artifact_verification.verified:
+        status = "provenance-unknown"
+        factual_reason = (
+            "published cache, archives, and PFP reference were not "
+            "cryptographically verified"
+        )
     elif spec.provenance.compatibility == "artifact-scoped":
         if (
             artifact_verification.verified
             and policy == "paper-faithful"
+            and target_matches_artifact
             and route == "exact-id"
             and source_id == target.protein_id
         ):
@@ -334,8 +339,8 @@ def _inventory_one(
         else:
             status = "provenance-unknown"
             factual_reason = (
-                "artifact-scoped reuse is not proven for this target/source/cache/policy "
-                "combination; config labels and aliases are not proof"
+                "artifact-scoped reuse requires the canonical target fingerprint, "
+                "paper-faithful policy, and a direct-ID array from the authenticated cache"
             )
     elif spec.provenance.compatibility == "unknown":
         status = "provenance-unknown"
@@ -344,43 +349,48 @@ def _inventory_one(
         status = "provenance-incompatible"
         factual_reason = "configured source and target provenance are incompatible"
     else:
-        if spec.provenance.requires_mapping_evidence and not route.startswith("explicit-alias:"):
+        direct_id_reuse = (
+            spec.provenance.allow_direct_id_reuse
+            and route == "exact-id"
+            and source_id == target.protein_id
+        )
+        if route.startswith("explicit-alias:") and modality != "prott5":
+            status = "provenance-unknown"
+            factual_reason = (
+                "%s alias reuse is unsupported without an authenticated external "
+                "mapping/input artifact" % modality
+            )
+        elif modality in {"text", "structure", "ppi"} and source_id != target.protein_id:
+            status = "provenance-unknown"
+            factual_reason = (
+                "%s cross-ID reuse is unsupported without an authenticated external "
+                "mapping/input artifact" % modality
+            )
+        elif (
+            spec.provenance.requires_mapping_evidence
+            and not route.startswith("explicit-alias:")
+            and not direct_id_reuse
+        ):
             status = "provenance-unknown"
             factual_reason = "required per-protein mapping/source evidence is absent"
-        elif route.startswith("explicit-alias:") and (
-            candidate.alias_source_identity != spec.provenance.source_identity
-        ):
-            status = "provenance-incompatible"
-            factual_reason = "alias source identity does not match configured modality source identity"
-        elif route.startswith("explicit-alias:") and not _mapping_evidence_compatible(
-            candidate.alias_mapping_evidence, modality, target, spec
-        )[0]:
-            status = "provenance-unknown"
-            factual_reason = _mapping_evidence_compatible(
-                candidate.alias_mapping_evidence, modality, target, spec
-            )[1]
-        elif modality == "structure" and source_id != target.protein_id and not route.startswith("explicit-alias:"):
-            status = "provenance-unknown"
-            factual_reason = "structure cross-ID reuse requires an explicit compatible alias"
-        elif modality in {"text", "structure", "ppi"} and (
-            source_id != target.protein_id and not route.startswith("explicit-alias:")
-        ):
-            status = "provenance-unknown"
-            factual_reason = "%s cross-ID reuse requires an explicit alias" % modality
         else:
             status = "present-valid"
             eligible = True
-            factual_reason = "valid array eligible under declared %s provenance evidence" % route
+            if direct_id_reuse:
+                factual_reason = (
+                    "valid direct-ID array is eligible under the fixed published "
+                    "PPI source/extractor identity"
+                )
+            else:
+                factual_reason = "valid array eligible under declared %s provenance evidence" % route
 
-    action = _requested_action(
-        status, policy, spec, artifact_verification.verified
-    )
+    action = "reuse" if eligible else "regenerate"
     reason_parts = [factual_reason]
     if candidate.note:
         reason_parts.append(candidate.note)
     if candidate.alias_mapping_evidence:
         reason_parts.append("mapping evidence: %s" % candidate.alias_mapping_evidence)
-    reason = _with_policy_reason("; ".join(reason_parts), action, policy)
+    reason = _with_action_reason("; ".join(reason_parts), action)
     return InventoryRecord(
         protein_id=target.protein_id,
         sequence_sha256=target.sequence_sha256,
@@ -529,86 +539,10 @@ def _text_roles_compatible(
     return False
 
 
-def _mapping_evidence_compatible(
-    evidence_text: str,
-    modality: str,
-    target: ProteinRecord,
-    spec: ModalitySpec,
-) -> Tuple[bool, str]:
-    evidence: Dict[str, str] = {}
-    for item in evidence_text.split(";"):
-        key, separator, value = item.partition(":")
-        if not separator or not key.strip() or not value.strip():
-            return False, "mapping evidence must use semicolon-separated key:value fields"
-        evidence[key.strip().lower()] = value.strip()
-
-    required = {
-        "prott5": {"sequence-sha256"},
-        "text": {"description-sha256", "temporal-context"},
-        "structure": {"structure-source", "structure-version"},
-        "ppi": {"string-id", "string-release"},
-    }[modality]
-    missing = required - set(evidence)
-    if missing:
-        return False, "mapping evidence is missing fields: %s" % ",".join(sorted(missing))
-
-    if modality == "prott5":
-        if evidence["sequence-sha256"].lower() != target.sequence_sha256:
-            return False, "alias sequence-sha256 evidence does not match the target sequence"
-    elif modality == "text":
-        if re.fullmatch(r"[0-9a-fA-F]{64}", evidence["description-sha256"]) is None:
-            return False, "text description-sha256 evidence must be a complete SHA-256"
-        identity_tokens = _identity_tokens(spec.provenance.source_identity)
-        if evidence["temporal-context"].lower() not in identity_tokens:
-            return False, "text temporal-context evidence is absent from the configured source identity"
-    elif modality == "structure":
-        identity_tokens = _identity_tokens(spec.provenance.source_identity)
-        if any(
-            evidence[key].lower() not in identity_tokens
-            for key in ("structure-source", "structure-version")
-        ):
-            return False, "structure source/version evidence does not match the configured source identity"
-    elif modality == "ppi":
-        if evidence["string-release"].lower() not in _identity_tokens(
-            spec.provenance.source_identity
-        ):
-            return False, "STRING release evidence does not match the configured source identity"
-    return True, ""
-
-
-def _identity_tokens(identity: str) -> Set[str]:
-    return {token.strip().lower() for token in identity.split("|") if token.strip()}
-
-
-def _requested_action(
-    status: str,
-    policy: str,
-    spec: ModalitySpec,
-    artifact_verified: bool = False,
-) -> str:
-    if status == "present-valid":
-        return "reuse"
-    if policy == "paper-faithful":
-        if status in {"missing", "unreadable"}:
-            return "leave-masked"
-        return "manual-review"
-    if spec.provenance.compatibility == "artifact-scoped" and not artifact_verified:
-        return "manual-review"
-    if spec.provenance.compatibility in {"unknown", "incompatible"}:
-        return "manual-review"
-    if status in {"provenance-unknown", "provenance-incompatible"}:
-        return "manual-review"
-    if status == "missing":
-        return spec.missing_action
-    return spec.invalid_action
-
-
-def _with_policy_reason(reason: str, action: str, policy: str) -> str:
-    if action == "leave-masked":
-        return "%s; %s preserves PFP zero-vector/mask behavior" % (reason, policy)
+def _with_action_reason(reason: str, action: str) -> str:
     if action == "reuse":
-        return "%s; reuse is eligible under the declared evidence" % reason
-    return "%s; %s policy requests %s" % (reason, policy, action)
+        return "%s; reuse is positively proven" % reason
+    return "%s; reuse is not positively proven, so regenerate" % reason
 
 
 def tuple_text(expected_dim: int) -> str:
