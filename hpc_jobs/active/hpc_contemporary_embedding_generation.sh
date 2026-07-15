@@ -5,6 +5,7 @@
 #$ -l tscratch=100G
 #$ -l scratch0free=300G
 #$ -l h_rt=96:0:0
+#$ -l hostname=(zeus1.local, zeus2.local)
 #$ -l gpu=true
 #$ -pe gpu 3
 #$ -j y
