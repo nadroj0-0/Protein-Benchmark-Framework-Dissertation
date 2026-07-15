@@ -36,6 +36,10 @@ export MMFP_ENV_DIR="${MMFP_ENV_DIR:-$HOME/.conda/envs/$MMFP_ENV}"
 export MMFP_PYTHON="${MMFP_PYTHON:-3.9.23}"
 export MMFP_TORCH_INDEX_URL="${MMFP_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu126}"
 export MMFP_PYG_WHEEL_BASE="${MMFP_PYG_WHEEL_BASE:-https://data.pyg.org/whl}"
+export MMFP_SINGULARITY_DIR="${MMFP_SINGULARITY_DIR:-$HOME/.mmfp_singularity}"
+export MMFP_SINGULARITY_IMAGE="${MMFP_SINGULARITY_IMAGE:-$MMFP_SINGULARITY_DIR/python-3.9.23.sif}"
+export MMFP_SINGULARITY_VENV="${MMFP_SINGULARITY_VENV:-$MMFP_SINGULARITY_DIR/venv}"
+export MMFP_SINGULARITY_IMAGE_URI="${MMFP_SINGULARITY_IMAGE_URI:-docker://python:3.9.23-slim-bookworm}"
 export CONDA_EXE="${CONDA_EXE:-/share/apps/miniforge3_mamba/bin/conda}"
 
 # Root-level reproduction wrappers clone/reuse PFP here.

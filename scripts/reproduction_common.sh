@@ -17,6 +17,10 @@ load_framework_paths() {
   export MMFP_PYTHON="${MMFP_PYTHON:-3.9.23}"
   export MMFP_TORCH_INDEX_URL="${MMFP_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu126}"
   export MMFP_PYG_WHEEL_BASE="${MMFP_PYG_WHEEL_BASE:-https://data.pyg.org/whl}"
+  export MMFP_SINGULARITY_DIR="${MMFP_SINGULARITY_DIR:-${HOME}/.mmfp_singularity}"
+  export MMFP_SINGULARITY_IMAGE="${MMFP_SINGULARITY_IMAGE:-${MMFP_SINGULARITY_DIR}/python-3.9.23.sif}"
+  export MMFP_SINGULARITY_VENV="${MMFP_SINGULARITY_VENV:-${MMFP_SINGULARITY_DIR}/venv}"
+  export MMFP_SINGULARITY_IMAGE_URI="${MMFP_SINGULARITY_IMAGE_URI:-docker://python:3.9.23-slim-bookworm}"
 }
 
 clone_or_reuse_pfp() {
@@ -174,9 +178,47 @@ EOF
   fi
 }
 
-activate_or_create_mmfp_env() {
+install_mmfp_packages() {
+  local python_bin="$1"
   local pyg_wheel_url
 
+  "$python_bin" -m pip install --upgrade pip setuptools wheel
+  "$python_bin" -m pip install \
+    --only-binary=:all: \
+    --index-url "${MMFP_TORCH_INDEX_URL}" \
+    "torch==2.8.0"
+  "$python_bin" -m pip install --prefer-binary \
+    "numpy==2.0.2" \
+    "pandas==2.3.3" \
+    "scipy==1.13.1" \
+    "tqdm==4.67.1" \
+    "scikit-learn==1.6.1" \
+    "cafaeval==1.2.1" \
+    "obonet==1.1.1" \
+    "networkx==3.2.1" \
+    "transformers==4.56.2" \
+    "sentencepiece==0.2.1" \
+    "biopython==1.85" \
+    "requests==2.32.5" \
+    "biotite==0.38.0" \
+    fair-esm protobuf torch-geometric
+  "$python_bin" -m pip install --only-binary=:all: "h5py==3.14.0" tiktoken
+
+  pyg_wheel_url="$("$python_bin" - "${MMFP_PYG_WHEEL_BASE}" <<'PY'
+import sys
+import torch
+
+base = sys.argv[1].rstrip("/")
+cuda = "cpu" if torch.version.cuda is None else "cu" + torch.version.cuda.replace(".", "")
+print(f"{base}/torch-2.8.0+{cuda}.html")
+PY
+)"
+  echo "==> Installing PyTorch-Geometric extensions from: ${pyg_wheel_url}"
+  "$python_bin" -m pip install --only-binary=:all: \
+    torch-scatter torch-sparse -f "${pyg_wheel_url}"
+}
+
+activate_or_create_mmfp_env() {
   if [ ! -x "${CONDA_EXE}" ]; then
     echo "Missing conda executable: ${CONDA_EXE}" >&2
     echo "Set CONDA_EXE in configs/paths.local.sh or the environment." >&2
@@ -189,42 +231,9 @@ activate_or_create_mmfp_env() {
     validate_mmfp_creation_host
     echo "==> Creating Conda environment: ${MMFP_ENV}"
 
-    conda create -y -n "${MMFP_ENV}" "python=${MMFP_PYTHON}"
+    conda create -y -n "${MMFP_ENV}" "python=${MMFP_PYTHON}" pip setuptools wheel
     conda activate "${MMFP_ENV}"
-
-    python -m pip install --upgrade pip setuptools wheel
-    python -m pip install \
-      --index-url "${MMFP_TORCH_INDEX_URL}" \
-      "torch==2.8.0"
-    python -m pip install --prefer-binary \
-      "numpy==2.0.2" \
-      "pandas==2.3.3" \
-      "scipy==1.13.1" \
-      "tqdm==4.67.1" \
-      "scikit-learn==1.6.1" \
-      "cafaeval==1.2.1" \
-      "obonet==1.1.1" \
-      "networkx==3.2.1" \
-      "transformers==4.56.2" \
-      "sentencepiece==0.2.1" \
-      "biopython==1.85" \
-      "requests==2.32.5" \
-      "biotite==0.38.0" \
-      fair-esm protobuf torch-geometric tiktoken
-    python -m pip install --only-binary=:all: "h5py==3.14.0"
-
-    pyg_wheel_url="$(python - "${MMFP_PYG_WHEEL_BASE}" <<'PY'
-import sys
-import torch
-
-base = sys.argv[1].rstrip("/")
-cuda = "cpu" if torch.version.cuda is None else "cu" + torch.version.cuda.replace(".", "")
-print(f"{base}/torch-2.8.0+{cuda}.html")
-PY
-)"
-    echo "==> Installing PyTorch-Geometric extensions from: ${pyg_wheel_url}"
-    python -m pip install --only-binary=:all: \
-      torch-scatter torch-sparse -f "${pyg_wheel_url}"
+    install_mmfp_packages "$(command -v python)"
 
     echo "==> Environment created."
   else

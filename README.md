@@ -125,6 +125,8 @@ variables include `PFP_DIR`, `CAFA_ASSESSMENT_DIR`, `CAFA3_RAW_DIR`,
 `PROTEIN_DATABASES_DIR`, `STRING_H5_FILE`, `STRING_ALIAS_FILE`,
 `CONDA_EXE`, `MMFP_ENV`, `MMFP_ENV_DIR`, `MMFP_PYTHON`,
 `MMFP_TORCH_INDEX_URL`, `MMFP_PYG_WHEEL_BASE`,
+`MMFP_SINGULARITY_DIR`, `MMFP_SINGULARITY_IMAGE`,
+`MMFP_SINGULARITY_VENV`, `MMFP_SINGULARITY_IMAGE_URI`,
 `PFP_GIT_URL`, `PFP_CLONE_DIR`, `PFP_EXTERNAL_DIR`, `PFP_DATA_DIR`,
 `DEPENDENCY_ENV`, and `VERIFY_CSV_WORKDIR`.
 
@@ -188,6 +190,15 @@ The official PyTorch 2.8 Linux wheels require glibc 2.28 or newer. Environment
 creation checks this before creating a partial environment and fails with a
 container-runtime instruction on older hosts such as CentOS 7; it never silently
 substitutes a different Python or PyTorch version.
+
+On the UCL CentOS 7 cluster, stop jobs that use `mmfp` and rebuild the compatible
+Singularity-backed entrypoint with:
+
+```bash
+REBUILD_MMFP=YES bash scripts/environment/rebuild_mmfp_singularity.sh
+```
+
+See `scripts/environment/README.md` for the runtime layout and validation notes.
 
 ## HPC jobs
 
