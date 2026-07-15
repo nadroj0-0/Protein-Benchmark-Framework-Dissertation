@@ -22,6 +22,9 @@ MMFP_ENV="${MMFP_ENV:-mmfp}"
 eval "$(micromamba shell hook --shell bash)"
 micromamba activate "${MMFP_ENV}"
 python --version   # sanity: should print the mmfp env's Python, not pyenv
+# shellcheck source=../reproduction_common.sh
+source "${REPO_ROOT}/scripts/reproduction_common.sh"
+validate_mmfp_env "$(command -v python)"
 
 mkdir -p "${RAW}" "${GEN}"
 echo "==> Verification sandbox: ${VDIR}  (PFP is read-only here)"

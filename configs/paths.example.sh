@@ -34,6 +34,8 @@ export STRING_ALIAS_FILE="${STRING_ALIAS_FILE:-$HOME/protein_databases/string/pr
 export MMFP_ENV="${MMFP_ENV:-mmfp}"
 export MMFP_ENV_DIR="${MMFP_ENV_DIR:-$HOME/.conda/envs/$MMFP_ENV}"
 export MMFP_PYTHON="${MMFP_PYTHON:-3.9.23}"
+export MMFP_TORCH_INDEX_URL="${MMFP_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu126}"
+export MMFP_PYG_WHEEL_BASE="${MMFP_PYG_WHEEL_BASE:-https://data.pyg.org/whl}"
 export CONDA_EXE="${CONDA_EXE:-/share/apps/miniforge3_mamba/bin/conda}"
 
 # Root-level reproduction wrappers clone/reuse PFP here.

@@ -124,6 +124,7 @@ Then edit `configs/paths.local.sh` for the current machine. Typical
 variables include `PFP_DIR`, `CAFA_ASSESSMENT_DIR`, `CAFA3_RAW_DIR`,
 `PROTEIN_DATABASES_DIR`, `STRING_H5_FILE`, `STRING_ALIAS_FILE`,
 `CONDA_EXE`, `MMFP_ENV`, `MMFP_ENV_DIR`, `MMFP_PYTHON`,
+`MMFP_TORCH_INDEX_URL`, `MMFP_PYG_WHEEL_BASE`,
 `PFP_GIT_URL`, `PFP_CLONE_DIR`, `PFP_EXTERNAL_DIR`, `PFP_DATA_DIR`,
 `DEPENDENCY_ENV`, and `VERIFY_CSV_WORKDIR`.
 
@@ -176,7 +177,17 @@ New `mmfp` environments use Python `3.9.23` and the package versions supplied
 by Zijian for the MMFP/PFP paper environment. Those versions are pinned
 directly in `scripts/reproduction_common.sh`. Dependencies for which no version
 was supplied, including `fair-esm` and the PyTorch-Geometric stack, remain
-unpinned. An existing `mmfp` environment is reused without modification.
+unpinned. PyTorch defaults to the official CUDA 12.6 wheel index, and the
+compiled PyTorch-Geometric extensions are selected from the wheel index that
+matches the installed PyTorch/CUDA build. An existing `mmfp` environment is
+reused without modification, but every active workflow validates the exact
+Python and supplied package versions, required imports, PyG binary compatibility,
+and `pip check` before proceeding.
+
+The official PyTorch 2.8 Linux wheels require glibc 2.28 or newer. Environment
+creation checks this before creating a partial environment and fails with a
+container-runtime instruction on older hosts such as CentOS 7; it never silently
+substitutes a different Python or PyTorch version.
 
 ## HPC jobs
 

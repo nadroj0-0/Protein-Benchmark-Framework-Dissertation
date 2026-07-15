@@ -41,7 +41,10 @@ then call the normal entrypoints under `scripts/`.
 
 The historical and contemporary benchmark-generation wrappers activate and use
 the shared `mmfp` environment directly. They do not create another virtual
-environment or replace its NumPy and pandas installations.
+environment or replace its installed packages. Active workflows validate the
+environment against Zijian's supplied Python/package versions and required
+unpinned dependencies before doing substantive work; a stale or ABI-incompatible
+environment fails loudly.
 
 `hpc_contemporary_embedding_inventory.sh` is a CPU-only integration test for
 the completed nine contemporary CSVs against Zijian's published embeddings.

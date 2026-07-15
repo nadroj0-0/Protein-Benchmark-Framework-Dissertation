@@ -724,6 +724,10 @@ if [[ "$FIXTURE_MODE_VALUE" != "1" ]]; then
         echo "Production framework checkout is dirty" >&2
         exit 1
     }
+
+    # shellcheck source=../../scripts/reproduction_common.sh
+    source "$FRAMEWORK_DIR/scripts/reproduction_common.sh"
+    validate_mmfp_env "$PYTHON_BIN"
 fi
 
 if [[ "$FIXTURE_MODE_VALUE" != "1" && "$DIAGNOSTIC_PILOT_VALUE" != "1" ]]; then

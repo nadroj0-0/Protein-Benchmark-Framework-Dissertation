@@ -351,6 +351,9 @@ git_in_dir "$FRAMEWORK_DIR" checkout --quiet --detach "$FRAMEWORK_REVISION"
     exit 1
 }
 checkpoint_disk_usage framework-cloned
+# shellcheck source=../reproduction_common.sh
+source "$FRAMEWORK_DIR/scripts/reproduction_common.sh"
+validate_mmfp_env "$PYTHON_BIN"
 
 MINIMUM_SCRATCH_GB="${MINIMUM_SCRATCH_GB:-275}"
 [[ "$MINIMUM_SCRATCH_GB" =~ ^[1-9][0-9]*$ ]] || {

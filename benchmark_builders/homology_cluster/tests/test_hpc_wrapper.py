@@ -137,7 +137,11 @@ class HPCWrapperTests(unittest.TestCase):
         fake_git = bin_dir / "git"
         fake_git.write_text(
             "#!/usr/bin/env bash\n"
-            "if [[ \"$1\" == clone ]]; then mkdir -p \"$3\"; exit 0; fi\n"
+            "if [[ \"$1\" == clone ]]; then\n"
+            "  mkdir -p \"$3/scripts\"\n"
+            "  printf 'validate_mmfp_env() { :; }\\n' > \"$3/scripts/reproduction_common.sh\"\n"
+            "  exit 0\n"
+            "fi\n"
             "if [[ \"$1\" != -C ]]; then exit 2; fi\n"
             "case \"$3\" in\n"
             "  checkout) exit \"${FAKE_GIT_CHECKOUT_STATUS:-0}\" ;;\n"
