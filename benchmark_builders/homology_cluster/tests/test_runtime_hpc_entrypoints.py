@@ -70,6 +70,24 @@ class RuntimeHPCEntrypointTests(unittest.TestCase):
             self.assertIn("scratch-created", samples.read_text())
             self.assertFalse(list(scratch.iterdir()))
 
+    def test_pilot_accepts_symlinked_scratch_base_and_only_deletes_owned_work(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env, original_scratch = self._environment(root, "pilot", "1")
+            resolved_scratch = root / "resolved-scratch"
+            resolved_scratch.mkdir()
+            scratch_link = root / "scratch-link"
+            scratch_link.symlink_to(resolved_scratch, target_is_directory=True)
+            original_scratch.rmdir()
+            env["WORK_BASE"] = str(scratch_link)
+
+            completed = self._run(env)
+
+            self.assertEqual(completed.returncode, 0, completed.stdout)
+            self.assertTrue(scratch_link.is_symlink())
+            self.assertFalse(list(resolved_scratch.iterdir()))
+            self.assertEqual(len(list((root / "results").rglob("benchmark/result.txt"))), 1)
+
     def test_array_task_runs_without_any_pilot_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

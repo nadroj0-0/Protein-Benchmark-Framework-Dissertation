@@ -15,10 +15,65 @@
 
 set -euo pipefail
 
+usage() {
+  cat <<'EOF'
+Usage: qsub hpc_jobs/active/hpc_contemporary_embedding_generation.sh \
+  --target-benchmark-dir /absolute/path/to/outputs \
+  --reuse-plan-dir /absolute/path/to/plan \
+  [--results-root /absolute/output/path] \
+  [--text-cutoff-date YYYY-MM-DD]
+EOF
+}
+
+die() {
+  echo "ERROR: $*" >&2
+  exit 2
+}
+
+TARGET_BENCHMARK_DIR=""
+REUSE_PLAN_DIR=""
+CLI_RESULTS_ROOT=""
+CLI_TEXT_CUTOFF_DATE=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --target-benchmark-dir)
+      [[ $# -ge 2 ]] || die "--target-benchmark-dir requires a path"
+      TARGET_BENCHMARK_DIR="$2"
+      shift 2
+      ;;
+    --reuse-plan-dir)
+      [[ $# -ge 2 ]] || die "--reuse-plan-dir requires a path"
+      REUSE_PLAN_DIR="$2"
+      shift 2
+      ;;
+    --results-root)
+      [[ $# -ge 2 ]] || die "--results-root requires a path"
+      CLI_RESULTS_ROOT="$2"
+      shift 2
+      ;;
+    --text-cutoff-date)
+      [[ $# -ge 2 ]] || die "--text-cutoff-date requires YYYY-MM-DD"
+      CLI_TEXT_CUTOFF_DATE="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage >&2
+      die "Unknown argument: $1"
+      ;;
+  esac
+done
+
+[[ -n "$TARGET_BENCHMARK_DIR" ]] || { usage >&2; die "--target-benchmark-dir is required"; }
+[[ -n "$REUSE_PLAN_DIR" ]] || { usage >&2; die "--reuse-plan-dir is required"; }
+
 JOB_TOKEN="${JOB_ID:-manual_$$}"
 RUN_TAG="${JOB_TOKEN}_$(date +%Y%m%d_%H%M%S)"
 WORK="/scratch0/contemporary_embedding_generation_${JOB_TOKEN}"
-RESULTS_ROOT="${RESULTS_ROOT:-$HOME/contemporary_embedding_generation_results}"
+RESULTS_ROOT="${CLI_RESULTS_ROOT:-${RESULTS_ROOT:-$HOME/contemporary_embedding_generation_results}}"
 FINAL_RUN_ROOT="${RESULTS_ROOT}/${RUN_TAG}"
 FAILED_RUN_ROOT="${FINAL_RUN_ROOT}.failed"
 FRAMEWORK_REPO_URL="${FRAMEWORK_REPO_URL:-https://github.com/nadroj0-0/Protein-Benchmark-Framework-Dissertation.git}"
@@ -35,49 +90,10 @@ SUBMISSION_DIR="${SGE_O_WORKDIR:-$PWD}"
 WORK_OWNED=0
 RESULTS_COPIED=0
 
-die() {
-  echo "ERROR: $*" >&2
-  exit 2
-}
-
 git_in_dir() {
   local directory="$1"
   shift
   (cd "$directory" && git "$@")
-}
-
-latest_contemporary_outputs() {
-  local root="${CONTEMPORARY_RESULTS_ROOT:-$HOME/contemporary_cafa_benchmark_results}"
-  local candidates=()
-  local index
-  shopt -s nullglob
-  candidates=("$root"/*)
-  shopt -u nullglob
-  for ((index=${#candidates[@]} - 1; index >= 0; index--)); do
-    if [[ -f "${candidates[index]}/WORKFLOW_COMPLETE.json" && \
-          -f "${candidates[index]}/outputs/bp-training.csv" ]]; then
-      printf '%s\n' "${candidates[index]}/outputs"
-      return 0
-    fi
-  done
-  return 1
-}
-
-latest_reuse_plan() {
-  local root="${REUSE_RESULTS_ROOT:-$HOME/contemporary_benchmark_reuse_results}"
-  local candidates=()
-  local index
-  shopt -s nullglob
-  candidates=("$root"/*)
-  shopt -u nullglob
-  for ((index=${#candidates[@]} - 1; index >= 0; index--)); do
-    if [[ -f "${candidates[index]}/WORKFLOW_COMPLETE.json" && \
-          -f "${candidates[index]}/plan/RUN_COMPLETE.json" ]]; then
-      printf '%s\n' "${candidates[index]}/plan"
-      return 0
-    fi
-  done
-  return 1
 }
 
 copy_results() {
@@ -145,21 +161,14 @@ cleanup() {
 trap cleanup EXIT
 trap 'echo "Received termination signal"; exit 130' INT TERM
 
-TARGET_BENCHMARK_DIR="${TARGET_BENCHMARK_DIR:-}"
-if [[ -z "$TARGET_BENCHMARK_DIR" ]]; then
-  TARGET_BENCHMARK_DIR="$(latest_contemporary_outputs)" || \
-    die "No completed contemporary benchmark found; pass TARGET_BENCHMARK_DIR"
-fi
-REUSE_PLAN_DIR="${REUSE_PLAN_DIR:-}"
-if [[ -z "$REUSE_PLAN_DIR" ]]; then
-  REUSE_PLAN_DIR="$(latest_reuse_plan)" || \
-    die "No completed reuse plan found; pass REUSE_PLAN_DIR"
-fi
 [[ -d "$TARGET_BENCHMARK_DIR" ]] || die "Target benchmark does not exist: $TARGET_BENCHMARK_DIR"
 [[ -d "$REUSE_PLAN_DIR" ]] || die "Reuse plan does not exist: $REUSE_PLAN_DIR"
 [[ ! -e "$WORK" ]] || die "Scratch path already exists: $WORK"
-mkdir "$WORK"
+mkdir -p "$WORK/tmp"
 WORK_OWNED=1
+export TMPDIR="$WORK/tmp"
+export TMP="$WORK/tmp"
+export TEMP="$WORK/tmp"
 mkdir -p "$RESULTS_ROOT"
 
 echo "Host              : $(hostname)"
@@ -199,7 +208,8 @@ load_framework_paths "$FRAMEWORK_DIR"
 activate_or_create_mmfp_env
 PYTHON_BIN="$(command -v python)"
 
-if [[ -z "${TEXT_CUTOFF_DATE:-}" ]]; then
+TEXT_CUTOFF_DATE="${CLI_TEXT_CUTOFF_DATE:-${TEXT_CUTOFF_DATE:-}}"
+if [[ -z "$TEXT_CUTOFF_DATE" ]]; then
   BUILD_MANIFEST="$(dirname "$TARGET_BENCHMARK_DIR")/reports/build_manifest.json"
   [[ -f "$BUILD_MANIFEST" ]] || \
     die "Cannot derive text cutoff; pass TEXT_CUTOFF_DATE or provide the completed run layout"

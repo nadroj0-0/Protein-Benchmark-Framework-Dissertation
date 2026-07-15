@@ -92,15 +92,19 @@ for name in JOB_KEY RUN_ID; do
 done
 
 WORK_BASE="${WORK_BASE:-/scratch0}"
-[[ "$WORK_BASE" == /* && "$WORK_BASE" != "/" && -d "$WORK_BASE" && ! -L "$WORK_BASE" ]] || {
-    echo "WORK_BASE must be an existing absolute non-root directory and not a symlink" >&2
+[[ "$WORK_BASE" == /* && "$WORK_BASE" != "/" && -d "$WORK_BASE" ]] || {
+    echo "WORK_BASE must be an existing absolute non-root directory" >&2
     exit 2
 }
 WORK_BASE="$(cd "$WORK_BASE" && pwd -P)"
+[[ "$WORK_BASE" != "/" ]] || { echo "Resolved WORK_BASE must not be /" >&2; exit 2; }
 WORK="$WORK_BASE/homology_runtime_${JOB_KEY}_${TASK_ID}_${IDENTITY}_${RUN_ID}"
 [[ ! -e "$WORK" ]] || { echo "Refusing to reuse scratch path: $WORK" >&2; exit 2; }
 mkdir -p "$WORK/artifacts/logs" "$WORK/inputs" "$WORK/tools" "$WORK/tmp"
 touch "$WORK/.homology-runtime-owned"
+export TMPDIR="$WORK/tmp"
+export TMP="$WORK/tmp"
+export TEMP="$WORK/tmp"
 
 ARTIFACTS="$WORK/artifacts"
 INPUT_ROOT="$WORK/inputs"

@@ -102,12 +102,13 @@ qsub -v TARGET_BENCHMARK_DIR="$HOME/contemporary_cafa_benchmark_results/7065592_
 ### Contemporary embedding generation and assembly
 
 `hpc_contemporary_embedding_generation.sh` is the overnight continuation of
-the CSV-only reuse plan. It auto-discovers the latest completed contemporary
-benchmark and matching completed reuse plan, or accepts explicit paths:
+the CSV-only reuse plan. The exact benchmark and reuse-plan directories are
+required command-line arguments; the wrapper does not guess which run to use:
 
 ```bash
-qsub -v TARGET_BENCHMARK_DIR="$HOME/contemporary_cafa_benchmark_results/7065592_20260714_090900/outputs",REUSE_PLAN_DIR="$HOME/contemporary_benchmark_reuse_results/7069671_20260715_054253/plan" \
-  hpc_jobs/active/hpc_contemporary_embedding_generation.sh
+qsub hpc_jobs/active/hpc_contemporary_embedding_generation.sh \
+  --target-benchmark-dir "$HOME/contemporary_cafa_benchmark_results/7065592_20260714_090900/outputs" \
+  --reuse-plan-dir "$HOME/contemporary_benchmark_reuse_results/7069671_20260715_054253/plan"
 ```
 
 The job requests three GPU slots and preserves the established PFP parallel

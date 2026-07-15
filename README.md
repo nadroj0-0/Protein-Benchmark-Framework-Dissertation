@@ -101,7 +101,9 @@ reuse plan, regenerates only its `regenerate` partition, extracts only its
 cache for PFP:
 
 ```bash
-qsub hpc_jobs/active/hpc_contemporary_embedding_generation.sh
+qsub hpc_jobs/active/hpc_contemporary_embedding_generation.sh \
+  --target-benchmark-dir /absolute/path/to/contemporary/outputs \
+  --reuse-plan-dir /absolute/path/to/reuse/plan
 ```
 
 The four modalities run concurrently using the existing three-GPU plus CPU
