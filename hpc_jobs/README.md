@@ -32,6 +32,8 @@ qsub hpc_jobs/active/hpc_cafa3_historical_validation.sh
 qsub hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh
 qsub -v BENCHMARK_DIR=/path/to/contemporary/run/outputs \
   hpc_jobs/active/hpc_contemporary_embedding_inventory.sh
+qsub -v TARGET_BENCHMARK_DIR=/path/to/contemporary/run/outputs \
+  hpc_jobs/active/hpc_contemporary_benchmark_reuse_plan.sh
 ```
 
 The active wrappers clone the full framework into node-local scratch and
@@ -74,6 +76,25 @@ Any role can be overridden with `BP_TRAINING_CSV`, `BP_VALIDATION_CSV`,
 complete 40-character `FRAMEWORK_COMMIT`.
 The default is to download the canonical source CSVs and published embedding
 archives during each job, as requested.
+
+`hpc_contemporary_benchmark_reuse_plan.sh` runs the newer CSV-only binary reuse
+planner. It stages the completed contemporary nine-CSV benchmark in scratch and,
+by default, downloads and authenticates Zijian's canonical CAFA3 CSVs from
+Zenodo record 7409660. It compares exact case-sensitive protein IDs and complete
+sequences, producing only `reuse` and `regenerate` buckets. It does not download
+or inspect embedding arrays. Results are published under
+`$HOME/contemporary_benchmark_reuse_results`; scratch cleanup is unconditional.
+Use `EMBEDDED_BENCHMARK_DIR` to replace the default download with a local set of
+nine previously embedded CSVs. Optional names are `TARGET_BENCHMARK_NAME` and
+`EMBEDDED_BENCHMARK_NAME`; `RESULTS_ROOT` and `FRAMEWORK_COMMIT` follow the same
+rules as the inventory wrapper.
+
+For the completed 2025-2026 run currently retained on Morecambe, submit:
+
+```bash
+qsub -v TARGET_BENCHMARK_DIR="$HOME/contemporary_cafa_benchmark_results/7065592_20260714_090900/outputs" \
+  hpc_jobs/active/hpc_contemporary_benchmark_reuse_plan.sh
+```
 
 ## Homology-cluster identity array
 
