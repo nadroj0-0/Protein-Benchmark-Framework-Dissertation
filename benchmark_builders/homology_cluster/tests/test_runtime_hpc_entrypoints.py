@@ -140,6 +140,19 @@ class RuntimeHPCEntrypointTests(unittest.TestCase):
         self.assertIn("git_in_dir()", driver)
         self.assertNotIn("git -C", driver)
 
+    def test_runtime_driver_exports_host_verified_git_state_for_singularity(self):
+        driver = DRIVER.read_text()
+        self.assertIn(
+            'export HOMOLOGY_HOST_GIT_VERIFIED_COMMIT="$FRAMEWORK_REVISION"', driver
+        )
+        self.assertIn('export HOMOLOGY_HOST_GIT_VERIFIED_CLEAN=1', driver)
+        self.assertIn(
+            'export HOMOLOGY_HOST_GIT_VERIFIED_REPOSITORY="$FRAMEWORK_DIR"', driver
+        )
+        self.assertIn(
+            "SINGULARITYENV_HOMOLOGY_HOST_GIT_VERIFIED_COMMIT", driver
+        )
+
     def test_runtime_driver_separates_release_tag_from_binary_identity(self):
         driver = DRIVER.read_text()
         self.assertIn(

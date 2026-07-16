@@ -354,6 +354,16 @@ git_in_dir "$FRAMEWORK_DIR" checkout --quiet --detach "$FRAMEWORK_REVISION"
     echo "Scratch framework checkout is unexpectedly dirty" >&2
     exit 1
 }
+
+# Python runs inside the minimal MMFP Singularity image, which intentionally has
+# no Git executable. Export the state already verified above so the builder can
+# retain its production provenance gate without repeating Git inside the image.
+export HOMOLOGY_HOST_GIT_VERIFIED_COMMIT="$FRAMEWORK_REVISION"
+export HOMOLOGY_HOST_GIT_VERIFIED_CLEAN=1
+export HOMOLOGY_HOST_GIT_VERIFIED_REPOSITORY="$FRAMEWORK_DIR"
+export SINGULARITYENV_HOMOLOGY_HOST_GIT_VERIFIED_COMMIT="$FRAMEWORK_REVISION"
+export SINGULARITYENV_HOMOLOGY_HOST_GIT_VERIFIED_CLEAN=1
+export SINGULARITYENV_HOMOLOGY_HOST_GIT_VERIFIED_REPOSITORY="$FRAMEWORK_DIR"
 checkpoint_disk_usage framework-cloned
 # shellcheck source=../reproduction_common.sh
 source "$FRAMEWORK_DIR/scripts/reproduction_common.sh"

@@ -725,6 +725,15 @@ if [[ "$FIXTURE_MODE_VALUE" != "1" ]]; then
         exit 1
     }
 
+    # The MMFP Singularity image has no Git executable. Reuse the exact clean
+    # state verified by the host wrapper rather than weakening the builder gate.
+    export HOMOLOGY_HOST_GIT_VERIFIED_COMMIT="$FRAMEWORK_REVISION"
+    export HOMOLOGY_HOST_GIT_VERIFIED_CLEAN=1
+    export HOMOLOGY_HOST_GIT_VERIFIED_REPOSITORY="$FRAMEWORK_DIR"
+    export SINGULARITYENV_HOMOLOGY_HOST_GIT_VERIFIED_COMMIT="$FRAMEWORK_REVISION"
+    export SINGULARITYENV_HOMOLOGY_HOST_GIT_VERIFIED_CLEAN=1
+    export SINGULARITYENV_HOMOLOGY_HOST_GIT_VERIFIED_REPOSITORY="$FRAMEWORK_DIR"
+
     # shellcheck source=../../scripts/reproduction_common.sh
     source "$FRAMEWORK_DIR/scripts/reproduction_common.sh"
     validate_mmfp_env "$PYTHON_BIN"

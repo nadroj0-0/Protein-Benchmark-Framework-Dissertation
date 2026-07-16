@@ -25,3 +25,10 @@ confirmed in a scheduled GPU smoke test.
 scoped container-side overlay. The contemporary embedding workflow uses this
 only for its scratch-local NumPy 1.26.4 IF1 compatibility layer; the default
 launcher and the primary MMFP environment remain on NumPy 2.0.2.
+
+The base image intentionally remains minimal and does not install Git. Homology
+HPC wrappers verify their scratch checkout with host Git before invoking Python,
+then pass the verified commit, clean state, and exact repository path into the
+container. The builder validates and records that state without requiring a
+second Git installation. Direct/local homology runs continue to inspect Git
+normally.

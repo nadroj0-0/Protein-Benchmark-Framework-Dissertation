@@ -270,6 +270,8 @@ Both wrappers delegate to
 `scripts/benchmark_generation/run_homology_cluster_runtime_hpc.sh`. That driver:
 
 - uses the existing `mmfp` environment and clones the exact submitted framework commit;
+- verifies the detached scratch checkout with host Git and passes that exact clean state into the
+  minimal Singularity runtime, avoiding a redundant in-container Git dependency;
 - defaults to `sprot-and-trembl`, while accepting `sprot-only` and `trembl-only` explicitly;
 - stages any supplied source paths into task-owned scratch and downloads only missing sources;
 - checks that current UniProt and GOA endpoints still mean UniProt `2026_02` and GOA `234` before

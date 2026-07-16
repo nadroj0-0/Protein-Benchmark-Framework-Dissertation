@@ -28,6 +28,10 @@ VARIABLE_FILES = frozenset({
     "RUN_COMPLETE.json",
 })
 
+HOST_GIT_COMMIT_ENV = "HOMOLOGY_HOST_GIT_VERIFIED_COMMIT"
+HOST_GIT_CLEAN_ENV = "HOMOLOGY_HOST_GIT_VERIFIED_CLEAN"
+HOST_GIT_REPOSITORY_ENV = "HOMOLOGY_HOST_GIT_VERIFIED_REPOSITORY"
+
 
 def _is_deterministic_payload(relative_path: Path) -> bool:
     return relative_path.name not in VARIABLE_FILES and "logs" not in relative_path.parts
@@ -45,6 +49,37 @@ def _package_version(name: str) -> str:
 
 
 def git_state(repository: Path) -> dict[str, object]:
+    verified_commit = os.environ.get(HOST_GIT_COMMIT_ENV)
+    verified_clean = os.environ.get(HOST_GIT_CLEAN_ENV)
+    verified_repository = os.environ.get(HOST_GIT_REPOSITORY_ENV)
+    external_values = (verified_commit, verified_clean, verified_repository)
+    if any(value is not None for value in external_values):
+        if any(value is None for value in external_values):
+            raise ValueError(
+                "Host Git verification is incomplete; commit, clean state, and repository "
+                "path must be supplied together"
+            )
+        assert verified_commit is not None
+        assert verified_clean is not None
+        assert verified_repository is not None
+        if len(verified_commit) != 40 or any(
+            character not in "0123456789abcdef" for character in verified_commit
+        ):
+            raise ValueError("Host-verified Git commit must be 40 lowercase hexadecimal characters")
+        if verified_clean != "1":
+            raise ValueError("Host-verified Git checkout must be explicitly clean")
+        if Path(verified_repository).resolve() != repository.resolve():
+            raise ValueError(
+                "Host-verified Git repository does not match the repository being published: "
+                f"verified={Path(verified_repository).resolve()}, observed={repository.resolve()}"
+            )
+        return {
+            "commit": verified_commit,
+            "dirty": False,
+            "status_porcelain": [],
+            "verification": "hpc-wrapper-host-git",
+        }
+
     commit = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=repository, text=True,
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False,
@@ -57,6 +92,7 @@ def git_state(repository: Path) -> dict[str, object]:
         "commit": commit.stdout.strip() if commit.returncode == 0 else None,
         "dirty": bool(status.stdout.strip()) if status.returncode == 0 else None,
         "status_porcelain": status.stdout.splitlines() if status.returncode == 0 else [],
+        "verification": "git-executable",
     }
 
 
