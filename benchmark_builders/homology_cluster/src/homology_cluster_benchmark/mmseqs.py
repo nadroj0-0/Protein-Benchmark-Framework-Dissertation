@@ -20,6 +20,8 @@ from .uniref import UniRefIndex
 
 LOGGER = logging.getLogger(__name__)
 
+GIT_COMMIT_RE = re.compile(r"[0-9a-fA-F]{40}")
+
 
 @dataclass(frozen=True)
 class CommandSpec:
@@ -83,6 +85,9 @@ def build_mmseqs_commands(config: BuildConfig, fasta: Path, work_dir: Path) -> t
 
 
 def _version_token(version_text: str) -> str:
+    stripped = version_text.strip()
+    if GIT_COMMIT_RE.fullmatch(stripped):
+        return stripped.lower()
     matches = set(re.findall(r"(?<![A-Za-z0-9])(\d{1,2}(?:[-.][A-Za-z0-9]+)+)(?![A-Za-z0-9])", version_text))
     if len(matches) != 1:
         raise ValueError(
@@ -90,6 +95,17 @@ def _version_token(version_text: str) -> str:
             f"observed {version_text!r}"
         )
     return next(iter(matches))
+
+
+def _matches_expected_release(expected: str, observed: str) -> bool:
+    if expected == observed:
+        return True
+    release = re.fullmatch(r"\d{1,2}[-.]([0-9a-fA-F]{5,40})", expected)
+    return bool(
+        release
+        and GIT_COMMIT_RE.fullmatch(observed)
+        and observed.lower().startswith(release.group(1).lower())
+    )
 
 
 def resolve_mmseqs_runtime(binary: str) -> MMseqsRuntime:
@@ -156,12 +172,13 @@ def validate_exact_mmseqs_version(expected: str, runtime: MMseqsRuntime) -> str:
     if runtime.observed_version is None or runtime.version_token is None:
         raise ValueError("MMseqs2 version output is empty or unparseable")
     expected_token = _version_token(expected.strip())
-    if runtime.version_token != expected_token:
+    validate_mmseqs_version(expected_token)
+    if not _matches_expected_release(expected_token, runtime.version_token):
         raise ValueError(
             "MMseqs2 exact version mismatch: "
-            f"expected {expected_token!r}, observed {runtime.version_token!r}"
+            f"expected release {expected_token!r}, "
+            f"observed binary identity {runtime.version_token!r}"
         )
-    validate_mmseqs_version(runtime.version_token)
     return runtime.version_token
 
 
@@ -171,14 +188,15 @@ def validate_recorded_exact_mmseqs_version(expected: str, observed: str) -> str:
     observed_token = _version_token(observed.strip())
     if observed.strip() != observed_token:
         raise ValueError(
-            "Recorded observed MMseqs2 version must be exactly one release token"
+            "Recorded observed MMseqs2 version must be exactly one version identity"
         )
-    if expected_token != observed_token:
+    validate_mmseqs_version(expected_token)
+    if not _matches_expected_release(expected_token, observed_token):
         raise ValueError(
             "MMseqs2 exact version mismatch in publication metadata: "
-            f"expected {expected_token!r}, observed {observed_token!r}"
+            f"expected release {expected_token!r}, "
+            f"observed binary identity {observed_token!r}"
         )
-    validate_mmseqs_version(observed_token)
     return observed_token
 
 

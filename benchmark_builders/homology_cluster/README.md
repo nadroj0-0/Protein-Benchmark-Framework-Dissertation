@@ -262,8 +262,9 @@ Both are thin Grid Engine wrappers around
 `GO_OBO` are copied to node-local scratch. Any omitted input is downloaded from its reviewed
 official source at runtime. The driver checks that the moving UniProt/GOA endpoints still identify
 UniProt `2026_02` and GOA `234` before accepting their bytes, validates GOA and GO metadata,
-computes complete SHA-256 manifests, and installs pinned MMseqs2 `18-8cc5c` into scratch when no
-executable path is supplied.
+computes complete SHA-256 manifests, and installs pinned MMseqs2 release `18-8cc5c` into scratch
+when no executable path is supplied. The release tag and the full Git commit printed by
+`mmseqs version` are validated and recorded as separate identities.
 
 The default source scope is `sprot-and-trembl`; set `UNIPROT_SOURCE_SCOPE=sprot-only` or
 `trembl-only` to run another declared population. Every array task has independent node-local

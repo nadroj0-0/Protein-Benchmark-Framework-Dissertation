@@ -497,28 +497,36 @@ if [[ -z "${GOA:-}" ]]; then
     }
 fi
 
-EXPECTED_MMSEQS_VERSION="${EXPECTED_MMSEQS_VERSION:-18-8cc5c}"
+MMSEQS_RELEASE_TAG="${MMSEQS_RELEASE_TAG:-18-8cc5c}"
+EXPECTED_MMSEQS_VERSION="${EXPECTED_MMSEQS_VERSION:-$MMSEQS_RELEASE_TAG}"
+EXPECTED_MMSEQS_BINARY_VERSION="${EXPECTED_MMSEQS_BINARY_VERSION:-8cc5ce367b5638c4306c2d7cfc652dd099a4643f}"
 if [[ -n "${MMSEQS_BIN:-}" ]]; then
     [[ -x "$MMSEQS_BIN" ]] || { echo "MMSEQS_BIN is not executable: $MMSEQS_BIN" >&2; exit 1; }
 else
+    [[ "$EXPECTED_MMSEQS_VERSION" == "$MMSEQS_RELEASE_TAG" ]] || {
+        echo "Downloaded MMseqs2 release tag must equal EXPECTED_MMSEQS_VERSION" >&2
+        exit 1
+    }
     if grep -qw avx2 /proc/cpuinfo; then
         MMSEQS_ARCHIVE_NAME="mmseqs-linux-avx2.tar.gz"
     else
         MMSEQS_ARCHIVE_NAME="mmseqs-linux-sse41.tar.gz"
     fi
-    MMSEQS_URL="https://github.com/soedinglab/MMseqs2/releases/download/18-8cc5c/$MMSEQS_ARCHIVE_NAME"
+    MMSEQS_URL="https://github.com/soedinglab/MMseqs2/releases/download/$MMSEQS_RELEASE_TAG/$MMSEQS_ARCHIVE_NAME"
     download_file "$MMSEQS_URL" "$TOOLS_ROOT/$MMSEQS_ARCHIVE_NAME"
     tar -xzf "$TOOLS_ROOT/$MMSEQS_ARCHIVE_NAME" -C "$TOOLS_ROOT"
     MMSEQS_BIN="$TOOLS_ROOT/mmseqs/bin/mmseqs"
     [[ -x "$MMSEQS_BIN" ]] || { echo "Downloaded MMseqs2 executable is missing" >&2; exit 1; }
 fi
 observed_mmseqs_version="$("$MMSEQS_BIN" version | tr -d '[:space:]')"
-[[ "$observed_mmseqs_version" == "$EXPECTED_MMSEQS_VERSION" ]] || {
-    echo "MMseqs2 version mismatch: expected=$EXPECTED_MMSEQS_VERSION observed=$observed_mmseqs_version" >&2
+[[ "$observed_mmseqs_version" == "$EXPECTED_MMSEQS_BINARY_VERSION" ]] || {
+    echo "MMseqs2 binary mismatch: expected_binary_identity=$EXPECTED_MMSEQS_BINARY_VERSION observed_binary_identity=$observed_mmseqs_version" >&2
     exit 1
 }
 {
+    echo "release_tag=$MMSEQS_RELEASE_TAG"
     echo "expected_version=$EXPECTED_MMSEQS_VERSION"
+    echo "expected_binary_version=$EXPECTED_MMSEQS_BINARY_VERSION"
     echo "observed_version=$observed_mmseqs_version"
     echo "executable=$MMSEQS_BIN"
     echo "executable_sha256=$(sha256sum "$MMSEQS_BIN" | awk '{print $1}')"

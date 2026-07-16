@@ -200,7 +200,9 @@ Both wrappers delegate to
 - stages any supplied source paths into task-owned scratch and downloads only missing sources;
 - checks that current UniProt and GOA endpoints still mean UniProt `2026_02` and GOA `234` before
   downloading, and checks the embedded GOA/GO ontology release metadata afterwards;
-- downloads pinned MMseqs2 `18-8cc5c` into scratch when `MMSEQS_BIN` is not supplied;
+- downloads pinned MMseqs2 release `18-8cc5c` into scratch when `MMSEQS_BIN` is
+  not supplied, and separately validates and records its binary-reported full
+  Git commit `8cc5ce367b5638c4306c2d7cfc652dd099a4643f`;
 - creates the checksum-bound frozen-input manifest and a clearly labelled automatic, non-blocking
   runtime attrition policy;
 - calls the normal homology builder and strict publication validator, then writes an automatic

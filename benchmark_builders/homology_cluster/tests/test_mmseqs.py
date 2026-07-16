@@ -79,13 +79,30 @@ class MMseqsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "exited 9"):
                 validate_exact_mmseqs_version("15-6f452", nonzero)
 
+            release_commit = "8cc5ce367b5638c4306c2d7cfc652dd099a4643f"
+            commit_runtime = resolve_mmseqs_runtime(
+                str(executable("release-commit", release_commit))
+            )
+            self.assertEqual(
+                validate_exact_mmseqs_version("18-8cc5c", commit_runtime),
+                release_commit,
+            )
+            with self.assertRaisesRegex(ValueError, "exact version mismatch"):
+                validate_exact_mmseqs_version("18-dead0", commit_runtime)
+
         self.assertEqual(
             validate_recorded_exact_mmseqs_version("15-6f452", "15-6f452"),
             "15-6f452",
         )
+        self.assertEqual(
+            validate_recorded_exact_mmseqs_version(
+                "18-8cc5c", "8cc5ce367b5638c4306c2d7cfc652dd099a4643f"
+            ),
+            "8cc5ce367b5638c4306c2d7cfc652dd099a4643f",
+        )
         with self.assertRaisesRegex(ValueError, "exact version mismatch"):
             validate_recorded_exact_mmseqs_version("15-6f452", "14-7e284")
-        with self.assertRaisesRegex(ValueError, "exactly one release token"):
+        with self.assertRaisesRegex(ValueError, "exactly one version identity"):
             validate_recorded_exact_mmseqs_version(
                 "15-6f452", "MMseqs2 Version: 15-6f452"
             )

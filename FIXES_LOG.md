@@ -56,3 +56,32 @@ copy changes device placement and failure signaling only.
 - `git diff --check`: passed.
 - A real CUDA extraction smoke test remains required on the cluster before the
   full embedding job is treated as recovered.
+
+## 2026-07-16 - `[compat]` Separate the MMseqs2 release and binary identities
+
+### Observed failure
+
+Homology pilot `7070128` downloaded every frozen input and the official
+MMseqs2 `18-8cc5c` release archive, then rejected the executable because
+`mmseqs version` returned the full Git commit
+`8cc5ce367b5638c4306c2d7cfc652dd099a4643f` rather than the release tag.
+
+### Verified storage evidence
+
+The pilot used `158.0 GiB` at its measured peak and the scratch filesystem
+still had approximately `1.06 TiB` free. Scratch exhaustion did not cause the
+temporary suspension or final failure.
+
+### Compatibility change
+
+- Retain `18-8cc5c` as the pinned release asset and minimum-feature version.
+- Pin the complete binary-reported Git commit
+  `8cc5ce367b5638c4306c2d7cfc652dd099a4643f`; the builder additionally checks
+  that it begins with the commit prefix embedded in the release tag (`8cc5c`).
+- Record the release tag, expected release version and observed binary identity
+  separately.
+- Preserve exact-match behavior for MMseqs2 builds that report the release tag
+  directly.
+
+This changes version interpretation and provenance only. It does not change
+MMseqs2 commands, clustering parameters, input data, or benchmark policy.

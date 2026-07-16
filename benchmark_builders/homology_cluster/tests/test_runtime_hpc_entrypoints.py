@@ -140,6 +140,26 @@ class RuntimeHPCEntrypointTests(unittest.TestCase):
         self.assertIn("git_in_dir()", driver)
         self.assertNotIn("git -C", driver)
 
+    def test_runtime_driver_separates_release_tag_from_binary_identity(self):
+        driver = DRIVER.read_text()
+        self.assertIn(
+            'MMSEQS_RELEASE_TAG="${MMSEQS_RELEASE_TAG:-18-8cc5c}"', driver
+        )
+        self.assertIn(
+            "EXPECTED_MMSEQS_BINARY_VERSION=\"${EXPECTED_MMSEQS_BINARY_VERSION:-"
+            "8cc5ce367b5638c4306c2d7cfc652dd099a4643f}\"",
+            driver,
+        )
+        self.assertIn('echo "release_tag=$MMSEQS_RELEASE_TAG"', driver)
+        self.assertIn(
+            'echo "expected_binary_version=$EXPECTED_MMSEQS_BINARY_VERSION"',
+            driver,
+        )
+        self.assertNotIn(
+            '[[ "$observed_mmseqs_version" == "$EXPECTED_MMSEQS_VERSION" ]]',
+            driver,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
