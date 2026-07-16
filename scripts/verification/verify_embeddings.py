@@ -79,7 +79,7 @@ def sample_check(
         if not f.exists():
             continue
         try:
-            arr = np.load(f)
+            arr = np.load(f, allow_pickle=False)
         except Exception as e:  # noqa: BLE001 — report any load failure
             bad_dim.append((pid, f"unreadable: {e}"))
             continue
@@ -100,6 +100,16 @@ def main() -> None:
     ap.add_argument("--config", default=DEFAULT_CONFIG_PATH,
                     help="JSON config fully specifying the verification (default: %(default)s)")
     ap.add_argument("--strict", action="store_true")
+    ap.add_argument(
+        "--all-arrays",
+        action="store_true",
+        help="load and validate every present target embedding instead of a sample",
+    )
+    ap.add_argument(
+        "--require-min-coverage",
+        action="store_true",
+        help="treat any configured minimum-coverage shortfall as a hard failure",
+    )
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -166,7 +176,8 @@ def main() -> None:
         present = sum(1 for pid in all_ids if (emb_dir / f"{pid}.npy").exists())
         cov = present / len(all_ids)
         n_files = sum(1 for _ in emb_dir.glob("*.npy"))
-        checked, bad_dim, bad_finite = sample_check(emb_dir, all_ids, dim, cfg["sample_size"])
+        sample_size = len(all_ids) if args.all_arrays else cfg["sample_size"]
+        checked, bad_dim, bad_finite = sample_check(emb_dir, all_ids, dim, sample_size)
 
         dim_ok, fin_ok = not bad_dim, not bad_finite
         print(f"  files on disk:   {n_files}")
@@ -178,6 +189,8 @@ def main() -> None:
         print(f"  finiteness:      [{'OK' if fin_ok else f'NaN/Inf in {len(bad_finite)} sampled'}]")
 
         if not dim_ok or not fin_ok:
+            hard_fail = True
+        if args.require_min_coverage and cov < min_cov:
             hard_fail = True
         if cov < min_cov * cfg["catastrophic_factor"]:
             hard_fail = True

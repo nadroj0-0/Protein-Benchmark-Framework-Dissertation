@@ -11,7 +11,12 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from tqdm import tqdm
+
+try:
+    from tqdm import tqdm
+except ImportError:  # Keep the comparison usable in lightweight audit environments.
+    def tqdm(iterable, **_kwargs):
+        return iterable
 
 
 @dataclass
@@ -58,6 +63,13 @@ MODALITIES = {
         "generated": "data/embedding_cache/ppi",
         "published": "published/data/embedding_cache/ppi",
     },
+}
+
+EXPLICIT_CACHE_MODALITIES = {
+    "prott5": "prott5",
+    "text_temporal": "exp_text_embeddings_temporal",
+    "structure": "IF1",
+    "ppi": "ppi",
 }
 
 
@@ -161,7 +173,9 @@ def npy_map(directory: Path) -> dict[str, Path]:
     return {p.stem: p for p in directory.glob("*.npy")}
 
 
-def summarise(rows: list[Row]) -> dict[str, Any]:
+def summarise(
+    rows: list[Row], inventory: dict[str, dict[str, int]] | None = None
+) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for modality in sorted({r.modality for r in rows}):
         rs = [r for r in rows if r.modality == modality]
@@ -188,6 +202,8 @@ def summarise(rows: list[Row]) -> dict[str, Any]:
             "max_abs_mean": float(np.mean(max_abs)) if max_abs else None,
             "max_abs_max": float(np.max(max_abs)) if max_abs else None,
         }
+        if inventory and modality in inventory:
+            out[modality].update(inventory[modality])
     return out
 
 
@@ -197,14 +213,48 @@ def main() -> None:
     parser.add_argument("--out-csv", default="results/embedding_comparison.csv")
     parser.add_argument("--out-json", default="results/embedding_comparison_summary.json")
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument(
+        "--generated-cache-root",
+        type=Path,
+        help="explicit data/embedding_cache directory for regenerated arrays",
+    )
+    parser.add_argument(
+        "--published-cache-root",
+        type=Path,
+        help="explicit data/embedding_cache directory for published arrays",
+    )
     args = parser.parse_args()
 
     root = Path(args.root).resolve()
     all_rows: list[Row] = []
 
-    for modality, cfg in MODALITIES.items():
-        gen_dir = root / cfg["generated"]
-        pub_dir = root / cfg["published"]
+    if bool(args.generated_cache_root) != bool(args.published_cache_root):
+        parser.error(
+            "--generated-cache-root and --published-cache-root must be supplied together"
+        )
+
+    if args.generated_cache_root:
+        generated_root = args.generated_cache_root.resolve()
+        published_root = args.published_cache_root.resolve()
+        modalities = {
+            modality: {
+                "generated": str(generated_root / directory),
+                "published": str(published_root / directory),
+            }
+            for modality, directory in EXPLICIT_CACHE_MODALITIES.items()
+        }
+    else:
+        modalities = MODALITIES
+
+    inventory: dict[str, dict[str, int]] = {}
+
+    for modality, cfg in modalities.items():
+        gen_dir = Path(cfg["generated"])
+        pub_dir = Path(cfg["published"])
+        if not gen_dir.is_absolute():
+            gen_dir = root / gen_dir
+        if not pub_dir.is_absolute():
+            pub_dir = root / pub_dir
 
         gen = npy_map(gen_dir)
         pub = npy_map(pub_dir)
@@ -215,6 +265,14 @@ def main() -> None:
         ids = sorted(set(gen) | set(pub))
         if args.limit:
             ids = ids[: args.limit]
+
+        inventory[modality] = {
+            "generated_count": len(gen),
+            "published_count": len(pub),
+            "common_count": len(set(gen) & set(pub)),
+            "generated_only_count": len(set(gen) - set(pub)),
+            "published_only_count": len(set(pub) - set(gen)),
+        }
 
         print(f"\n==> Comparing {modality}")
         print(f"    generated: {gen_dir} ({len(gen)} files)")
@@ -235,7 +293,7 @@ def main() -> None:
         for row in all_rows:
             writer.writerow(asdict(row))
 
-    summary = summarise(all_rows)
+    summary = summarise(all_rows, inventory)
     with out_json.open("w") as f:
         json.dump(summary, f, indent=2)
 

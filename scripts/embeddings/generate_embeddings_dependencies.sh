@@ -19,6 +19,7 @@ DATA_DIR="${PFP_DATA_DIR:-${PFP_ROOT}/data}"
 DEPENDENCY_ENV="${DEPENDENCY_ENV:-${EXT}/dependency_env.sh}"
 CAFA_ASSESSMENT_REPO_URL="${CAFA_ASSESSMENT_REPO_URL:-https://github.com/ashleyzhou972/CAFA_assessment_tool.git}"
 CAFA_ASSESSMENT_DIR="${CAFA_ASSESSMENT_DIR:-${EXT}/CAFA_assessment_tool}"
+CAFA_ASSESSMENT_COMMIT="${CAFA_ASSESSMENT_COMMIT:-}"
 PFP_CAFA3_RAW_DIR="${PFP_CAFA3_RAW_DIR:-${EXT}/cafa3_raw}"
 PFP_STRING_DIR="${PFP_STRING_DIR:-${EXT}/string}"
 CAFA3_BASE="${CAFA3_BASE:-https://zenodo.org/records/7409660/files}"
@@ -35,6 +36,22 @@ if [ ! -d "${CAFA_ASSESSMENT_DIR}" ]; then
   git clone "${CAFA_ASSESSMENT_REPO_URL}" "${CAFA_ASSESSMENT_DIR}"
 else
   echo "==> CAFA_assessment_tool already present, skipping"
+fi
+if [ -n "${CAFA_ASSESSMENT_COMMIT}" ]; then
+  [ -d "${CAFA_ASSESSMENT_DIR}/.git" ] || {
+    echo "Cannot pin non-Git CAFA assessment directory: ${CAFA_ASSESSMENT_DIR}" >&2
+    exit 1
+  }
+  git -C "${CAFA_ASSESSMENT_DIR}" checkout --detach "${CAFA_ASSESSMENT_COMMIT}"
+  observed_cafa_commit="$(git -C "${CAFA_ASSESSMENT_DIR}" rev-parse HEAD)"
+  case "${observed_cafa_commit}" in
+    "${CAFA_ASSESSMENT_COMMIT}"*) ;;
+    *)
+      echo "CAFA assessment commit mismatch: ${observed_cafa_commit}" >&2
+      exit 1
+      ;;
+  esac
+  echo "==> Pinned CAFA_assessment_tool: ${observed_cafa_commit}"
 fi
 # --- 1b. Stage the CAFA3-era GO ontology expected at data/go.obo -------
 # reproduce_embeddings_retrain_eval.sh checks `data/go.obo`, and train.py/eval

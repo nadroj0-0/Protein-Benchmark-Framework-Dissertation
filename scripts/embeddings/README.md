@@ -19,6 +19,19 @@ generate_embeddings_structure.sh
 generate_embeddings_ppi.sh
 ```
 
+For the hardened end-to-end historical experiment, use
+`scripts/reproduction/run_cafa3_full_from_scratch_reproduction.sh` through its
+HPC wrapper. That workflow still calls these modality wrappers, but adds the
+current IF1/PPI compatibility copies, temporal CLS reduction, a reversible
+bounded preflight, exhaustive output validation, and comparison against the
+authenticated published cache before fresh training.
+
+The preflight helper `prepare_cafa3_embedding_preflight.py` backs up all 27
+prepared split view files plus the exact full `proteins.fasta`, subsets every
+ontology/split, and restores each original byte only after authenticating its
+SHA-256. This preserves the full FASTA ordering used for ProtT5 batching. It
+never changes the canonical CSVs or upstream PFP source.
+
 ## Contemporary reuse and regeneration
 
 `run_contemporary_embedding_generation.sh` consumes two immutable inputs:

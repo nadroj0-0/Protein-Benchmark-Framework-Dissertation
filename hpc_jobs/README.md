@@ -26,6 +26,7 @@ full path:
 qsub hpc_jobs/active/hpc_reproduce_eval_only.sh
 qsub hpc_jobs/active/hpc_reproduce_retrain_eval.sh
 qsub hpc_jobs/active/hpc_reproduce_embeddings_retrain_eval.sh
+qsub hpc_jobs/active/hpc_cafa3_full_from_scratch_reproduction.sh
 qsub hpc_jobs/active/hpc_cafa3_deepgoplus_pickle_generation_validation.sh
 qsub hpc_jobs/active/hpc_cafa3_deepgoplus_validation.sh
 qsub hpc_jobs/active/hpc_cafa3_historical_validation.sh
@@ -35,6 +36,55 @@ qsub -v BENCHMARK_DIR=/path/to/contemporary/run/outputs \
 qsub -v TARGET_BENCHMARK_DIR=/path/to/contemporary/run/outputs \
   hpc_jobs/active/hpc_contemporary_benchmark_reuse_plan.sh
 ```
+
+### Full CAFA3 From-Scratch Reproduction
+
+`hpc_cafa3_full_from_scratch_reproduction.sh` is the hardened replacement for
+the older embedding/retrain/evaluate wrapper when the purpose is to audit the
+whole chain. Submit it from a clean committed framework checkout:
+
+```bash
+qsub hpc_jobs/active/hpc_cafa3_full_from_scratch_reproduction.sh
+```
+
+It clones pinned framework and PFP commits into `/scratch0`, validates the
+author-supplied MMFP package pins, downloads and authenticates the nine Zenodo
+7409660 CSVs, builds `proteins.fasta`, and runs all four embedding modalities in
+parallel after a bounded preflight. The CAFA assessment tool is pinned to the
+official supplementary-code tag `v1.0-beta` at commit
+`d72f0a5abb66d3224bd808e2015b55f1c9d18340`. The IF1 NumPy/device
+compatibility path and PPI zero-CAFA-ID guard are isolated scratch copies;
+upstream PFP is unchanged.
+
+Only after regeneration finishes does the job download the three authenticated
+embedding archives from Zenodo 19498341. It records byte hashes and numeric
+comparisons for every union protein/modality, compresses the row-level table,
+and deletes both the extracted published cache and its archives. Fresh training
+therefore uses regenerated arrays only. It requires all three checkpoints and
+evaluation summaries, while metric or embedding differences are retained as
+results rather than disguised as infrastructure failures.
+
+Successful compact results are published under
+`$HOME/cafa3_full_reproduction_results/<job>_<timestamp>/`:
+
+```text
+cafa3_full_reproduction_report.md
+cafa3_full_reproduction_report.json
+WORKFLOW_COMPLETE.json
+reports/embedding_comparison.csv.gz
+reports/embedding_comparison_summary.json
+reports/evaluation/
+reports/training/
+reports/input_acquisition.tsv
+reports/modality_status.tsv
+logs/
+```
+
+Generated and published embedding arrays, model caches, STRING inputs and
+checkpoints stay in scratch and are removed unconditionally after compact
+publication, including when publication fails. Optional CLI overrides are
+`--results-root` and `--text-cutoff-date`; the historical default cutoff is
+`2016-02-17`.
 
 The active wrappers clone the full framework into node-local scratch and
 then call the normal entrypoints under `scripts/`.

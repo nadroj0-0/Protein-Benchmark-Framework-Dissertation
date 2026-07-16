@@ -174,6 +174,18 @@ Run the full embedding-generation workflow:
 bash scripts/reproduction/reproduce_embeddings_retrain_eval.sh
 ```
 
+Run the hardened full CAFA3 audit on the UCL cluster:
+
+```bash
+qsub hpc_jobs/active/hpc_cafa3_full_from_scratch_reproduction.sh
+```
+
+This newer route regenerates all modalities in parallel, compares them against
+authenticated published embeddings without training on those published arrays,
+trains fresh checkpoints, evaluates them against the paper values, and copies
+back a compact provenance-rich report. See `hpc_jobs/README.md` for the exact
+contract and output layout.
+
 The final route clones/builds the upstream PFP environment before
 invoking `scripts/embeddings/generate_embeddings_run_all.sh`.
 
