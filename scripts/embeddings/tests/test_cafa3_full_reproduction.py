@@ -180,6 +180,20 @@ class ReportFormattingTest(unittest.TestCase):
 
 
 class WorkflowContractTest(unittest.TestCase):
+    def test_full_workflow_avoids_git_dash_c_for_morecambe(self) -> None:
+        paths = [
+            REPO_ROOT
+            / "scripts/reproduction/run_cafa3_full_from_scratch_reproduction.sh",
+            REPO_ROOT / "scripts/embeddings/generate_embeddings_dependencies.sh",
+            REPO_ROOT
+            / "hpc_jobs/active/hpc_cafa3_full_from_scratch_reproduction.sh",
+        ]
+        for path in paths:
+            with self.subTest(path=path):
+                source = path.read_text(encoding="utf-8")
+                self.assertNotIn("git -C", source)
+                self.assertIn("git_in_dir", source)
+
     def test_published_cache_is_compared_then_deleted_before_training(self) -> None:
         path = REPO_ROOT / "scripts/reproduction/run_cafa3_full_from_scratch_reproduction.sh"
         source = path.read_text(encoding="utf-8")

@@ -29,6 +29,12 @@ mkdir -p "${EXT}"
 echo "==> External dependencies will live in: ${EXT}"
 echo "==> PFP data directory: ${DATA_DIR}"
 
+git_in_dir() {
+  local directory="$1"
+  shift
+  (cd "$directory" && git "$@")
+}
+
 # --- 1. CAFA Assessment Tool (PPI, Text, Structure ID mapping) ---------
 if [ ! -d "${CAFA_ASSESSMENT_DIR}" ]; then
   echo "==> Cloning CAFA_assessment_tool"
@@ -42,8 +48,8 @@ if [ -n "${CAFA_ASSESSMENT_COMMIT}" ]; then
     echo "Cannot pin non-Git CAFA assessment directory: ${CAFA_ASSESSMENT_DIR}" >&2
     exit 1
   }
-  git -C "${CAFA_ASSESSMENT_DIR}" checkout --detach "${CAFA_ASSESSMENT_COMMIT}"
-  observed_cafa_commit="$(git -C "${CAFA_ASSESSMENT_DIR}" rev-parse HEAD)"
+  git_in_dir "${CAFA_ASSESSMENT_DIR}" checkout --detach "${CAFA_ASSESSMENT_COMMIT}"
+  observed_cafa_commit="$(git_in_dir "${CAFA_ASSESSMENT_DIR}" rev-parse HEAD)"
   case "${observed_cafa_commit}" in
     "${CAFA_ASSESSMENT_COMMIT}"*) ;;
     *)

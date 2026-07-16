@@ -85,3 +85,37 @@ temporary suspension or final failure.
 
 This changes version interpretation and provenance only. It does not change
 MMseqs2 commands, clustering parameters, input data, or benchmark policy.
+
+## 2026-07-16 - `[compat]` Support the CAFA3 full audit on Morecambe's Git
+
+### Observed failure
+
+Full CAFA3 reproduction job `7070493` validated the frozen MMFP environment,
+then failed before canonical input acquisition with `Unknown option: -C`.
+Morecambe's installed Git does not support `git -C`. The substantive workflow
+and its dependency downloader still contained four reachable uses even though
+the HPC wrapper already used a portable directory helper.
+
+### Compatibility change
+
+- Replace all four reachable `git -C` calls with a `git_in_dir` helper that
+  changes directory inside a subshell and runs ordinary Git.
+- Preserve the same clean-checkout validation, detached commit checkout and
+  exact commit recording.
+- Leave the caller's working directory unchanged after each Git operation.
+- Add a regression contract covering the HPC wrapper, substantive workflow and
+  dependency downloader so `git -C` cannot be reintroduced into this execution
+  chain.
+
+### Scientific behavior
+
+This changes command portability only. It does not change any downloaded input,
+embedding algorithm, model configuration, training operation or evaluation
+policy.
+
+### Validation
+
+- Shell syntax checks for all three execution-chain scripts: passed.
+- Focused full-reproduction tests: passed (`6` tests).
+- Reachable execution-chain `git -C` scan: zero matches.
+- `git diff --check`: passed.

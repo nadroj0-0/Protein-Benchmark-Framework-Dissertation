@@ -38,6 +38,12 @@ die() {
   exit 2
 }
 
+git_in_dir() {
+  local directory="$1"
+  shift
+  (cd "$directory" && git "$@")
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --pfp-root)
@@ -69,7 +75,7 @@ done
 command -v "$PYTHON_BIN" >/dev/null 2>&1 || die "Python not found: $PYTHON_BIN"
 
 PFP_ROOT="$(cd "$PFP_ROOT" && pwd)"
-[[ -z "$(git -C "$PFP_ROOT" status --porcelain --untracked-files=no)" ]] || \
+[[ -z "$(git_in_dir "$PFP_ROOT" status --porcelain --untracked-files=no)" ]] || \
   die "PFP checkout has tracked changes; use a clean disposable clone"
 [[ ! -e "$PFP_ROOT/data/embedding_cache" ]] || \
   die "PFP clone already has an embedding cache"
@@ -233,7 +239,7 @@ done
 printf 'go-ontology\tgo.obo\t%s\t%s\t%s\n' \
   "$CAFA_ASSESSMENT_DIR/precrec/go_cafa3.obo" "$PFP_ROOT/data/go.obo" \
   "$(sha256_file "$PFP_ROOT/data/go.obo")" >> "$ACQUISITION_LOG"
-cafa_commit_full="$(git -C "$CAFA_ASSESSMENT_DIR" rev-parse HEAD)"
+cafa_commit_full="$(git_in_dir "$CAFA_ASSESSMENT_DIR" rev-parse HEAD)"
 printf '%s\n' "$cafa_commit_full" > "$OUTPUT_DIR/reports/cafa_assessment_commit.txt"
 printf 'cafa-assessment-code\tbenchmark_folder.py\t%s@%s\t%s\t%s\n' \
   "https://github.com/ashleyzhou972/CAFA_assessment_tool" "$cafa_commit_full" \
