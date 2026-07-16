@@ -17,10 +17,14 @@ usage() {
   cat <<'EOF'
 Usage: qsub hpc_jobs/active/hpc_cafa3_full_from_scratch_reproduction.sh \
   [--results-root /absolute/path] \
+  [--embedding-state-root /SAN/bioinf/bmpfp/embedding_states/cafa3_full_reproduction] \
+  [--embedding-mode initial|resume] \
   [--text-cutoff-date YYYY-MM-DD]
 
 The job downloads every external input into node-local scratch. No persistent
-database, CSV, PFP, or embedding input path is required.
+database, CSV, PFP, or published-embedding input path is required. Validated
+regenerated arrays and authenticated AlphaFold PDBs are accumulated only under
+the explicit persistent embedding-state root.
 EOF
 }
 
@@ -31,6 +35,8 @@ die() {
 
 CLI_RESULTS_ROOT=""
 TEXT_CUTOFF_DATE="2016-02-17"
+EMBEDDING_STATE_ROOT="/SAN/bioinf/bmpfp/embedding_states/cafa3_full_reproduction"
+EMBEDDING_MODE="initial"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --results-root)
@@ -41,6 +47,16 @@ while [[ $# -gt 0 ]]; do
     --text-cutoff-date)
       [[ $# -ge 2 ]] || die "--text-cutoff-date requires YYYY-MM-DD"
       TEXT_CUTOFF_DATE="$2"
+      shift 2
+      ;;
+    --embedding-state-root)
+      [[ $# -ge 2 ]] || die "--embedding-state-root requires a path"
+      EMBEDDING_STATE_ROOT="$2"
+      shift 2
+      ;;
+    --embedding-mode)
+      [[ $# -ge 2 ]] || die "--embedding-mode requires initial or resume"
+      EMBEDDING_MODE="$2"
       shift 2
       ;;
     -h|--help)
@@ -56,6 +72,10 @@ done
 
 [[ "$TEXT_CUTOFF_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || \
   die "--text-cutoff-date must use YYYY-MM-DD"
+[[ "$EMBEDDING_MODE" == "initial" || "$EMBEDDING_MODE" == "resume" ]] || \
+  die "--embedding-mode must be initial or resume"
+mkdir -p "$EMBEDDING_STATE_ROOT"
+[[ -d "$EMBEDDING_STATE_ROOT" ]] || die "Cannot access embedding state: $EMBEDDING_STATE_ROOT"
 
 JOB_TOKEN="${JOB_ID:-manual_$$}"
 RUN_TAG="${JOB_TOKEN}_$(date +%Y%m%d_%H%M%S)"
@@ -63,6 +83,7 @@ WORK="/scratch0/cafa3_full_reproduction_${JOB_TOKEN}"
 RESULTS_ROOT="${CLI_RESULTS_ROOT:-${RESULTS_ROOT:-$HOME/cafa3_full_reproduction_results}}"
 FINAL_RUN_ROOT="${RESULTS_ROOT}/${RUN_TAG}"
 FAILED_RUN_ROOT="${FINAL_RUN_ROOT}.failed"
+INCOMPLETE_RUN_ROOT="${FINAL_RUN_ROOT}.incomplete"
 FRAMEWORK_REPO_URL="${FRAMEWORK_REPO_URL:-https://github.com/nadroj0-0/Protein-Benchmark-Framework-Dissertation.git}"
 FRAMEWORK_COMMIT="${FRAMEWORK_COMMIT:-}"
 FRAMEWORK_DIR="$WORK/Protein-Benchmark-Framework-Dissertation"
@@ -89,7 +110,10 @@ copy_results() {
   local staging="${FINAL_RUN_ROOT}.staging-${JOB_TOKEN}"
   local copy_status=0
   [[ "$RESULTS_COPIED" == "0" ]] || return 0
-  if [[ "$workflow_status" != "0" ]]; then
+  if [[ "$workflow_status" == "0" && -f "$SCRATCH_RESULT_ROOT/GENERATION_INCOMPLETE.json" ]]; then
+    destination="$INCOMPLETE_RUN_ROOT"
+    staging="${INCOMPLETE_RUN_ROOT}.staging-${JOB_TOKEN}"
+  elif [[ "$workflow_status" != "0" ]]; then
     destination="$FAILED_RUN_ROOT"
     staging="${FAILED_RUN_ROOT}.staging-${JOB_TOKEN}"
   fi
@@ -102,11 +126,17 @@ copy_results() {
     cp -p "$WORKFLOW_LOG" "$staging/logs/workflow.log" || copy_status=$?
   fi
   if [[ "$workflow_status" == "0" ]]; then
-    [[ -f "$staging/WORKFLOW_COMPLETE.json" ]] || copy_status=1
-    [[ -f "$staging/cafa3_full_reproduction_report.md" ]] || copy_status=1
-    [[ -f "$staging/cafa3_full_reproduction_report.json" ]] || copy_status=1
-    [[ -f "$staging/reports/embedding_comparison_summary.json" ]] || copy_status=1
-    [[ -f "$staging/reports/evaluation/reproduction_summary.json" ]] || copy_status=1
+    if [[ -f "$staging/GENERATION_INCOMPLETE.json" ]]; then
+      [[ -f "$staging/reports/embedding_state/needs_retry.tsv" ]] || copy_status=1
+      [[ -f "$staging/reports/embedding_state/coverage.json" ]] || copy_status=1
+      [[ ! -f "$staging/WORKFLOW_COMPLETE.json" ]] || copy_status=1
+    else
+      [[ -f "$staging/WORKFLOW_COMPLETE.json" ]] || copy_status=1
+      [[ -f "$staging/cafa3_full_reproduction_report.md" ]] || copy_status=1
+      [[ -f "$staging/cafa3_full_reproduction_report.json" ]] || copy_status=1
+      [[ -f "$staging/reports/embedding_comparison_summary.json" ]] || copy_status=1
+      [[ -f "$staging/reports/evaluation/reproduction_summary.json" ]] || copy_status=1
+    fi
   else
     rm -f "$staging/WORKFLOW_COMPLETE.json"
     printf '{"complete":false,"workflow_exit_status":%s}\n' "$workflow_status" \
@@ -162,6 +192,8 @@ echo "Host              : $(hostname)"
 echo "Job ID            : ${JOB_ID:-manual}"
 echo "Scratch           : $WORK"
 echo "Final output      : $FINAL_RUN_ROOT"
+echo "Embedding state   : $EMBEDDING_STATE_ROOT"
+echo "Embedding mode    : $EMBEDDING_MODE"
 echo "PFP commit        : $PFP_COMMIT"
 echo "Text cutoff       : $TEXT_CUTOFF_DATE"
 echo "Preflight/split   : ${PREFLIGHT_PER_SPLIT:-2}"
@@ -200,6 +232,8 @@ COMMAND=(
   --pfp-root "$PFP_DIR"
   --work-dir "$WORKFLOW_WORK_DIR"
   --output-dir "$SCRATCH_RESULT_ROOT"
+  --embedding-state-root "$EMBEDDING_STATE_ROOT"
+  --embedding-mode "$EMBEDDING_MODE"
   --text-cutoff-date "$TEXT_CUTOFF_DATE"
 )
 
@@ -218,5 +252,10 @@ set -e
 
 copy_results 0
 echo
-echo "Finished successfully: $(date)"
-echo "Report: $FINAL_RUN_ROOT/cafa3_full_reproduction_report.md"
+if [[ -f "$SCRATCH_RESULT_ROOT/GENERATION_INCOMPLETE.json" ]]; then
+  echo "Finished with durable incomplete embedding state: $(date)"
+  echo "Retry pairs: $EMBEDDING_STATE_ROOT/needs_retry.tsv"
+else
+  echo "Finished successfully: $(date)"
+  echo "Report: $FINAL_RUN_ROOT/cafa3_full_reproduction_report.md"
+fi

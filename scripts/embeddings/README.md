@@ -133,3 +133,82 @@ bash -n hpc_jobs/active/hpc_contemporary_embedding_generation.sh
 The HPC wrapper performs the real bounded preflight before the full run. It
 must be submitted from a clean committed framework checkout so the scratch
 clone executes the reviewed revision.
+
+## Resumable CAFA3 generation
+
+The full CAFA3 reproduction no longer discards valid arrays when one external
+source has incomplete coverage. `manage_resumable_embedding_state.py` owns one
+persistent, benchmark-bound cache outside PFP. The default HPC location is:
+
+```text
+/SAN/bioinf/bmpfp/embedding_states/cafa3_full_reproduction/
+```
+
+Its contract includes the nine CSV hashes, every protein sequence SHA-256, the
+PFP and framework commits, the author environment report, policy hash, text
+cutoff, GO/STRING inputs, and exact upstream/compatibility script hashes. An
+existing state is rejected if any contract field changes. Persistent arrays are
+accepted only after safe-ID, numeric dtype, finite-value, exact-dimension, and
+SHA-256 checks, then copied atomically under a filesystem lock.
+
+There are only two pair states:
+
+| State | Meaning |
+|---|---|
+| `accepted` | A validated array exists in the one cumulative cache. |
+| `needs_retry` | No accepted array exists; retry regardless of the diagnostic reason. |
+
+`failure_ledger.tsv` retains one cumulative row per currently failed pair with
+attempt count and latest reason. It does not create per-attempt embedding cache
+copies. `needs_retry.tsv`, `coverage.json`, and one of
+`GENERATION_INCOMPLETE.json` or `EMBEDDING_GATE_PASSED.json` are regenerated
+atomically after every merge.
+
+The historical gate is tied to the published CAFA3 cache counts, not the older
+generic lower bounds:
+
+```text
+ProtT5      69,811 / 69,811
+text        69,517 / 69,811
+ESM-IF1     67,948 / 69,811
+PPI         58,294 / 69,811
+```
+
+Pairs can remain in `needs_retry` after the gate passes; the marker means the
+historical published coverage floor has been reached, not that every external
+source contains every protein.
+
+### AlphaFold acquisition
+
+PFP's checked-in `check_alphafold_coverage.py` and its hard-coded 1,000-worker
+main path remain unchanged. The resumable workflow selects the opt-in
+`framework-bounded` mode in `generate_embeddings_structure.sh`. The framework
+imports PFP's CAFA-to-UniProt mapping and AlphaFold interpretation functions,
+calls them with eight workers for only uncached IDs, downloads PDBs atomically,
+records source URLs, versions and SHA-256 values, and copies the requested PDB
+view into job scratch for IF1 inference. Authenticated PDBs live once under the
+state `source_cache`; a killed retry does not force their acquisition again.
+
+### Retry and resume sequence
+
+1. Submit the full workflow in `initial` mode. If coverage is insufficient, it
+   publishes a normal `.incomplete` report and exits zero after saving every
+   valid array. It does not train or evaluate.
+2. Submit `hpc_cafa3_embedding_retry.sh` once per modality that still has
+   missing pairs. Each job builds a PFP view containing only that modality's
+   missing IDs plus 20 accepted controls.
+3. At least five controls must regenerate and match the accepted arrays within
+   `rtol=1e-5`, `atol=1e-6` before retry outputs can be merged. Source-unavailable
+   controls are reported separately; numerical differences fail loudly.
+4. Once `EMBEDDING_GATE_PASSED.json` exists, rerun the full wrapper with
+   `--embedding-mode resume`. It hydrates only validated arrays, then performs
+   the published-cache comparison, training, and evaluation.
+
+Failure reason never decides retry eligibility. A 404, mapping absence, API
+error, invalid array, process failure, or source absence all remain
+`needs_retry`; the reason exists for analysis only.
+
+The persistent staging directory should be removed only after a final embedding
+release has been authenticated and published elsewhere. No cleanup command is
+automated because deleting persistent SAN state is intentionally a manual,
+reviewed operation.

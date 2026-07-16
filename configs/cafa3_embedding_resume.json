@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "description": "Historical CAFA3 embedding acceptance bound to Zijian's published cache scope",
+  "modalities": {
+    "sequence": {
+      "cache_directory": "prott5",
+      "dimension": 1024,
+      "min_accepted_count": 69811,
+      "model": "Rostlab/prot_t5_xl_half_uniref50-enc"
+    },
+    "text": {
+      "cache_directory": "exp_text_embeddings_temporal",
+      "dimension": 768,
+      "min_accepted_count": 69517,
+      "model": "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext",
+      "pooling": "CLS token selected as array[0,0,:]"
+    },
+    "structure": {
+      "cache_directory": "IF1",
+      "dimension": 512,
+      "min_accepted_count": 67948,
+      "model": "esm_if1_gvp4_t16_142M_UR50",
+      "pooling": "mean"
+    },
+    "ppi": {
+      "cache_directory": "ppi",
+      "dimension": 512,
+      "min_accepted_count": 58294,
+      "source": "STRING protein network embeddings v12.0"
+    }
+  }
+}

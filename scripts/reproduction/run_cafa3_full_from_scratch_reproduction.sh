@@ -18,6 +18,9 @@ PFP_ROOT=""
 WORK_DIR=""
 OUTPUT_DIR=""
 TEXT_CUTOFF_DATE="2016-02-17"
+EMBEDDING_STATE_ROOT=""
+EMBEDDING_MODE="initial"
+EMBEDDING_POLICY="$FRAMEWORK_ROOT/configs/cafa3_embedding_resume.json"
 
 usage() {
   cat <<'EOF'
@@ -25,11 +28,20 @@ Usage: run_cafa3_full_from_scratch_reproduction.sh \
   --pfp-root PATH \
   --work-dir PATH \
   --output-dir PATH \
+  --embedding-state-root PATH \
+  [--embedding-mode initial|resume] \
+  [--embedding-policy PATH] \
   [--text-cutoff-date YYYY-MM-DD]
 
 The PFP root must be a disposable pinned clone. Published embeddings are
 downloaded only after all four modalities have been regenerated, compared,
 then deleted before training. They are never used as training inputs.
+
+The persistent embedding state must be outside job-owned scratch. In initial
+mode, validated arrays are merged into that state. If the historical coverage
+gate is not met, the workflow exits successfully with GENERATION_INCOMPLETE.json
+and does not train. Resume mode hydrates a passing state and continues at the
+published-cache comparison stage.
 EOF
 }
 
@@ -55,6 +67,15 @@ while [[ $# -gt 0 ]]; do
     --output-dir)
       [[ $# -ge 2 ]] || die "--output-dir requires a path"
       OUTPUT_DIR="$2"; shift 2 ;;
+    --embedding-state-root)
+      [[ $# -ge 2 ]] || die "--embedding-state-root requires a path"
+      EMBEDDING_STATE_ROOT="$2"; shift 2 ;;
+    --embedding-mode)
+      [[ $# -ge 2 ]] || die "--embedding-mode requires initial or resume"
+      EMBEDDING_MODE="$2"; shift 2 ;;
+    --embedding-policy)
+      [[ $# -ge 2 ]] || die "--embedding-policy requires a path"
+      EMBEDDING_POLICY="$2"; shift 2 ;;
     --text-cutoff-date)
       [[ $# -ge 2 ]] || die "--text-cutoff-date requires YYYY-MM-DD"
       TEXT_CUTOFF_DATE="$2"; shift 2 ;;
@@ -66,6 +87,11 @@ done
 [[ -d "$PFP_ROOT/.git" ]] || die "PFP root is not a Git checkout: $PFP_ROOT"
 [[ -n "$WORK_DIR" ]] || die "--work-dir is required"
 [[ -n "$OUTPUT_DIR" ]] || die "--output-dir is required"
+[[ -n "$EMBEDDING_STATE_ROOT" ]] || die "--embedding-state-root is required"
+[[ "$EMBEDDING_MODE" == "initial" || "$EMBEDDING_MODE" == "resume" ]] || \
+  die "--embedding-mode must be initial or resume"
+[[ -f "$EMBEDDING_POLICY" ]] || die "Missing embedding policy: $EMBEDDING_POLICY"
+EMBEDDING_POLICY="$(cd "$(dirname "$EMBEDDING_POLICY")" && pwd)/$(basename "$EMBEDDING_POLICY")"
 [[ "$TEXT_CUTOFF_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || \
   die "--text-cutoff-date must use YYYY-MM-DD"
 [[ "$PREFLIGHT_PER_SPLIT" =~ ^[1-9][0-9]*$ ]] || \
@@ -85,6 +111,12 @@ PFP_ROOT="$(cd "$PFP_ROOT" && pwd)"
 mkdir -p "$WORK_DIR" "$OUTPUT_DIR/logs" "$OUTPUT_DIR/reports"
 WORK_DIR="$(cd "$WORK_DIR" && pwd)"
 OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
+mkdir -p "$EMBEDDING_STATE_ROOT"
+EMBEDDING_STATE_ROOT="$(cd "$EMBEDDING_STATE_ROOT" && pwd)"
+case "$EMBEDDING_STATE_ROOT/" in
+  "$WORK_DIR/"*|"$PFP_ROOT/"*)
+    die "Embedding state must be persistent and outside job-owned scratch: $EMBEDDING_STATE_ROOT" ;;
+esac
 
 ARCHIVE_STAGE="$WORK_DIR/published_archives"
 PUBLISHED_ROOT="$WORK_DIR/published_cache_root"
@@ -92,6 +124,7 @@ RUNTIME_COMPAT="$WORK_DIR/runtime_compat"
 PREFLIGHT_BACKUP="$WORK_DIR/preflight_full_split_backup"
 ACQUISITION_LOG="$OUTPUT_DIR/reports/input_acquisition.tsv"
 MODALITY_STATUS="$OUTPUT_DIR/reports/modality_status.tsv"
+STATE_REPORT_DIR="$OUTPUT_DIR/reports/embedding_state"
 mkdir -p "$ARCHIVE_STAGE" "$PUBLISHED_ROOT" "$RUNTIME_COMPAT"
 printf 'role\tname\tsource\tstaged_path\tsha256\n' > "$ACQUISITION_LOG"
 printf 'phase\tmodality\texit_status\n' > "$MODALITY_STATUS"
@@ -185,6 +218,7 @@ run_parallel_modalities() {
     > "$log_dir/text.log" 2>&1 &
   local pid_text=$!
   CUDA_VISIBLE_DEVICES="$(gpu 2)" DEVICE=cuda \
+    ALPHAFOLD_PREFETCH_REPORT="$OUTPUT_DIR/reports/alphafold_prefetch_${phase}.json" \
     bash "$FRAMEWORK_ROOT/scripts/embeddings/generate_embeddings_structure.sh" \
     > "$log_dir/structure.log" 2>&1 &
   local pid_structure=$!
@@ -209,6 +243,74 @@ run_parallel_modalities() {
     fi
   done
   return "$rc"
+}
+
+initialize_embedding_state() {
+  local pfp_commit framework_commit
+  pfp_commit="$(git_in_dir "$PFP_ROOT" rev-parse HEAD)"
+  framework_commit="$(git_in_dir "$FRAMEWORK_ROOT" rev-parse HEAD)"
+  "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/manage_resumable_embedding_state.py" \
+    initialize \
+    --state-root "$EMBEDDING_STATE_ROOT" \
+    --benchmark-id cafa3-zijian-canonical \
+    --benchmark-dir "$CAFA3_RAW_DIR" \
+    --data-dir "$PFP_ROOT/data" \
+    --policy "$EMBEDDING_POLICY" \
+    --pfp-commit "$pfp_commit" \
+    --framework-commit "$framework_commit" \
+    --environment-report "$OUTPUT_DIR/reports/environment_validation.txt" \
+    --source-file "go-ontology=$PFP_ROOT/data/go.obo" \
+    --source-file "string-alias=$STRING_ALIAS_FILE" \
+    --source-file "string-embeddings=$STRING_H5_FILE" \
+    --source-file "pfp-prott5=$PFP_ROOT/scripts/extract_prott5_embeddings.py" \
+    --source-file "pfp-text-extract=$PFP_ROOT/scripts/extract_uniprot_text.py" \
+    --source-file "pfp-text-embed=$PFP_ROOT/scripts/embed_uniprot_descriptions.py" \
+    --source-file "pfp-if1=$PFP_ROOT/scripts/extract_esm_if1_embeddings.py" \
+    --source-file "pfp-ppi=$PFP_ROOT/scripts/extract_ppi_embeddings.py" \
+    --source-file "framework-if1-compat=$RUNTIME_COMPAT/extract_esm_if1_embeddings.py" \
+    --source-file "framework-ppi-compat=$RUNTIME_COMPAT/extract_ppi_embeddings.py" \
+    --runtime-value "text_cutoff_date=$TEXT_CUTOFF_DATE" \
+    --runtime-value "alphafold_acquisition=framework-bounded" \
+    --runtime-value "alphafold_api_workers=${ALPHAFOLD_API_WORKERS:-8}" \
+    --runtime-value "alphafold_download_workers=${ALPHAFOLD_DOWNLOAD_WORKERS:-8}" \
+    > "$OUTPUT_DIR/reports/embedding_state_initialization.json"
+}
+
+state_gate_passed() {
+  "$PYTHON_BIN" - "$EMBEDDING_STATE_ROOT/coverage.json" <<'PY'
+import json
+import sys
+raise SystemExit(0 if json.load(open(sys.argv[1]))["embedding_gate_passed"] else 1)
+PY
+}
+
+state_accepted_total() {
+  "$PYTHON_BIN" - "$EMBEDDING_STATE_ROOT/coverage.json" <<'PY'
+import json
+import sys
+coverage = json.load(open(sys.argv[1]))["coverage"]
+print(sum(int(item["accepted"]) for item in coverage.values()))
+PY
+}
+
+publish_incomplete_generation() {
+  mkdir -p "$STATE_REPORT_DIR"
+  "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/manage_resumable_embedding_state.py" \
+    summary --state-root "$EMBEDDING_STATE_ROOT" --report-dir "$STATE_REPORT_DIR" \
+    > "$OUTPUT_DIR/reports/embedding_state_summary.json"
+  cp -p "$EMBEDDING_STATE_ROOT/GENERATION_INCOMPLETE.json" \
+    "$OUTPUT_DIR/GENERATION_INCOMPLETE.json"
+  if [[ -f "$PFP_ROOT/data/alphafold_coverage_results.txt" ]]; then
+    cp -p "$PFP_ROOT/data/alphafold_coverage_results.txt" "$OUTPUT_DIR/reports/"
+  fi
+  if [[ -d "$PFP_ROOT/results/embedding_reports" ]]; then
+    cp -a "$PFP_ROOT/results/embedding_reports" "$OUTPUT_DIR/reports/"
+  fi
+  stop_disk_monitor
+  echo "==> Embedding generation remains incomplete. Valid arrays are durable at:"
+  echo "    $EMBEDDING_STATE_ROOT"
+  echo "==> Retry manifest: $EMBEDDING_STATE_ROOT/needs_retry.tsv"
+  echo "==> Training and evaluation were intentionally not started."
 }
 
 echo "==> [1/13] Validate and record the author-supplied environment"
@@ -290,49 +392,112 @@ export TEXT_CUTOFF_DATE
 export TEXT_REPORT_DIR="$PFP_ROOT/results/embedding_reports/text"
 export HF_HOME="$WORK_DIR/model_cache/huggingface"
 export TORCH_HOME="$WORK_DIR/model_cache/torch"
+export ALPHAFOLD_ACQUISITION_MODE=framework-bounded
+export ALPHAFOLD_PERSISTENT_CACHE_DIR="$EMBEDDING_STATE_ROOT/source_cache/alphafold_structures"
+export ALPHAFOLD_API_WORKERS="${ALPHAFOLD_API_WORKERS:-8}"
+export ALPHAFOLD_DOWNLOAD_WORKERS="${ALPHAFOLD_DOWNLOAD_WORKERS:-8}"
 mkdir -p "$HF_HOME" "$TORCH_HOME"
 
-echo "==> [5/13] Create a reversible bounded preflight view"
-"$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/prepare_cafa3_embedding_preflight.py" \
-  create --data-dir "$PFP_ROOT/data" --backup-dir "$PREFLIGHT_BACKUP" \
-  --limit-per-split "$PREFLIGHT_PER_SPLIT" \
-  > "$OUTPUT_DIR/reports/preflight_workspace.json"
-"$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/verification/verify_splits.py" \
-  --data-dir data --strict > "$OUTPUT_DIR/reports/preflight_split_validation.txt"
+echo "==> Initialize and authenticate the cumulative embedding state"
+initialize_embedding_state
 
-echo "==> [6/13] Run all four modalities on the bounded preflight"
-run_parallel_modalities preflight || die "A preflight modality failed"
-fasta_count="$(grep -c '^>' data/proteins.fasta)"
-[[ "$(file_count data/embedding_cache/prott5)" == "$fasta_count" ]] || \
-  die "Preflight did not create every ProtT5 embedding"
-[[ "$(file_count data/embedding_cache/exp_text_embeddings_temporal)" -gt 0 ]] || \
-  die "Preflight produced no temporal text embeddings"
-preflight_pdb="$(find data/alphafold_structures -maxdepth 1 -type f -name '*.pdb' -print 2>/dev/null | wc -l | tr -d ' ')"
-if [[ "$preflight_pdb" -gt 0 && "$(file_count data/embedding_cache/IF1)" == "0" ]]; then
-  die "Preflight downloaded structures but IF1 saved zero embeddings"
+if [[ "$EMBEDDING_MODE" == "resume" ]]; then
+  echo "==> [5-8/13] Resume from the authenticated persistent embedding state"
+  "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/manage_resumable_embedding_state.py" \
+    summary --state-root "$EMBEDDING_STATE_ROOT" --report-dir "$STATE_REPORT_DIR" \
+    > "$OUTPUT_DIR/reports/embedding_state_summary.json"
+  if ! state_gate_passed; then
+    publish_incomplete_generation
+    exit 0
+  fi
+  rm -rf \
+    data/embedding_cache/prott5 \
+    data/embedding_cache/exp_text_embeddings_temporal \
+    data/embedding_cache/IF1 \
+    data/embedding_cache/ppi
+  "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/manage_resumable_embedding_state.py" \
+    hydrate --state-root "$EMBEDDING_STATE_ROOT" \
+    --output-cache-root "$PFP_ROOT/data/embedding_cache" \
+    --report "$OUTPUT_DIR/reports/embedding_state_hydration.json"
+else
+  [[ "$(state_accepted_total)" == "0" ]] || \
+    die "Initial mode requires an empty state cache; use modality retry jobs and then resume"
+
+  echo "==> [5/13] Create a reversible bounded preflight view"
+  "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/prepare_cafa3_embedding_preflight.py" \
+    create --data-dir "$PFP_ROOT/data" --backup-dir "$PREFLIGHT_BACKUP" \
+    --limit-per-split "$PREFLIGHT_PER_SPLIT" \
+    > "$OUTPUT_DIR/reports/preflight_workspace.json"
+  "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/verification/verify_splits.py" \
+    --data-dir data --strict > "$OUTPUT_DIR/reports/preflight_split_validation.txt"
+
+  echo "==> [6/13] Run all four modalities on the bounded preflight"
+  run_parallel_modalities preflight || die "A preflight modality failed"
+  fasta_count="$(grep -c '^>' data/proteins.fasta)"
+  [[ "$(file_count data/embedding_cache/prott5)" == "$fasta_count" ]] || \
+    die "Preflight did not create every ProtT5 embedding"
+  [[ "$(file_count data/embedding_cache/exp_text_embeddings_temporal)" -gt 0 ]] || \
+    die "Preflight produced no temporal text embeddings"
+  preflight_pdb="$(find data/alphafold_structures -maxdepth 1 -type f -name '*.pdb' -print 2>/dev/null | wc -l | tr -d ' ')"
+  if [[ "$preflight_pdb" -gt 0 && "$(file_count data/embedding_cache/IF1)" == "0" ]]; then
+    die "Preflight downloaded structures but IF1 saved zero embeddings"
+  fi
+
+  # PFP checkpoints failed text API calls as processed. Restart text cleanly for
+  # the full population while retaining valid preflight arrays in other modes.
+  rm -rf \
+    data/embedding_cache/exp_text_embeddings \
+    data/embedding_cache/exp_text_embeddings_temporal \
+    data/embedding_cache/uniprot_text
+
+  echo "==> [7/13] Restore and authenticate the complete prepared dataset"
+  "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/prepare_cafa3_embedding_preflight.py" \
+    restore --data-dir "$PFP_ROOT/data" --backup-dir "$PREFLIGHT_BACKUP" \
+    > "$OUTPUT_DIR/reports/full_workspace_restored.json"
+  "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/verification/verify_splits.py" \
+    --data-dir data --strict > "$OUTPUT_DIR/reports/full_split_validation_after_preflight.txt"
+  [[ "$(grep -c '^>' data/proteins.fasta)" == "69811" ]] || \
+    die "Full FASTA was not restored to all 69,811 proteins"
+
+  echo "==> [8/13] Regenerate all four complete embedding modalities in parallel"
+  generation_status=0
+  run_parallel_modalities full || generation_status=$?
+  attempt_id="${JOB_ID:-local}_$(date -u +%Y%m%dT%H%M%SZ)_initial"
+  merge_command=(
+    "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/manage_resumable_embedding_state.py"
+    merge
+    --state-root "$EMBEDDING_STATE_ROOT"
+    --generated-cache-root "$PFP_ROOT/data/embedding_cache"
+    --attempt-id "$attempt_id"
+    --modality-status "$MODALITY_STATUS"
+    --report-dir "$STATE_REPORT_DIR"
+  )
+  if [[ -f "$PFP_ROOT/data/alphafold_coverage_results.txt" ]]; then
+    merge_command+=(--alphafold-report "$PFP_ROOT/data/alphafold_coverage_results.txt")
+  fi
+  if [[ -f "$OUTPUT_DIR/reports/alphafold_prefetch_full.json" ]]; then
+    merge_command+=(--alphafold-prefetch-report "$OUTPUT_DIR/reports/alphafold_prefetch_full.json")
+  fi
+  "${merge_command[@]}" > "$OUTPUT_DIR/reports/embedding_state_merge.json"
+  printf '%s\n' "$generation_status" > "$OUTPUT_DIR/reports/full_generation_exit_status.txt"
+
+  # Downstream work sees only arrays that passed the independent state validator.
+  rm -rf \
+    data/embedding_cache/prott5 \
+    data/embedding_cache/exp_text_embeddings_temporal \
+    data/embedding_cache/IF1 \
+    data/embedding_cache/ppi
+  "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/manage_resumable_embedding_state.py" \
+    hydrate --state-root "$EMBEDDING_STATE_ROOT" \
+    --output-cache-root "$PFP_ROOT/data/embedding_cache" \
+    --report "$OUTPUT_DIR/reports/embedding_state_hydration.json"
+  if ! state_gate_passed; then
+    publish_incomplete_generation
+    exit 0
+  fi
 fi
 
-# Text API failures are checkpointed as processed by upstream PFP. Restart text
-# cleanly for the full population while retaining model downloads and valid
-# preflight ProtT5/IF1/PPI arrays.
-rm -rf \
-  data/embedding_cache/exp_text_embeddings \
-  data/embedding_cache/exp_text_embeddings_temporal \
-  data/embedding_cache/uniprot_text
-
-echo "==> [7/13] Restore and authenticate the complete prepared dataset"
-"$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/prepare_cafa3_embedding_preflight.py" \
-  restore --data-dir "$PFP_ROOT/data" --backup-dir "$PREFLIGHT_BACKUP" \
-  > "$OUTPUT_DIR/reports/full_workspace_restored.json"
-"$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/verification/verify_splits.py" \
-  --data-dir data --strict > "$OUTPUT_DIR/reports/full_split_validation_after_preflight.txt"
-[[ "$(grep -c '^>' data/proteins.fasta)" == "69811" ]] || \
-  die "Full FASTA was not restored to all 69,811 proteins"
-
-echo "==> [8/13] Regenerate all four complete embedding modalities in parallel"
-run_parallel_modalities full || die "A full embedding modality failed"
-[[ "$(file_count data/embedding_cache/prott5)" == "69811" ]] || \
-  die "Full ProtT5 generation did not produce all 69,811 arrays"
+echo "==> Validate the hydrated cache before published comparison and training"
 "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/verification/verify_embeddings.py" \
   --data-dir data --config "$FRAMEWORK_ROOT/configs/cafa3.json" \
   --strict --all-arrays --require-min-coverage \
@@ -440,10 +605,16 @@ fi
 if [[ -f "$PFP_ROOT/data/alphafold_coverage_results.txt" ]]; then
   cp -p "$PFP_ROOT/data/alphafold_coverage_results.txt" "$OUTPUT_DIR/reports/"
 fi
-cp -p "$PREFLIGHT_BACKUP/preflight_backup_manifest.json" \
-  "$OUTPUT_DIR/reports/preflight_backup_manifest.json"
+if [[ -f "$PREFLIGHT_BACKUP/preflight_backup_manifest.json" ]]; then
+  cp -p "$PREFLIGHT_BACKUP/preflight_backup_manifest.json" \
+    "$OUTPUT_DIR/reports/preflight_backup_manifest.json"
+else
+  printf '{"skipped":true,"reason":"embedding state resume mode"}\n' \
+    > "$OUTPUT_DIR/reports/preflight_skipped.json"
+fi
 
-"$PYTHON_BIN" - "$OUTPUT_DIR" "$PFP_ROOT" "$FRAMEWORK_ROOT" "$TEXT_CUTOFF_DATE" <<'PY'
+"$PYTHON_BIN" - "$OUTPUT_DIR" "$PFP_ROOT" "$FRAMEWORK_ROOT" "$TEXT_CUTOFF_DATE" \
+  "$EMBEDDING_MODE" "$EMBEDDING_STATE_ROOT" <<'PY'
 import json
 import subprocess
 import sys
@@ -456,11 +627,13 @@ payload = {
     "schema_version": 1,
     "completed_at": datetime.now(timezone.utc).isoformat(),
     "text_cutoff_date": sys.argv[4],
+    "embedding_mode": sys.argv[5],
+    "embedding_state_root": sys.argv[6],
     "pfp_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=pfp, text=True).strip(),
     "framework_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=framework, text=True).strip(),
     "report_markdown": "cafa3_full_reproduction_report.md",
     "report_json": "cafa3_full_reproduction_report.json",
-    "generated_embeddings_persisted": False,
+    "generated_embeddings_persisted": True,
     "published_embeddings_persisted": False,
 }
 (output / "WORKFLOW_COMPLETE.json").write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")

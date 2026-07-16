@@ -1,0 +1,360 @@
+from __future__ import annotations
+
+import csv
+import json
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+import numpy as np
+
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+STATE_SCRIPT = REPO_ROOT / "scripts/embeddings/manage_resumable_embedding_state.py"
+RETRY_WORKSPACE = REPO_ROOT / "scripts/embeddings/prepare_embedding_retry_workspace.py"
+EQUIVALENCE = REPO_ROOT / "scripts/embeddings/verify_embedding_subset_equivalence.py"
+PREFETCH = REPO_ROOT / "scripts/embeddings/prefetch_alphafold_structures.py"
+
+
+class ResumableEmbeddingStateTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.benchmark = self.root / "benchmark"
+        self.data = self.root / "data"
+        self.state = self.root / "state"
+        self.benchmark.mkdir()
+        self.data.mkdir()
+        for aspect in ("bp", "cc", "mf"):
+            for split in ("training", "validation", "test"):
+                (self.benchmark / f"{aspect}-{split}.csv").write_text(
+                    "Entry,Sequence,GO:0000001\nP1,ACDE,1\n", encoding="utf-8"
+                )
+        sequences = {"P1": "ACDE", "P2": "FGHI", "P3": "KLMN"}
+        (self.data / "BPO_train_sequences.json").write_text(
+            json.dumps(sequences), encoding="utf-8"
+        )
+        self.policy = self.root / "policy.json"
+        self.policy.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "modalities": {
+                        "sequence": {
+                            "cache_directory": "prott5",
+                            "dimension": 4,
+                            "min_accepted_count": 3,
+                        },
+                        "text": {
+                            "cache_directory": "exp_text_embeddings_temporal",
+                            "dimension": 3,
+                            "min_accepted_count": 2,
+                        },
+                        "structure": {
+                            "cache_directory": "IF1",
+                            "dimension": 2,
+                            "min_accepted_count": 2,
+                        },
+                        "ppi": {
+                            "cache_directory": "ppi",
+                            "dimension": 2,
+                            "min_accepted_count": 1,
+                        },
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.environment = self.root / "environment.txt"
+        self.environment.write_text("python=3.9.23\nnumpy=2.0.2\n", encoding="utf-8")
+        self.source = self.root / "source.dat"
+        self.source.write_text("frozen-source\n", encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def run_state(self, *arguments: str, check: bool = True) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(STATE_SCRIPT), *arguments],
+            check=check,
+            capture_output=True,
+            text=True,
+        )
+
+    def initialize(self, benchmark_id: str = "fixture") -> None:
+        self.run_state(
+            "initialize",
+            "--state-root",
+            str(self.state),
+            "--benchmark-id",
+            benchmark_id,
+            "--benchmark-dir",
+            str(self.benchmark),
+            "--data-dir",
+            str(self.data),
+            "--policy",
+            str(self.policy),
+            "--pfp-commit",
+            "1" * 40,
+            "--framework-commit",
+            "2" * 40,
+            "--environment-report",
+            str(self.environment),
+            "--source-file",
+            f"fixture={self.source}",
+            "--runtime-value",
+            "text_cutoff_date=2016-02-17",
+        )
+
+    @staticmethod
+    def save(cache: Path, directory: str, protein_id: str, dimension: int, value: float) -> None:
+        path = cache / directory
+        path.mkdir(parents=True, exist_ok=True)
+        np.save(path / f"{protein_id}.npy", np.full(dimension, value, dtype=np.float32))
+
+    @staticmethod
+    def write_pairs(path: Path, pairs: list[tuple[str, str]]) -> None:
+        with path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle, delimiter="\t")
+            writer.writerow(["protein_id", "modality"])
+            writer.writerows(pairs)
+
+    def test_partial_merge_retry_and_gate_preserve_one_cumulative_cache(self) -> None:
+        self.initialize()
+        first = self.root / "generated-first"
+        self.save(first, "prott5", "P1", 4, 1)
+        self.save(first, "prott5", "P2", 4, 2)
+        self.save(first, "exp_text_embeddings_temporal", "P1", 3, 1)
+        self.save(first, "IF1", "P1", 2, 1)
+        self.save(first, "ppi", "P1", 2, 1)
+        result = self.run_state(
+            "merge",
+            "--state-root",
+            str(self.state),
+            "--generated-cache-root",
+            str(first),
+            "--attempt-id",
+            "attempt-1",
+        )
+        summary = json.loads(result.stdout)
+        self.assertFalse(summary["embedding_gate_passed"])
+        self.assertEqual(summary["newly_accepted"], 5)
+        self.assertTrue((self.state / "GENERATION_INCOMPLETE.json").is_file())
+        preserved = (self.state / "cache/prott5/P1.npy").read_bytes()
+
+        pairs = self.root / "retry.tsv"
+        self.write_pairs(
+            pairs,
+            [("P3", "sequence"), ("P2", "text"), ("P2", "structure")],
+        )
+        second = self.root / "generated-second"
+        self.save(second, "prott5", "P3", 4, 3)
+        self.save(second, "exp_text_embeddings_temporal", "P2", 3, 2)
+        self.save(second, "IF1", "P2", 2, 2)
+        result = self.run_state(
+            "merge",
+            "--state-root",
+            str(self.state),
+            "--generated-cache-root",
+            str(second),
+            "--attempt-id",
+            "attempt-2",
+            "--requested-pairs",
+            str(pairs),
+        )
+        summary = json.loads(result.stdout)
+        self.assertTrue(summary["embedding_gate_passed"])
+        self.assertTrue((self.state / "EMBEDDING_GATE_PASSED.json").is_file())
+        self.assertFalse((self.state / "GENERATION_INCOMPLETE.json").exists())
+        self.assertEqual((self.state / "cache/prott5/P1.npy").read_bytes(), preserved)
+
+        with (self.state / "needs_retry.tsv").open(encoding="utf-8") as handle:
+            retry_rows = list(csv.DictReader(handle, delimiter="\t"))
+        self.assertIn(("P2", "ppi"), {(row["protein_id"], row["modality"]) for row in retry_rows})
+        self.assertNotIn(("P2", "text"), {(row["protein_id"], row["modality"]) for row in retry_rows})
+
+    def test_contract_drift_is_rejected(self) -> None:
+        self.initialize()
+        result = self.run_state(
+            "initialize",
+            "--state-root",
+            str(self.state),
+            "--benchmark-id",
+            "different",
+            "--benchmark-dir",
+            str(self.benchmark),
+            "--data-dir",
+            str(self.data),
+            "--policy",
+            str(self.policy),
+            "--pfp-commit",
+            "1" * 40,
+            "--framework-commit",
+            "2" * 40,
+            "--environment-report",
+            str(self.environment),
+            "--source-file",
+            f"fixture={self.source}",
+            "--runtime-value",
+            "text_cutoff_date=2016-02-17",
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("contract mismatch", result.stderr)
+
+    def test_invalid_array_stays_needs_retry(self) -> None:
+        self.initialize()
+        generated = self.root / "generated"
+        self.save(generated, "prott5", "P1", 3, 1)
+        pairs = self.root / "pairs.tsv"
+        self.write_pairs(pairs, [("P1", "sequence")])
+        self.run_state(
+            "merge",
+            "--state-root",
+            str(self.state),
+            "--generated-cache-root",
+            str(generated),
+            "--attempt-id",
+            "invalid",
+            "--requested-pairs",
+            str(pairs),
+        )
+        self.assertFalse((self.state / "cache/prott5/P1.npy").exists())
+        ledger = (self.state / "failure_ledger.tsv").read_text(encoding="utf-8")
+        self.assertIn("invalid_generated_array", ledger)
+
+    def test_retry_workspace_and_equivalence_use_only_selected_ids(self) -> None:
+        self.initialize()
+        for aspect in ("BPO", "CCO", "MFO"):
+            for split in ("train", "valid", "test"):
+                names = np.asarray(["P1", "P2", "P3"], dtype=object)
+                np.save(self.data / f"{aspect}_{split}_names.npy", names)
+                (self.data / f"{aspect}_{split}_sequences.json").write_text(
+                    json.dumps({"P1": "ACDE", "P2": "FGHI", "P3": "KLMN"}),
+                    encoding="utf-8",
+                )
+        requested = self.root / "requested.tsv"
+        controls = self.root / "controls.tsv"
+        self.write_pairs(requested, [("P2", "sequence")])
+        self.write_pairs(controls, [("P1", "sequence")])
+        subprocess.run(
+            [
+                sys.executable,
+                str(RETRY_WORKSPACE),
+                "--data-dir",
+                str(self.data),
+                "--requested-pairs",
+                str(requested),
+                "--control-pairs",
+                str(controls),
+                "--modality",
+                "sequence",
+                "--report",
+                str(self.root / "workspace.json"),
+            ],
+            check=True,
+        )
+        names = np.load(self.data / "BPO_train_names.npy", allow_pickle=True)
+        self.assertEqual(set(names), {"P1", "P2"})
+
+        reference = self.state / "cache/prott5"
+        generated = self.root / "equivalence-generated/prott5"
+        reference.mkdir(parents=True, exist_ok=True)
+        generated.mkdir(parents=True)
+        array = np.arange(4, dtype=np.float32)
+        np.save(reference / "P1.npy", array)
+        np.save(generated / "P1.npy", array + 1e-7)
+        report = self.root / "equivalence.json"
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(EQUIVALENCE),
+                "--state-root",
+                str(self.state),
+                "--generated-cache-root",
+                str(self.root / "equivalence-generated"),
+                "--control-pairs",
+                str(controls),
+                "--modality",
+                "sequence",
+                "--minimum-compared",
+                "1",
+                "--report",
+                str(report),
+            ],
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(json.loads(report.read_text())["failed"], 0)
+
+    def test_alphafold_prefetch_reuses_valid_persistent_pdb_without_api(self) -> None:
+        pfp = self.root / "pfp"
+        scripts = pfp / "scripts"
+        scripts.mkdir(parents=True)
+        (scripts / "check_alphafold_coverage.py").write_text(
+            """
+def get_all_cafa_proteins(data_dir):
+    return {"P1"}
+def build_cafa_to_accession_mapping(*args, **kwargs):
+    raise AssertionError("API mapping should not run for a cached PDB")
+def check_alphafold_coverage(*args, **kwargs):
+    raise AssertionError("API check should not run for a cached PDB")
+""",
+            encoding="utf-8",
+        )
+        cafa = self.root / "cafa"
+        cafa.mkdir()
+        cache = self.root / "pdb-cache"
+        cache.mkdir()
+        (cache / "P1.pdb").write_text(
+            "HEADER cached fixture\n"
+            "ATOM      1  N   ALA A   1      11.000  12.000  13.000  1.00 90.00           N\n"
+            "ATOM      2  CA  ALA A   1      12.000  13.000  14.000  1.00 90.00           C\n",
+            encoding="ascii",
+        )
+        pdb_path = cache / "P1.pdb"
+        import hashlib
+
+        pdb_sha = hashlib.sha256(pdb_path.read_bytes()).hexdigest()
+        (cache / "alphafold_source_manifest.tsv").write_text(
+            "protein_id\tsha256\tsize_bytes\tpdb_url\talphafold_version\tresolved_accession\tacquired_at\n"
+            f"P1\t{pdb_sha}\t{pdb_path.stat().st_size}\thttps://example/P1.pdb\t4\tP1\tfixture\n",
+            encoding="utf-8",
+        )
+        workspace = self.root / "workspace-pdb"
+        report = self.root / "prefetch.json"
+        coverage = self.root / "coverage.txt"
+        subprocess.run(
+            [
+                sys.executable,
+                str(PREFETCH),
+                "--pfp-root",
+                str(pfp),
+                "--cafa-assessment-dir",
+                str(cafa),
+                "--data-dir",
+                str(self.data),
+                "--persistent-cache-dir",
+                str(cache),
+                "--workspace-pdb-dir",
+                str(workspace),
+                "--coverage-report",
+                str(coverage),
+                "--report",
+                str(report),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        payload = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual(payload["cached_before"], 1)
+        self.assertEqual(payload["missing_before"], 0)
+        self.assertEqual(payload["available_for_if1"], 1)
+        self.assertTrue((workspace / "P1.pdb").is_file())
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -104,11 +104,47 @@ reports/modality_status.tsv
 logs/
 ```
 
-Generated and published embedding arrays, model caches, STRING inputs and
-checkpoints stay in scratch and are removed unconditionally after compact
-publication, including when publication fails. Optional CLI overrides are
-`--results-root` and `--text-cutoff-date`; the historical default cutoff is
-`2016-02-17`.
+Transient generated arrays, published embedding archives/cache, model caches,
+STRING inputs and checkpoints stay in scratch and are removed unconditionally
+after compact publication, including when publication fails. Arrays that pass
+the independent validator are the sole exception: one copy is atomically
+published into the provenance-bound SAN embedding state before scratch cleanup.
+Optional CLI overrides are
+`--results-root`, `--embedding-state-root`, `--embedding-mode`, and
+`--text-cutoff-date`; the historical default cutoff is `2016-02-17`.
+
+The initial run now preserves validated arrays in one provenance-bound SAN
+state. If any modality remains below the published historical coverage floor,
+the result is published with an `.incomplete` suffix and
+`GENERATION_INCOMPLETE.json`; training and evaluation do not start. This is a
+completed acquisition attempt, not an infrastructure failure.
+
+Retry exactly one missing modality at a time:
+
+```bash
+qsub hpc_jobs/active/hpc_cafa3_embedding_retry.sh --modality structure
+qsub hpc_jobs/active/hpc_cafa3_embedding_retry.sh --modality text
+qsub hpc_jobs/active/hpc_cafa3_embedding_retry.sh --modality ppi
+qsub hpc_jobs/active/hpc_cafa3_embedding_retry.sh --modality sequence
+```
+
+Only modalities listed in the current SAN `needs_retry.tsv` need a job. The
+retry wrapper requests one GPU, recreates canonical inputs in scratch, runs a
+20-protein subset-equivalence control, merges only validated successes, copies
+compact reports to `$HOME/cafa3_embedding_retry_results`, and always removes
+scratch. It does not resubmit itself and does not trigger training.
+
+After the SAN marker passes, continue the original audit without regenerating
+accepted embeddings:
+
+```bash
+qsub hpc_jobs/active/hpc_cafa3_full_from_scratch_reproduction.sh \
+  --embedding-mode resume
+```
+
+The default persistent state is
+`/SAN/bioinf/bmpfp/embedding_states/cafa3_full_reproduction`; use
+`--embedding-state-root` on both wrappers to select another explicit location.
 
 The active wrappers clone the full framework into node-local scratch and
 then call the normal entrypoints under `scripts/`.

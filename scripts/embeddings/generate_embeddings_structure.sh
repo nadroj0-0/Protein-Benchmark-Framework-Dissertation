@@ -25,6 +25,11 @@ DEVICE="${DEVICE:-cuda}"
 IF1_EXTRACT_SCRIPT="${IF1_EXTRACT_SCRIPT:-scripts/extract_esm_if1_embeddings.py}"
 IF1_PYTHON_BIN="${IF1_PYTHON_BIN:-python}"
 IF1_PYTHONPATH="${IF1_PYTHONPATH:-}"
+ALPHAFOLD_ACQUISITION_MODE="${ALPHAFOLD_ACQUISITION_MODE:-pfp}"
+ALPHAFOLD_PERSISTENT_CACHE_DIR="${ALPHAFOLD_PERSISTENT_CACHE_DIR:-}"
+ALPHAFOLD_API_WORKERS="${ALPHAFOLD_API_WORKERS:-8}"
+ALPHAFOLD_DOWNLOAD_WORKERS="${ALPHAFOLD_DOWNLOAD_WORKERS:-8}"
+ALPHAFOLD_PREFETCH_REPORT="${ALPHAFOLD_PREFETCH_REPORT:-results/embedding_reports/structure/alphafold_prefetch.json}"
 
 [ -f "$IF1_EXTRACT_SCRIPT" ] || {
   echo "Missing IF1 extractor: $IF1_EXTRACT_SCRIPT" >&2
@@ -35,11 +40,31 @@ command -v "$IF1_PYTHON_BIN" >/dev/null 2>&1 || {
   exit 1
 }
 
-python scripts/check_alphafold_coverage.py \
-  --cafa-assessment-dir "${CAFA_ASSESSMENT_DIR}" \
-  --data-dir data \
-  --pdb-output-dir data/alphafold_structures \
-  --output-file data/alphafold_coverage_results.txt
+if [ "$ALPHAFOLD_ACQUISITION_MODE" = "framework-bounded" ]; then
+  [ -n "$ALPHAFOLD_PERSISTENT_CACHE_DIR" ] || {
+    echo "Set ALPHAFOLD_PERSISTENT_CACHE_DIR for framework-bounded acquisition" >&2
+    exit 1
+  }
+  python "${REPO_ROOT}/scripts/embeddings/prefetch_alphafold_structures.py" \
+    --pfp-root "$PWD" \
+    --cafa-assessment-dir "${CAFA_ASSESSMENT_DIR}" \
+    --data-dir data \
+    --persistent-cache-dir "$ALPHAFOLD_PERSISTENT_CACHE_DIR" \
+    --workspace-pdb-dir data/alphafold_structures \
+    --coverage-report data/alphafold_coverage_results.txt \
+    --report "$ALPHAFOLD_PREFETCH_REPORT" \
+    --api-workers "$ALPHAFOLD_API_WORKERS" \
+    --download-workers "$ALPHAFOLD_DOWNLOAD_WORKERS"
+elif [ "$ALPHAFOLD_ACQUISITION_MODE" = "pfp" ]; then
+  python scripts/check_alphafold_coverage.py \
+    --cafa-assessment-dir "${CAFA_ASSESSMENT_DIR}" \
+    --data-dir data \
+    --pdb-output-dir data/alphafold_structures \
+    --output-file data/alphafold_coverage_results.txt
+else
+  echo "Unknown ALPHAFOLD_ACQUISITION_MODE: $ALPHAFOLD_ACQUISITION_MODE" >&2
+  exit 1
+fi
 
 if [ -n "$IF1_PYTHONPATH" ]; then
   SINGULARITYENV_PYTHONPATH="$IF1_PYTHONPATH" \

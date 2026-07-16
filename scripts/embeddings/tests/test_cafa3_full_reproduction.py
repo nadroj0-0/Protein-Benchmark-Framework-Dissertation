@@ -213,6 +213,38 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn('rm -rf "$WORK"', source)
         self.assertIn('[[ -f "$staging/WORKFLOW_COMPLETE.json" ]]', source)
 
+    def test_partial_generation_is_persisted_before_training(self) -> None:
+        path = REPO_ROOT / "scripts/reproduction/run_cafa3_full_from_scratch_reproduction.sh"
+        source = path.read_text(encoding="utf-8")
+        merge_at = source.index("merge_command=(")
+        incomplete_at = source.index("publish_incomplete_generation", merge_at)
+        train_at = source.index('"$PYTHON_BIN" train.py')
+        self.assertLess(merge_at, incomplete_at)
+        self.assertLess(incomplete_at, train_at)
+        self.assertIn("--embedding-mode initial|resume", source)
+        self.assertIn("state_gate_passed", source)
+
+    def test_retry_wrapper_is_modality_specific_and_always_cleans_scratch(self) -> None:
+        workflow = (
+            REPO_ROOT / "scripts/reproduction/run_cafa3_embedding_retry.sh"
+        ).read_text(encoding="utf-8")
+        wrapper = (
+            REPO_ROOT / "hpc_jobs/active/hpc_cafa3_embedding_retry.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("--requested-pairs \"$REQUESTED\"", workflow)
+        self.assertIn("verify_embedding_subset_equivalence.py", workflow)
+        self.assertIn("--allowed-extra-pairs \"$CONTROLS\"", workflow)
+        self.assertIn("trap cleanup EXIT", wrapper)
+        self.assertIn('WORK="/scratch0/cafa3_embedding_retry_${JOB_TOKEN}"', wrapper)
+        self.assertIn('rm -rf "$WORK"', wrapper)
+
+    def test_bounded_alphafold_mode_is_opt_in_and_pfp_source_is_unchanged(self) -> None:
+        path = REPO_ROOT / "scripts/embeddings/generate_embeddings_structure.sh"
+        source = path.read_text(encoding="utf-8")
+        self.assertIn('ALPHAFOLD_ACQUISITION_MODE="${ALPHAFOLD_ACQUISITION_MODE:-pfp}"', source)
+        self.assertIn("prefetch_alphafold_structures.py", source)
+        self.assertIn("python scripts/check_alphafold_coverage.py", source)
+
 
 if __name__ == "__main__":
     unittest.main()

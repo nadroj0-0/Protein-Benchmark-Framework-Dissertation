@@ -4,6 +4,48 @@ This log records compatibility changes made around the immutable upstream PFP
 code. Changes tagged `[compat]` must preserve the original model and embedding
 semantics; behavior-changing corrections belong on a later `[fix]` branch.
 
+## 2026-07-16 - `[compat]` Preserve partial embedding work and retry by modality
+
+### Observed failure
+
+Full CAFA3 reproduction job `7070501` generated complete ProtT5 coverage and
+large valid text/PPI/IF1 caches, but IF1 reached only `41,748 / 69,811` because
+the AlphaFold acquisition phase recorded `27,161` API/connection errors. The
+independent 85% structure gate correctly blocked training, but unconditional
+scratch cleanup then discarded every valid generated array.
+
+### Compatibility change
+
+- Add one provenance-bound persistent cache keyed by `(protein_id, modality)`.
+- Validate and atomically merge every successful array before deciding whether
+  the overall coverage gate passed.
+- Retain every absent or invalid pair as `needs_retry`; reasons are diagnostic
+  and never make a pair terminal.
+- Add a one-modality retry workflow and Grid Engine wrapper. Accepted controls
+  must demonstrate subset equivalence before a retry merge.
+- Add full-workflow resume mode, which hydrates only authenticated arrays and
+  refuses to train until the historical published-cache count floor passes.
+- Persist one authenticated AlphaFold PDB source cache and acquire only missing
+  PDBs through a bounded framework path that reuses PFP's mapping/API logic.
+- Leave the pinned PFP checkout and its 1,000-worker main function unchanged.
+
+### Scientific behavior
+
+Model IDs, weights, pooling, PFP data preparation, text cutoff, STRING source,
+IF1 compatibility logic, training, and evaluation are unchanged. The change is
+operational: acquisition concurrency, durable checkpointing, independent array
+validation, retry granularity, and failure signaling.
+
+### Validation
+
+- Fixture tests cover contract drift, partial merge, invalid arrays, pair-level
+  retry, persistent gate state, retry workspace selection, subset equivalence,
+  and authenticated PDB reuse.
+- Existing embedding tests continue to pass.
+- Shell syntax and `git diff --check` pass before publication.
+- A one-modality CUDA retry remains required before the SAN state is treated as
+  production validated.
+
 ## 2026-07-16 - `[compat]` Restore ESM-IF1 extraction in the frozen MMFP runtime
 
 ### Observed failure
