@@ -1,5 +1,29 @@
 # HPC Jobs
 
+## SAN frozen-input acquisition
+
+`active/hpc_populate_san_frozen_inputs.sh` is the Grid Engine wrapper for the
+idempotent persistent-input loader. It clones the committed framework into a
+small job-owned scratch directory, writes large inputs directly to
+`/SAN/bioinf/bmpfp`, and always removes the scratch checkout. Interrupted SAN
+downloads remain as resumable `.partial` files.
+
+Submit the full catalogue with:
+
+```bash
+qsub hpc_jobs/active/hpc_populate_san_frozen_inputs.sh
+```
+
+Select profiles without editing the wrapper:
+
+```bash
+qsub -v SAN_INPUT_PROFILES=homology,tools \
+  hpc_jobs/active/hpc_populate_san_frozen_inputs.sh
+```
+
+The scheduler-neutral implementation and complete inventory are documented in
+[`scripts/data_acquisition/README.md`](../scripts/data_acquisition/README.md).
+
 This directory contains cluster submission wrappers for running the
 framework on UCL/SGE machines.
 

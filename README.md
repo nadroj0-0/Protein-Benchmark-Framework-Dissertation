@@ -48,6 +48,25 @@ Generated data, model checkpoints, cloned upstream repositories, and
 embedding caches are intentionally not committed. See `.gitignore` for
 the excluded paths.
 
+## Persistent frozen inputs
+
+The persistent UCL project store is populated by the idempotent SAN acquisition
+workflow rather than the older `$HOME/protein_databases` downloader:
+
+```bash
+bash scripts/data_acquisition/populate_san_frozen_inputs.sh --dry-run
+bash scripts/data_acquisition/populate_san_frozen_inputs.sh --profile all
+```
+
+It freezes the temporal and homology database inputs, STRING v12.0, MMseqs2,
+canonical CAFA3/DeepGOPlus references, and Zijian's published MMFP artefacts
+under `/SAN/bioinf/bmpfp`. Downloads are resumable, release-guarded,
+checksum-checked where a trusted checksum is known, structurally validated,
+and accompanied by SHA-256/provenance sidecars. See
+[`scripts/data_acquisition/README.md`](scripts/data_acquisition/README.md) for
+profiles, storage estimates, verification modes, and the distinction from the
+legacy home-directory script.
+
 ## Embedding inventory and reuse planning
 
 `embedding_inventory/` provides a benchmark-agnostic planner that reads the
