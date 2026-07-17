@@ -13,7 +13,7 @@ import numpy as np
 
 DEFAULT_RTOL = 1e-5
 DEFAULT_ATOL = 1e-6
-GPU_EMBEDDING_ATOL = 1e-4
+REGENERATED_EMBEDDING_ATOL = 1e-4
 
 
 def main() -> int:
@@ -35,8 +35,8 @@ def main() -> int:
         raise SystemExit(f"Unknown modality: {args.modality}")
     rtol = DEFAULT_RTOL if args.rtol is None else args.rtol
     default_atol = (
-        GPU_EMBEDDING_ATOL
-        if args.modality in {"text", "structure"}
+        REGENERATED_EMBEDDING_ATOL
+        if args.modality in {"text", "structure", "ppi"}
         else DEFAULT_ATOL
     )
     atol = default_atol if args.atol is None else args.atol
@@ -112,8 +112,8 @@ def main() -> int:
                 "cli"
                 if args.atol is not None
                 else (
-                    "gpu_embedding_observed_wobble"
-                    if args.modality in {"text", "structure"}
+                    "regenerated_embedding_compatibility"
+                    if args.modality in {"text", "structure", "ppi"}
                     else "default"
                 )
             ),

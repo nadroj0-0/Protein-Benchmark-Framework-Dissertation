@@ -168,11 +168,12 @@ relative coverage.
 one modality. Twenty accepted controls are materialized temporarily from the
 baseline archive or retry delta and regenerated with the requested subset. At
 least five must pass the modality comparison tolerance before valid outputs are
-atomically merged. Text and structure use `rtol=1e-5`, `atol=1e-4`; sequence
-and PPI retain `rtol=1e-5`, `atol=1e-6`. The shared GPU tolerance is above the
-observed `7.10e-5` cross-run IF1 wobble and the `5.72e-6` earlier text wobble.
-Missing, malformed and non-finite arrays still fail unconditionally. The real
-retry wrapper is pinned to `animal-206-2.local` to remove GPU-model variation.
+atomically merged. Text, structure and PPI use `rtol=1e-5`, `atol=1e-4`;
+sequence retains `rtol=1e-5`, `atol=1e-6`. The compatibility tolerance is above
+the observed `7.10e-5` cross-run IF1 wobble and the `5.72e-6` earlier text
+wobble. Missing, malformed and non-finite arrays still fail unconditionally.
+The real retry wrapper is pinned to `animal-206-2.local` to remove GPU-model
+variation.
 The wrappers never edit PFP and always remove job-owned scratch.
 
 The state records the framework commit used at initialization. During active

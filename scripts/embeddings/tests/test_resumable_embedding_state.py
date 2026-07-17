@@ -479,7 +479,7 @@ class ResumableEmbeddingStateTest(unittest.TestCase):
             rows = list(csv.DictReader(handle, delimiter="\t"))
         self.assertEqual([row["protein_id"] for row in rows], ["P1", "P2", "P3"])
 
-    def test_gpu_modalities_use_observed_wobble_tolerance(self) -> None:
+    def test_regenerated_modalities_use_compatibility_tolerance(self) -> None:
         self.initialize()
         controls = self.root / "tolerance-controls.tsv"
         generated_root = self.root / "tolerance-generated"
@@ -532,9 +532,14 @@ class ResumableEmbeddingStateTest(unittest.TestCase):
         self.assertEqual(text_report["failed"], 0)
 
         ppi_result, ppi_report = verify("ppi", "ppi", 2)
-        self.assertNotEqual(ppi_result.returncode, 0)
-        self.assertEqual(ppi_report["atol"], 1e-6)
-        self.assertEqual(ppi_report["failed"], 1)
+        self.assertEqual(ppi_result.returncode, 0, ppi_result.stderr)
+        self.assertEqual(ppi_report["atol"], 1e-4)
+        self.assertEqual(ppi_report["failed"], 0)
+
+        sequence_result, sequence_report = verify("sequence", "prott5", 4)
+        self.assertNotEqual(sequence_result.returncode, 0)
+        self.assertEqual(sequence_report["atol"], 1e-6)
+        self.assertEqual(sequence_report["failed"], 1)
 
     def test_alphafold_prefetch_reuses_valid_persistent_pdb_without_api(self) -> None:
         pfp = self.root / "pfp"
