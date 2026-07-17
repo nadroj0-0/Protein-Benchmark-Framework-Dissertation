@@ -19,6 +19,7 @@ PLAN_DIR=""
 STATE_ROOT=""
 MODALITY=""
 TEXT_CUTOFF_DATE="2025-03-08"
+STRICT_FRAMEWORK_COMMIT=0
 
 usage() {
   cat <<'EOF'
@@ -26,7 +27,8 @@ Usage: run_contemporary_embedding_retry.sh \
   --pfp-root PATH --work-dir PATH --output-dir PATH \
   --benchmark-dir PATH --plan-dir PATH --state-root PATH \
   --modality sequence|text|structure|ppi \
-  [--text-cutoff-date YYYY-MM-DD] [--artifact-catalog PATH]
+  [--text-cutoff-date YYYY-MM-DD] [--artifact-catalog PATH] \
+  [--strict-framework-commit]
 
 Only currently missing pairs for one modality are generated. Accepted control
 arrays are materialized from the immutable baseline archive or retry delta into
@@ -48,6 +50,7 @@ while [[ $# -gt 0 ]]; do
     --modality) MODALITY="$2"; shift 2 ;;
     --text-cutoff-date) TEXT_CUTOFF_DATE="$2"; shift 2 ;;
     --artifact-catalog) ARTIFACT_CATALOG="$2"; export ARTIFACT_CATALOG; shift 2 ;;
+    --strict-framework-commit) STRICT_FRAMEWORK_COMMIT=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; die "Unknown argument: $1" ;;
   esac
@@ -90,20 +93,57 @@ printf 'phase\tmodality\texit_status\n' > "$MODALITY_STATUS"
 pfp_commit="$(git_in_dir "$PFP_ROOT" rev-parse HEAD)"
 framework_commit="${FRAMEWORK_COMMIT:-$(git_in_dir "$FRAMEWORK_ROOT" rev-parse HEAD)}"
 "$PYTHON_BIN" - "$STATE_ROOT/contract.json" "$pfp_commit" "$framework_commit" \
-  "$TEXT_CUTOFF_DATE" <<'PY'
+  "$TEXT_CUTOFF_DATE" "$STRICT_FRAMEWORK_COMMIT" \
+  "pfp-prott5=$PFP_ROOT/scripts/extract_prott5_embeddings.py" \
+  "pfp-text-extract=$PFP_ROOT/scripts/extract_uniprot_text.py" \
+  "pfp-text-embed=$PFP_ROOT/scripts/embed_uniprot_descriptions.py" \
+  "pfp-if1=$PFP_ROOT/scripts/extract_esm_if1_embeddings.py" \
+  "pfp-ppi=$PFP_ROOT/scripts/extract_ppi_embeddings.py" \
+  "framework-if1-compat=$HERE/build_pfp_if1_compat_copy.py" \
+  "framework-ppi-compat=$HERE/build_pfp_ppi_compat_copy.py" <<'PY'
+import hashlib
 import json
 import sys
 contract = json.load(open(sys.argv[1]))
-expected = {
-    "pfp_commit": sys.argv[2],
-    "framework_commit": sys.argv[3],
-}
-for key, observed in expected.items():
-    if contract[key] != observed:
-        raise SystemExit(f"State contract {key} mismatch: {contract[key]} != {observed}")
+observed_pfp_commit = sys.argv[2]
+observed_framework_commit = sys.argv[3]
+strict_framework_commit = sys.argv[5] == "1"
+if contract["pfp_commit"] != observed_pfp_commit:
+    raise SystemExit(
+        f"State contract pfp_commit mismatch: {contract['pfp_commit']} != "
+        f"{observed_pfp_commit}"
+    )
+if contract["framework_commit"] != observed_framework_commit:
+    message = (
+        "State framework commit differs: "
+        f"initialized={contract['framework_commit']} "
+        f"retry={observed_framework_commit}"
+    )
+    if strict_framework_commit:
+        raise SystemExit(message)
+    print(
+        f"WARNING: {message}; continuing because strict framework revision "
+        "matching is disabled. Critical source hashes remain enforced.",
+        file=sys.stderr,
+    )
 cutoff = contract.get("runtime", {}).get("text_cutoff_date")
 if cutoff != sys.argv[4]:
     raise SystemExit(f"State contract text cutoff mismatch: {cutoff} != {sys.argv[4]}")
+sources = {entry["label"]: entry["sha256"] for entry in contract["source_files"]}
+for specification in sys.argv[6:]:
+    label, path = specification.split("=", 1)
+    expected = sources.get(label)
+    if expected is None:
+        raise SystemExit(f"State contract has no source hash for {label}")
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    observed = digest.hexdigest()
+    if observed != expected:
+        raise SystemExit(
+            f"State contract source mismatch for {label}: {expected} != {observed}"
+        )
 PY
 
 echo "==> [1/9] Validate the author-supplied environment"

@@ -18,7 +18,8 @@ usage() {
 Usage: qsub hpc_jobs/active/hpc_contemporary_embedding_retry.sh \
   --modality sequence|text|structure|ppi \
   [--benchmark-dir PATH] [--baseline-root PATH] [--plan-dir PATH] \
-  [--state-root PATH] [--artifact-catalog PATH] [--results-root PATH]
+  [--state-root PATH] [--artifact-catalog PATH] [--results-root PATH] \
+  [--strict-framework-commit]
 
 The wrapper retries only pending pairs for one modality, merges valid arrays
 into the one archive-backed SAN state, copies compact reports home, and always
@@ -36,6 +37,7 @@ STATE_ROOT=""
 CLI_ARTIFACT_CATALOG="${ARTIFACT_CATALOG:-}"
 CLI_RESULTS_ROOT=""
 TEXT_CUTOFF_DATE="2025-03-08"
+STRICT_FRAMEWORK_COMMIT=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --modality) MODALITY="$2"; shift 2 ;;
@@ -46,6 +48,7 @@ while [[ $# -gt 0 ]]; do
     --artifact-catalog) CLI_ARTIFACT_CATALOG="$2"; shift 2 ;;
     --results-root) CLI_RESULTS_ROOT="$2"; shift 2 ;;
     --text-cutoff-date) TEXT_CUTOFF_DATE="$2"; shift 2 ;;
+    --strict-framework-commit) STRICT_FRAMEWORK_COMMIT=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; die "Unknown argument: $1" ;;
   esac
@@ -185,6 +188,9 @@ command=(
 )
 if [[ -n "${ARTIFACT_CATALOG:-}" ]]; then
   command+=(--artifact-catalog "$ARTIFACT_CATALOG")
+fi
+if [[ "$STRICT_FRAMEWORK_COMMIT" == "1" ]]; then
+  command+=(--strict-framework-commit)
 fi
 printf 'Command:'; printf ' %q' "${command[@]}"; printf '\n'
 set +e

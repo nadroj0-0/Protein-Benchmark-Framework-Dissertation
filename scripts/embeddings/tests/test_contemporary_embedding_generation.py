@@ -402,6 +402,31 @@ class WorkflowScriptTests(unittest.TestCase):
                     self.assertIn(expression, source)
                     self.assertLess(source.index(expression), activation)
 
+    def test_retry_framework_commit_gate_is_optional_but_source_hashes_stay_strict(self) -> None:
+        workflow = (SCRIPT_DIR / "run_contemporary_embedding_retry.sh").read_text(
+            encoding="utf-8"
+        )
+        wrapper = (
+            SCRIPT_DIR.parents[1]
+            / "hpc_jobs/active/hpc_contemporary_embedding_retry.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("STRICT_FRAMEWORK_COMMIT=0", workflow)
+        self.assertIn("--strict-framework-commit", workflow)
+        self.assertIn("--strict-framework-commit", wrapper)
+        self.assertIn("strict framework revision ", workflow)
+        self.assertIn('"matching is disabled. Critical source hashes remain enforced."', workflow)
+        self.assertIn("Critical source hashes remain enforced", workflow)
+        for label in (
+            "pfp-prott5",
+            "pfp-text-extract",
+            "pfp-text-embed",
+            "pfp-if1",
+            "pfp-ppi",
+            "framework-if1-compat",
+            "framework-ppi-compat",
+        ):
+            self.assertIn(label, workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

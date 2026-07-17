@@ -319,6 +319,12 @@ qsub hpc_jobs/active/hpc_contemporary_embedding_retry.sh --modality text
 qsub hpc_jobs/active/hpc_contemporary_embedding_retry.sh --modality ppi
 ```
 
+Retries tolerate an unrelated framework revision change during development but
+still enforce the pinned PFP revision and all recorded critical source hashes.
+Add `--strict-framework-commit` after the modality argument for a frozen
+release audit that requires the retry checkout to equal the initialization
+commit exactly.
+
 The retry wrapper resolves explicit inputs and then the artifact catalogue:
 canonical CAFA3 CSVs are copied into scratch before PFP's header normalization,
 the STRING H5 is read directly from its resolved location, and the compressed

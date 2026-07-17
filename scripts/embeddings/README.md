@@ -171,6 +171,15 @@ least five must match within `rtol=1e-5`, `atol=1e-6` before valid outputs are
 atomically merged. Failures remain in the retry ledger regardless of reason.
 The wrappers never edit PFP and always remove job-owned scratch.
 
+The state records the framework commit used at initialization. During active
+development, a later retry may run from a newer framework commit without
+invalidating the scientific inputs. The default retry behavior therefore warns
+on a framework-commit difference while still enforcing the exact PFP commit,
+text cutoff, environment fingerprint, and hashes of all PFP extraction and
+framework compatibility scripts recorded by the state. Use
+`--strict-framework-commit` when a frozen release requires whole-repository
+revision equality.
+
 ### Reusing frozen dependencies
 
 Embedding workflows resolve static inputs in the same order as the rest of the

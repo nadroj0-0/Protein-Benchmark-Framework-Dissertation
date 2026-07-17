@@ -245,3 +245,30 @@ policy.
 - Focused full-reproduction tests: passed (`6` tests).
 - Reachable execution-chain `git -C` scan: zero matches.
 - `git diff --check`: passed.
+## 2026-07-17 - `[compat]` Scope the contemporary retry revision gate
+
+### Observed failure
+
+Contemporary text, structure and PPI retry jobs `7073862`-`7073864` stopped
+before generation because the state was initialized at framework commit
+`36e01c5`, while later storage/catalogue fixes moved the submitted checkout to
+`d633a73`. The blanket repository revision equality treated unrelated active
+development as scientific contract drift.
+
+### Compatibility change
+
+- Keep the state initialization commit as provenance.
+- Warn, rather than fail, when a development retry uses a different framework
+  commit.
+- Continue to fail on a PFP commit mismatch, text-cutoff mismatch, environment
+  fingerprint mismatch, or a changed hash for any recorded PFP extraction or
+  framework IF1/PPI compatibility script.
+- Add `--strict-framework-commit` for frozen-release audits that require exact
+  whole-repository equality.
+
+### Scientific behavior
+
+No embedding algorithm, source model, pooling operation, benchmark population,
+or acceptance threshold changes. The fix narrows the provenance gate from the
+entire evolving repository to the runtime sources that can affect generated
+arrays.
