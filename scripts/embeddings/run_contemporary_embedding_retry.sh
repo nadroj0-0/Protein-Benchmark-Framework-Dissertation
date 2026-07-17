@@ -120,7 +120,8 @@ PY
 
 echo "==> [2/9] Stage embedding dependencies"
 cd "$PFP_ROOT"
-PFP_ROOT="$PFP_ROOT" bash "$HERE/generate_embeddings_dependencies.sh" \
+PFP_ROOT="$PFP_ROOT" EMBEDDING_DEPENDENCY_PROFILE="$MODALITY" \
+  bash "$HERE/generate_embeddings_dependencies.sh" \
   > "$OUTPUT_DIR/logs/dependencies.log" 2>&1
 source external/dependency_env.sh
 export CAFA_ASSESSMENT_DIR STRING_H5_FILE STRING_ALIAS_FILE CAFA3_RAW_DIR
@@ -174,8 +175,8 @@ export IF1_PYTHON_BIN="$PYTHON_BIN"
 export IF1_PYTHONPATH="$IF1_NUMPY_OVERLAY"
 export TEXT_CUTOFF_DATE
 export TEXT_REPORT_DIR="$PFP_ROOT/results/embedding_reports/text"
-export HF_HOME="$WORK_DIR/model_cache/huggingface"
-export TORCH_HOME="$WORK_DIR/model_cache/torch"
+export HF_HOME="${HF_HOME:-$STATE_ROOT/source_cache/model_weights/huggingface}"
+export TORCH_HOME="${TORCH_HOME:-$STATE_ROOT/source_cache/model_weights/torch}"
 export ALPHAFOLD_ACQUISITION_MODE=framework-bounded
 export ALPHAFOLD_PERSISTENT_CACHE_DIR="$STATE_ROOT/source_cache/alphafold_structures"
 export ALPHAFOLD_API_WORKERS="${ALPHAFOLD_API_WORKERS:-8}"

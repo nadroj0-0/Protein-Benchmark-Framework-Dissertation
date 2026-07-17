@@ -298,6 +298,13 @@ qsub hpc_jobs/active/hpc_contemporary_embedding_retry.sh --modality text
 qsub hpc_jobs/active/hpc_contemporary_embedding_retry.sh --modality ppi
 ```
 
+The retry wrapper prefers frozen inputs under `/SAN/bioinf/bmpfp`: canonical
+CAFA3 CSVs are copied into scratch before PFP's header normalization, the STRING
+H5 is read directly from SAN, and the compressed STRING alias file is expanded
+into scratch. Missing SAN inputs retain the original download fallback. Model
+weights and AlphaFold structures acquired during retries are retained once in
+the retry state's `source_cache/` for later attempts.
+
 ProtT5 currently has complete coverage and does not need a retry. Each retry
 requests only the pending protein/modality pairs, verifies regenerated control
 arrays, merges valid successes into one SAN delta, publishes compact reports

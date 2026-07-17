@@ -18,7 +18,7 @@ usage() {
 Usage: qsub hpc_jobs/active/hpc_contemporary_embedding_retry.sh \
   --modality sequence|text|structure|ppi \
   [--benchmark-dir PATH] [--baseline-root PATH] [--plan-dir PATH] \
-  [--state-root PATH] [--results-root PATH]
+  [--state-root PATH] [--san-input-root PATH] [--results-root PATH]
 
 The wrapper retries only pending pairs for one modality, merges valid arrays
 into the one archive-backed SAN state, copies compact reports home, and always
@@ -33,6 +33,7 @@ BENCHMARK_DIR=/SAN/bioinf/bmpfp/benchmarks/contemporary/2025_01_to_2026_02_super
 BASELINE_ROOT=/SAN/bioinf/bmpfp/embeddings/contemporary/2025_01_to_2026_02_supervisor
 PLAN_DIR=""
 STATE_ROOT=""
+SAN_INPUT_ROOT=/SAN/bioinf/bmpfp
 CLI_RESULTS_ROOT=""
 TEXT_CUTOFF_DATE="2025-03-08"
 while [[ $# -gt 0 ]]; do
@@ -42,6 +43,7 @@ while [[ $# -gt 0 ]]; do
     --baseline-root) BASELINE_ROOT="$2"; shift 2 ;;
     --plan-dir) PLAN_DIR="$2"; shift 2 ;;
     --state-root) STATE_ROOT="$2"; shift 2 ;;
+    --san-input-root) SAN_INPUT_ROOT="$2"; shift 2 ;;
     --results-root) CLI_RESULTS_ROOT="$2"; shift 2 ;;
     --text-cutoff-date) TEXT_CUTOFF_DATE="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -163,6 +165,9 @@ add_mmfp_singularity_bind "$BENCHMARK_DIR"
 add_mmfp_singularity_bind "$BASELINE_ROOT"
 add_mmfp_singularity_bind "$PLAN_DIR"
 add_mmfp_singularity_bind "$(dirname "$STATE_ROOT")"
+if [[ -d "$SAN_INPUT_ROOT" ]]; then
+  add_mmfp_singularity_bind "$SAN_INPUT_ROOT"
+fi
 activate_or_create_mmfp_env
 PYTHON_BIN="$(command -v python)"
 
@@ -180,6 +185,7 @@ command=(
 printf 'Command:'; printf ' %q' "${command[@]}"; printf '\n'
 set +e
 PYTHON_BIN="$PYTHON_BIN" FRAMEWORK_COMMIT="$FRAMEWORK_COMMIT" \
+  SAN_INPUT_ROOT="$SAN_INPUT_ROOT" \
   "${command[@]}" 2>&1 | tee "$WORKFLOW_LOG"
 WORKFLOW_STATUS=${PIPESTATUS[0]}
 set -e

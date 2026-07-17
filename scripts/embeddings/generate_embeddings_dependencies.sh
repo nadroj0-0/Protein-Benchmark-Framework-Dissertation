@@ -24,6 +24,17 @@ PFP_CAFA3_RAW_DIR="${PFP_CAFA3_RAW_DIR:-${EXT}/cafa3_raw}"
 PFP_STRING_DIR="${PFP_STRING_DIR:-${EXT}/string}"
 CAFA3_BASE="${CAFA3_BASE:-https://zenodo.org/records/7409660/files}"
 STRING_DOWNLOAD_BASE="${STRING_DOWNLOAD_BASE:-https://stringdb-downloads.org/download}"
+SAN_INPUT_ROOT="${SAN_INPUT_ROOT:-/SAN/bioinf/bmpfp}"
+SAN_CAFA3_RAW_DIR="${SAN_CAFA3_RAW_DIR:-${SAN_INPUT_ROOT}/reference_artifacts/canonical_cafa3}"
+SAN_STRING_DIR="${SAN_STRING_DIR:-${SAN_INPUT_ROOT}/frozen_inputs/string/v12.0}"
+EMBEDDING_DEPENDENCY_PROFILE="${EMBEDDING_DEPENDENCY_PROFILE:-all}"
+case "${EMBEDDING_DEPENDENCY_PROFILE}" in
+  all|sequence|text|structure|ppi) ;;
+  *)
+    echo "Unknown EMBEDDING_DEPENDENCY_PROFILE: ${EMBEDDING_DEPENDENCY_PROFILE}" >&2
+    exit 2
+    ;;
+esac
 
 mkdir -p "${EXT}"
 echo "==> External dependencies will live in: ${EXT}"
@@ -74,9 +85,10 @@ fi
 #        Download 9 split CSVs, authenticate PRISTINE files against Zenodo md5s,
 #        THEN normalise MF column 'protein' -> 'proteins' so prepare runs unmodified.
 RAW="${PFP_CAFA3_RAW_DIR}"
-mkdir -p "${RAW}"
 
-cat > "${RAW}/.zenodo_md5.txt" <<'EOF'
+if [ "${EMBEDDING_DEPENDENCY_PROFILE}" = "all" ]; then
+  mkdir -p "${RAW}"
+  cat > "${RAW}/.zenodo_md5.txt" <<'EOF'
 e9a4b239cd47a7ac80975f63e259581e  bp-test.csv
 85c19594547a503956226b9c225efc5d  bp-training.csv
 c2674223770d6a8cf680dd9335d51ebe  bp-validation.csv
@@ -88,64 +100,94 @@ b31a8f22b5934aef61b76ec3b89296da  mf-training.csv
 897921ce5df8174672200320926ccc87  mf-validation.csv
 EOF
 
-for aspect in bp cc mf; do
-  for split in training validation test; do
-    f="${RAW}/${aspect}-${split}.csv"
-    if [ ! -f "$f" ]; then
-      echo "==> Downloading ${aspect}-${split}.csv"
-      wget -c "${CAFA3_BASE}/${aspect}-${split}.csv?download=1" -O "$f"
-    fi
-  done
-done
-
-if [ ! -f "${RAW}/.normalised" ]; then
-  echo "==> Authenticating CAFA3 CSV md5s against Zenodo..."
-  ( cd "${RAW}"
-    if command -v md5sum >/dev/null 2>&1; then
-      md5sum -c .zenodo_md5.txt
-    else
-      while read -r want name; do
-        got=$(md5 -q "$name")
-        [ "$got" = "$want" ] && echo "  OK  $name" || { echo "  BAD $name ($got != $want)"; exit 1; }
-      done < .zenodo_md5.txt
-    fi
-  )
-  echo "==> CAFA3 CSVs authenticated."
-  for split in training validation test; do
-    f="${RAW}/mf-${split}.csv"
-    if head -1 "$f" | grep -q '^protein,'; then
-      echo "==> Normalising header: mf-${split}.csv  protein -> proteins"
-      if sed --version >/dev/null 2>&1; then
-        sed -i '1 s/^protein,/proteins,/' "$f"
-      else
-        sed -i '' '1 s/^protein,/proteins,/' "$f"
+  for aspect in bp cc mf; do
+    for split in training validation test; do
+      f="${RAW}/${aspect}-${split}.csv"
+      if [ ! -f "$f" ]; then
+        san_source="${SAN_CAFA3_RAW_DIR}/${aspect}-${split}.csv"
+        if [ -f "$san_source" ]; then
+          echo "==> Staging ${aspect}-${split}.csv from frozen SAN input"
+          cp -p "$san_source" "$f"
+        else
+          echo "==> Downloading ${aspect}-${split}.csv"
+          wget -c "${CAFA3_BASE}/${aspect}-${split}.csv?download=1" -O "$f"
+        fi
       fi
-    fi
+    done
   done
-  touch "${RAW}/.normalised"
-  echo "==> CAFA3 CSVs normalised."
+
+  if [ ! -f "${RAW}/.normalised" ]; then
+    echo "==> Authenticating CAFA3 CSV md5s against Zenodo..."
+    ( cd "${RAW}"
+      if command -v md5sum >/dev/null 2>&1; then
+        md5sum -c .zenodo_md5.txt
+      else
+        while read -r want name; do
+          got=$(md5 -q "$name")
+          [ "$got" = "$want" ] && echo "  OK  $name" || { echo "  BAD $name ($got != $want)"; exit 1; }
+        done < .zenodo_md5.txt
+      fi
+    )
+    echo "==> CAFA3 CSVs authenticated."
+    for split in training validation test; do
+      f="${RAW}/mf-${split}.csv"
+      if head -1 "$f" | grep -q '^protein,'; then
+        echo "==> Normalising header: mf-${split}.csv  protein -> proteins"
+        if sed --version >/dev/null 2>&1; then
+          sed -i '1 s/^protein,/proteins,/' "$f"
+        else
+          sed -i '' '1 s/^protein,/proteins,/' "$f"
+        fi
+      fi
+    done
+    touch "${RAW}/.normalised"
+    echo "==> CAFA3 CSVs normalised."
+  else
+    echo "==> CAFA3 CSVs already authenticated + normalised, skipping."
+  fi
 else
-  echo "==> CAFA3 CSVs already authenticated + normalised, skipping."
+  echo "==> Skipping CAFA3 CSV staging for ${EMBEDDING_DEPENDENCY_PROFILE} dependency profile"
 fi
 
 # --- 3. STRING files (PPI): alias (confirmed URL) + network embeddings .h5 (manual)
-mkdir -p "${PFP_STRING_DIR}"
 STRING_ALIAS="${STRING_ALIAS_FILE:-${PFP_STRING_DIR}/protein.aliases.v12.0.txt}"
 STRING_ALIAS_GZ="${STRING_ALIAS}.gz"
-if [ ! -f "${STRING_ALIAS}" ]; then
-  echo "==> Downloading STRING aliases v12.0 (~3.2 GB)"
-  wget -c "${STRING_DOWNLOAD_BASE}/protein.aliases.v12.0.txt.gz" -O "${STRING_ALIAS_GZ}"
-  gunzip "${STRING_ALIAS_GZ}"
-else
-  echo "==> STRING aliases already present, skipping"
-fi
+SAN_STRING_H5="${SAN_STRING_H5:-${SAN_STRING_DIR}/protein.network.embeddings.v12.0.h5}"
+if [ "${EMBEDDING_DEPENDENCY_PROFILE}" = "all" ] || \
+   [ "${EMBEDDING_DEPENDENCY_PROFILE}" = "ppi" ]; then
+  mkdir -p "${PFP_STRING_DIR}"
+  if [ ! -f "${STRING_ALIAS}" ]; then
+    SAN_STRING_ALIAS_GZ="${SAN_STRING_ALIAS_GZ:-${SAN_STRING_DIR}/protein.aliases.v12.0.txt.gz}"
+    if [ -f "${SAN_STRING_ALIAS_GZ}" ]; then
+      echo "==> Expanding STRING aliases v12.0 from frozen SAN input"
+      gzip -dc "${SAN_STRING_ALIAS_GZ}" > "${STRING_ALIAS}.partial"
+      mv "${STRING_ALIAS}.partial" "${STRING_ALIAS}"
+    else
+      echo "==> Downloading STRING aliases v12.0 (~3.2 GB)"
+      wget -c "${STRING_DOWNLOAD_BASE}/protein.aliases.v12.0.txt.gz" -O "${STRING_ALIAS_GZ}"
+      gunzip "${STRING_ALIAS_GZ}"
+    fi
+  else
+    echo "==> STRING aliases already present, skipping"
+  fi
 
-STRING_H5="${STRING_H5_FILE:-${PFP_STRING_DIR}/protein.network.embeddings.v12.0.h5}"
-if [ ! -f "${STRING_H5}" ]; then
-  echo "==> Downloading STRING network embeddings v12.0 (.h5) (~17.9 GB)"
-  wget -c "${STRING_DOWNLOAD_BASE}/protein.network.embeddings.v12.0.h5" -O "${STRING_H5}"
+  if [ -n "${STRING_H5_FILE:-}" ]; then
+    STRING_H5="${STRING_H5_FILE}"
+  elif [ -f "${SAN_STRING_H5}" ]; then
+    STRING_H5="${SAN_STRING_H5}"
+    echo "==> Using STRING network embeddings from frozen SAN input"
+  else
+    STRING_H5="${PFP_STRING_DIR}/protein.network.embeddings.v12.0.h5"
+  fi
+  if [ ! -f "${STRING_H5}" ]; then
+    echo "==> Downloading STRING network embeddings v12.0 (.h5) (~17.9 GB)"
+    wget -c "${STRING_DOWNLOAD_BASE}/protein.network.embeddings.v12.0.h5" -O "${STRING_H5}"
+  else
+    echo "==> STRING network embeddings already present, skipping"
+  fi
 else
-  echo "==> STRING network embeddings already present, skipping"
+  STRING_H5="${PFP_STRING_DIR}/protein.network.embeddings.v12.0.h5"
+  echo "==> Skipping STRING staging for ${EMBEDDING_DEPENDENCY_PROFILE} dependency profile"
 fi
 
 
