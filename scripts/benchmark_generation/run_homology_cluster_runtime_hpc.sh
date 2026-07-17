@@ -327,7 +327,7 @@ if [[ "$TEST_MODE" == "1" ]]; then
     exit 0
 fi
 
-for command in git wget tar gzip awk sha256sum md5sum; do
+for command in git wget tar gzip awk sha256sum; do
     command -v "$command" >/dev/null 2>&1 || { echo "Missing required command: $command" >&2; exit 1; }
 done
 
@@ -385,11 +385,44 @@ UNIREF90_URL="https://ftp.uniprot.org/pub/databases/uniprot/current_release/unir
 IDMAPPING_URL="https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/idmapping/idmapping_selected.tab.gz"
 SPROT_URL="https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/complete/uniprot_sprot.dat.gz"
 TREMBL_URL="https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/complete/uniprot_trembl.dat.gz"
-GOA_URL="https://ftp.ebi.ac.uk/pub/databases/GO/goa/UNIPROT/goa_uniprot_all.gaf.gz"
-GOA_MD5_URL="https://ftp.ebi.ac.uk/pub/databases/GO/goa/UNIPROT/goa_uniprot_all.gaf.gz.md5"
+GOA_URL="https://ftp.ebi.ac.uk/pub/databases/GO/goa/old/UNIPROT/goa_uniprot_all.gaf.234.gz"
+PINNED_GOA_SHA256="f315375b07946a0649142b2f4de2e15e282316989677a04e7a561203186dd2ff"
 GO_OBO_URL="https://release.geneontology.org/2026-06-19/ontology/go-basic.obo"
 UNIPROT_RELNOTES_URL="https://ftp.uniprot.org/pub/databases/uniprot/current_release/relnotes.txt"
-GOA_RELEASES_URL="https://ftp.ebi.ac.uk/pub/databases/GO/goa/current_release_numbers.txt"
+SAN_INPUT_ROOT="${SAN_INPUT_ROOT:-/SAN/bioinf/bmpfp}"
+
+use_san_input_if_available() {
+    local path_variable="$1"
+    local hash_variable="$2"
+    local relative_path="$3"
+    local pinned_sha="$4"
+    local candidate="$SAN_INPUT_ROOT/$relative_path"
+    if [[ -z "${!path_variable:-}" && -s "$candidate" ]]; then
+        printf -v "$path_variable" '%s' "$candidate"
+        printf -v "$hash_variable" '%s' "$pinned_sha"
+        export "$path_variable" "$hash_variable"
+        echo "Using frozen SAN input for $path_variable: $candidate"
+    fi
+}
+
+use_san_input_if_available UNIREF90_FASTA UNIREF90_FASTA_SHA256 \
+    frozen_inputs/uniref90/2026_02/uniref90.fasta.gz \
+    ed80f79bbf1f054b3ea444ce0db0819586731e4dc3a3fb0c75a60ff273eedefb
+use_san_input_if_available IDMAPPING IDMAPPING_SHA256 \
+    frozen_inputs/idmapping/2026_02/idmapping_selected.tab.gz \
+    96707b0430f76e78f708eaa70d6cae7ccb4bb8e4b6b981c7d169215d650cc605
+use_san_input_if_available UNIPROT_SPROT_SEQUENCES UNIPROT_SPROT_SEQUENCES_SHA256 \
+    frozen_inputs/uniprot/2026_02/uniprot_sprot.dat.gz \
+    741bcb144f98b8d10f0369b145d562b6751bfd17c285e936553aeb9cb54ab592
+use_san_input_if_available UNIPROT_TREMBL_SEQUENCES UNIPROT_TREMBL_SEQUENCES_SHA256 \
+    frozen_inputs/uniprot/2026_02/uniprot_trembl.dat.gz \
+    ae40f0dc517e92a9f3b9b2cf8000c977c4d08458aefb7667692133298842fe69
+use_san_input_if_available GOA GOA_SHA256 \
+    frozen_inputs/goa/234/goa_uniprot_all.gaf.234.gz \
+    "$PINNED_GOA_SHA256"
+use_san_input_if_available GO_OBO GO_OBO_SHA256 \
+    frozen_inputs/ontology/2026-06-19/go-basic.obo \
+    c72fc198a86983d55e43aac585d1ffdbeb6e3601475b3f18b6045acdc0a0734c
 
 download_file() {
     local url="$1"
@@ -454,15 +487,6 @@ if [[ "$needs_uniprot_download" == "1" ]]; then
         exit 1
     }
 fi
-if [[ -z "${GOA:-}" ]]; then
-    download_file "$GOA_RELEASES_URL" "$ARTIFACTS/logs/goa_current_release_numbers.txt"
-    awk '$1 == "uniprot" && $2 == "234" && $3 == "2026-06-17" {found=1} END {exit !found}' \
-        "$ARTIFACTS/logs/goa_current_release_numbers.txt" || {
-        echo "The GOA current endpoint is no longer UniProt-GOA release 234 (2026-06-17)" >&2
-        exit 1
-    }
-fi
-
 stage_or_download uniref90_fasta "${UNIREF90_FASTA:-}" "$UNIREF90_URL" \
     "$INPUT_ROOT/uniref90.fasta.gz" "${UNIREF90_FASTA_SHA256:-}"
 stage_or_download idmapping "${IDMAPPING:-}" "$IDMAPPING_URL" \
@@ -476,7 +500,7 @@ if [[ "$UNIPROT_SOURCE_SCOPE" != "sprot-only" ]]; then
         "$INPUT_ROOT/uniprot_trembl.dat.gz" "${UNIPROT_TREMBL_SEQUENCES_SHA256:-}"
 fi
 stage_or_download goa "${GOA:-}" "$GOA_URL" \
-    "$INPUT_ROOT/goa_uniprot_all.gaf.234.gz" "${GOA_SHA256:-}"
+    "$INPUT_ROOT/goa_uniprot_all.gaf.234.gz" "${GOA_SHA256:-$PINNED_GOA_SHA256}"
 stage_or_download go_obo "${GO_OBO:-}" "$GO_OBO_URL" \
     "$INPUT_ROOT/go-basic.obo" "${GO_OBO_SHA256:-}"
 
@@ -488,24 +512,16 @@ if [[ "$needs_uniprot_download" == "1" ]]; then
         exit 1
     }
 fi
-if [[ -z "${GOA:-}" ]]; then
-    download_file "$GOA_RELEASES_URL" "$ARTIFACTS/logs/goa_current_release_numbers_after_download.txt"
-    [[ "$(awk '$1 == "uniprot" {print}' "$ARTIFACTS/logs/goa_current_release_numbers.txt")" == \
-       "$(awk '$1 == "uniprot" {print}' "$ARTIFACTS/logs/goa_current_release_numbers_after_download.txt")" ]] || {
-        echo "GOA current release metadata changed while this task was downloading inputs" >&2
-        exit 1
-    }
-fi
-
-if [[ -z "${GOA:-}" ]]; then
-    download_file "$GOA_MD5_URL" "$ARTIFACTS/logs/goa_uniprot_all.gaf.gz.md5"
-    expected_md5="$(awk 'NR==1 {print $1}' "$ARTIFACTS/logs/goa_uniprot_all.gaf.gz.md5")"
-    observed_md5="$(md5sum "$INPUT_ROOT/goa_uniprot_all.gaf.234.gz" | awk '{print $1}')"
-    [[ "$expected_md5" =~ ^[0-9a-fA-F]{32}$ && "${expected_md5,,}" == "$observed_md5" ]] || {
-        echo "Downloaded GOA file does not match the official MD5 sidecar" >&2
-        exit 1
-    }
-fi
+zgrep -m 1 '^!date-generated:.*2026-06-17' \
+    "$INPUT_ROOT/goa_uniprot_all.gaf.234.gz" >/dev/null || {
+    echo "GOA input is not release 234 from 2026-06-17" >&2
+    exit 1
+}
+zgrep -m 1 '^!go-version:.*2026-06-15' \
+    "$INPUT_ROOT/goa_uniprot_all.gaf.234.gz" >/dev/null || {
+    echo "GOA 234 input does not declare GO 2026-06-15" >&2
+    exit 1
+}
 
 MMSEQS_RELEASE_TAG="${MMSEQS_RELEASE_TAG:-18-8cc5c}"
 EXPECTED_MMSEQS_VERSION="${EXPECTED_MMSEQS_VERSION:-$MMSEQS_RELEASE_TAG}"

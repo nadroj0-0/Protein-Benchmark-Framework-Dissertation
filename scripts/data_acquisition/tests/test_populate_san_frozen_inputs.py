@@ -14,6 +14,7 @@ import unittest
 
 REPOSITORY = Path(__file__).resolve().parents[3]
 SCRIPT = REPOSITORY / "scripts" / "data_acquisition" / "populate_san_frozen_inputs.sh"
+PRODUCTION_SPEC = REPOSITORY / "scripts" / "data_acquisition" / "san_frozen_inputs.tsv"
 
 
 class QuietHandler(http.server.SimpleHTTPRequestHandler):
@@ -117,6 +118,29 @@ class SanAcquisitionTest(unittest.TestCase):
             result = self.run_script(root, spec, "--profile", "references", "--dry-run")
             self.assertIn("No files were changed", result.stdout)
             self.assertFalse(root.exists())
+
+    def test_goa_234_uses_immutable_archive_and_pinned_sha256(self) -> None:
+        specification = PRODUCTION_SPEC.read_text(encoding="utf-8")
+        matching = [
+            line
+            for line in specification.splitlines()
+            if "\tgoa_t1\t234\t" in line
+        ]
+        self.assertEqual(len(matching), 1)
+        fields = matching[0].split("\t")
+        self.assertEqual(
+            fields[4],
+            "https://ftp.ebi.ac.uk/pub/databases/GO/goa/old/UNIPROT/"
+            "goa_uniprot_all.gaf.234.gz",
+        )
+        self.assertEqual(fields[5], "11664243116")
+        self.assertEqual(fields[6], "sha256")
+        self.assertEqual(
+            fields[7],
+            "f315375b07946a0649142b2f4de2e15e282316989677a04e7a561203186dd2ff",
+        )
+        self.assertNotIn("goa/current_release_numbers.txt", specification)
+        self.assertNotIn("goa_t1_md5", specification)
 
 
 if __name__ == "__main__":

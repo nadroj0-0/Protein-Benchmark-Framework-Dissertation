@@ -4,6 +4,41 @@ This log records compatibility changes made around the immutable upstream PFP
 code. Changes tagged `[compat]` must preserve the original model and embedding
 semantics; behavior-changing corrections belong on a later `[fix]` branch.
 
+## 2026-07-17 - `[compat]` Freeze homology GOA input to archived release 234
+
+### Observed failure
+
+Homology pilot `7071299.1` stopped before input staging because its runtime
+guard discovered that EBI's mutable GOA current endpoint had advanced from
+UniProt-GOA release 234 (2026-06-17) to release 235 (2026-07-08). The SAN
+population attempt had left only an unpublished `.partial` whose size did not
+match the pinned release-234 size.
+
+### Compatibility change
+
+- Replace the mutable GOA current URL with EBI's immutable historical
+  `goa_uniprot_all.gaf.234.gz` URL in both the SAN catalogue and scratch-first
+  homology runtime.
+- Remove dependencies on live `current_release_numbers.txt` and the unavailable
+  archived MD5 sidecar.
+- Authenticate release 234 using its pinned byte size, pinned SHA-256, embedded
+  `!date-generated: 2026-06-17`, and embedded GO version `2026-06-15`.
+- Keep UniProt release `2026_02`, GOA release `234`, and the ontology snapshot
+  unchanged; no experiment is silently upgraded to release 235.
+
+### Scientific behavior
+
+This corrects input addressing only. It preserves the previously selected
+homology benchmark snapshot and changes no clustering, splitting, labelling,
+term-filtering, model, or evaluation policy.
+
+### Validation
+
+- EBI returned HTTP 200 and content length `11,664,243,116` for the archived
+  release-234 GAF, exactly matching the committed catalogue.
+- Focused tests assert that production acquisition and runtime paths use only
+  the immutable URL and pinned SHA-256.
+
 ## 2026-07-17 - `[compat]` Preserve and resume the contemporary embedding cache
 
 ### Observed failure

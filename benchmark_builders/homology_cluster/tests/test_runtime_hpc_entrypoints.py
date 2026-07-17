@@ -173,6 +173,25 @@ class RuntimeHPCEntrypointTests(unittest.TestCase):
             driver,
         )
 
+    def test_runtime_driver_freezes_goa_234_to_immutable_archive(self):
+        driver = DRIVER.read_text()
+        self.assertIn(
+            'GOA_URL="https://ftp.ebi.ac.uk/pub/databases/GO/goa/old/UNIPROT/'
+            'goa_uniprot_all.gaf.234.gz"',
+            driver,
+        )
+        self.assertIn(
+            'PINNED_GOA_SHA256="f315375b07946a0649142b2f4de2e15e282316989677a04e7a561203186dd2ff"',
+            driver,
+        )
+        self.assertNotIn("GOA_RELEASES_URL", driver)
+        self.assertNotIn("GOA_MD5_URL", driver)
+        self.assertNotIn("goa_current_release_numbers", driver)
+        self.assertIn('SAN_INPUT_ROOT="${SAN_INPUT_ROOT:-/SAN/bioinf/bmpfp}"', driver)
+        self.assertIn(
+            "frozen_inputs/goa/234/goa_uniprot_all.gaf.234.gz", driver
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -347,9 +347,11 @@ Both wrappers delegate to
 - verifies the detached scratch checkout with host Git and passes that exact clean state into the
   minimal Singularity runtime, avoiding a redundant in-container Git dependency;
 - defaults to `sprot-and-trembl`, while accepting `sprot-only` and `trembl-only` explicitly;
-- stages any supplied source paths into task-owned scratch and downloads only missing sources;
-- checks that current UniProt and GOA endpoints still mean UniProt `2026_02` and GOA `234` before
-  downloading, and checks the embedded GOA/GO ontology release metadata afterwards;
+- prefers authenticated frozen inputs under `/SAN/bioinf/bmpfp`, stages any supplied source paths
+  into task-owned scratch, and downloads only sources still missing;
+- checks that mutable UniProt endpoints still mean release `2026_02`, while downloading GOA `234`
+  from EBI's immutable historical URL and validating its pinned SHA-256 and embedded release
+  metadata;
 - downloads pinned MMseqs2 release `18-8cc5c` into scratch when `MMSEQS_BIN` is
   not supplied, and separately validates and records its binary-reported full
   Git commit `8cc5ce367b5638c4306c2d7cfc652dd099a4643f`;

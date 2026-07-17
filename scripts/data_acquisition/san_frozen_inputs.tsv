@@ -8,9 +8,7 @@ temporal,homology	uniprot_trembl_t1	2026_02	frozen_inputs/uniprot/2026_02/unipro
 temporal,homology	uniprot_relnotes_t1	2026_02	frozen_inputs/uniprot/2026_02/relnotes.txt	https://ftp.uniprot.org/pub/databases/uniprot/current_release/relnotes.txt	-	-	-	text
 temporal,homology	uniprot_changes_t1	2026_02	frozen_inputs/uniprot/2026_02/changes.html	https://ftp.uniprot.org/pub/databases/uniprot/current_release/changes.html	-	-	-	text
 temporal	goa_t0	225	frozen_inputs/goa/225/goa_uniprot_all.gaf.225.gz	https://ftp.ebi.ac.uk/pub/databases/GO/goa/old/UNIPROT/goa_uniprot_all.gaf.225.gz	22151171737	-	-	goa-gzip
-temporal,homology	goa_t1	234	frozen_inputs/goa/234/goa_uniprot_all.gaf.234.gz	https://ftp.ebi.ac.uk/pub/databases/GO/goa/UNIPROT/goa_uniprot_all.gaf.gz	11664243116	sha256	f315375b07946a0649142b2f4de2e15e282316989677a04e7a561203186dd2ff	goa-gzip
-temporal,homology	goa_t1_md5	234	frozen_inputs/goa/234/goa_uniprot_all.gaf.234.gz.md5	https://ftp.ebi.ac.uk/pub/databases/GO/goa/UNIPROT/goa_uniprot_all.gaf.gz.md5	33	md5	da6a01b6864815de3649ca3d101ed99c	md5-text
-temporal,homology	goa_release_metadata_t1	234	frozen_inputs/goa/234/current_release_numbers.txt	https://ftp.ebi.ac.uk/pub/databases/GO/goa/current_release_numbers.txt	-	-	-	text
+temporal,homology	goa_t1	234	frozen_inputs/goa/234/goa_uniprot_all.gaf.234.gz	https://ftp.ebi.ac.uk/pub/databases/GO/goa/old/UNIPROT/goa_uniprot_all.gaf.234.gz	11664243116	sha256	f315375b07946a0649142b2f4de2e15e282316989677a04e7a561203186dd2ff	goa-gzip
 temporal	go_basic_t0	2025-02-06	frozen_inputs/ontology/2025-02-06/go-basic.obo	https://release.geneontology.org/2025-02-06/ontology/go-basic.obo	-	-	-	obo
 temporal	go_full_t0	2025-02-06	frozen_inputs/ontology/2025-02-06/go.obo	https://release.geneontology.org/2025-02-06/ontology/go.obo	-	-	-	obo
 temporal	go_summary_t0	2025-02-06	frozen_inputs/ontology/2025-02-06/summary.txt	https://release.geneontology.org/2025-02-06/summary.txt	-	-	-	text

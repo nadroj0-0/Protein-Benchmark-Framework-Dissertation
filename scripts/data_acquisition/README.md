@@ -73,9 +73,10 @@ a scheduled cluster job rather than as a long process on the login node.
 - Every downloaded file receives a SHA-256 sidecar and provenance TSV.
 - `/SAN/bioinf/bmpfp/manifests/frozen_input_catalog.tsv` is rebuilt
   deterministically from the per-file provenance records.
-- Mutable UniProt and GOA endpoints are checked before and after transfer. The
-  script fails if they no longer resolve to UniProt 2026_02 or GOA 234; it never
-  stores a later release under the frozen 2026 paths.
+- Mutable UniProt endpoints are checked before and after transfer. GOA 234 is
+  downloaded from EBI's immutable historical release URL and verified using
+  its pinned size, SHA-256 and embedded GAF release metadata. A later GOA
+  release therefore cannot be stored under the frozen release-234 path.
 - Normal reruns perform quick metadata checks. `--verify-only` or
   `--full-verify` re-read and structurally validate every selected file, which
   is intentionally slow for the largest archives.
