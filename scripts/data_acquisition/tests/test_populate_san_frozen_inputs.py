@@ -119,6 +119,46 @@ class SanAcquisitionTest(unittest.TestCase):
             self.assertIn("No files were changed", result.stdout)
             self.assertFalse(root.exists())
 
+    def test_csv_validator_accepts_both_canonical_protein_headers(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            served = workspace / "served"
+            served.mkdir()
+            csv_files = {
+                "singular.csv": b"protein,sequences,GO:0000001\nP1,AAAA,1\n",
+                "plural.csv": b"proteins,sequences,GO:0000001\nP2,CCCC,1\n",
+            }
+            for name, content in csv_files.items():
+                (served / name).write_bytes(content)
+
+            handler = functools.partial(QuietHandler, directory=str(served))
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                spec = workspace / "spec.tsv"
+                lines = [
+                    "# profiles\trole\trelease\trelative_path\turl\texpected_bytes\t"
+                    "checksum_algorithm\texpected_checksum\tvalidator"
+                ]
+                for name, content in csv_files.items():
+                    lines.append(
+                        f"references\t{name}\ttest\treferences/{name}\t"
+                        f"http://127.0.0.1:{server.server_port}/{name}\t"
+                        f"{len(content)}\tmd5\t{hashlib.md5(content).hexdigest()}\tcsv"
+                    )
+                spec.write_text("\n".join(lines) + "\n", encoding="ascii")
+
+                root = workspace / "store"
+                result = self.run_script(root, spec, "--profile", "references")
+                self.assertIn("downloaded: 2", result.stdout)
+                for name, content in csv_files.items():
+                    self.assertEqual((root / "references" / name).read_bytes(), content)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
     def test_goa_234_uses_immutable_archive_and_pinned_sha256(self) -> None:
         specification = PRODUCTION_SPEC.read_text(encoding="utf-8")
         matching = [

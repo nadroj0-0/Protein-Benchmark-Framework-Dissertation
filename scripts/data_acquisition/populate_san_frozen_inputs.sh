@@ -231,7 +231,10 @@ validate_artifact() {
             LC_ALL=C grep -q '[^[:space:]]' "$path" || die "Text file is blank: $path"
             ;;
         csv)
-            head -n 1 "$path" | grep -q '^proteins,sequences,' || \
+            # Zenodo 7409660's canonical mf-training.csv alone uses singular
+            # "protein"; retain the authenticated raw bytes and normalize only
+            # in the downstream PFP preparation workspace.
+            head -n 1 "$path" | grep -Eq '^(protein|proteins),sequences,' || \
                 die "Unexpected PFP CSV header: $path"
             ;;
         obo)
