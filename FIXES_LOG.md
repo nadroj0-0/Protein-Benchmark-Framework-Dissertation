@@ -272,3 +272,26 @@ No embedding algorithm, source model, pooling operation, benchmark population,
 or acceptance threshold changes. The fix narrows the provenance gate from the
 entire evolving repository to the runtime sources that can affect generated
 arrays.
+
+## 2026-07-17 - `[compat]` Bind the CAFA3 embedding state into MMFP
+
+### Observed failure
+
+CAFA3 full reproduction job `7073866` reached cumulative-state initialization,
+then failed with `Read-only file system` for
+`/SAN/bioinf/bmpfp/embedding_states`. The wrapper created the state directory
+on the host, but did not bind its SAN parent into the Singularity-backed MMFP
+environment before containerized Python attempted to write it.
+
+### Compatibility change
+
+- Bind the caller-selected embedding-state parent before activating MMFP.
+- Reuse the same targeted Singularity bind helper already exercised by the
+  contemporary embedding-state workflows.
+- Add a regression assertion that the bind is configured before environment
+  activation.
+
+### Scientific behavior
+
+This changes filesystem visibility only. It does not modify PFP, embedding
+generation, benchmark inputs, model training, or evaluation behavior.

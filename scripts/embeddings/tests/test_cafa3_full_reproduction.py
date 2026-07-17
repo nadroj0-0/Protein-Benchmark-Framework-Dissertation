@@ -180,6 +180,14 @@ class ReportFormattingTest(unittest.TestCase):
 
 
 class WorkflowContractTest(unittest.TestCase):
+    def test_hpc_binds_embedding_state_before_mmfp_python_starts(self) -> None:
+        path = REPO_ROOT / "hpc_jobs/active/hpc_cafa3_full_from_scratch_reproduction.sh"
+        source = path.read_text(encoding="utf-8")
+
+        bind = 'add_mmfp_singularity_bind "$(dirname "$EMBEDDING_STATE_ROOT")"'
+        self.assertIn(bind, source)
+        self.assertLess(source.index(bind), source.index("activate_or_create_mmfp_env"))
+
     def test_full_workflow_avoids_git_dash_c_for_morecambe(self) -> None:
         paths = [
             REPO_ROOT

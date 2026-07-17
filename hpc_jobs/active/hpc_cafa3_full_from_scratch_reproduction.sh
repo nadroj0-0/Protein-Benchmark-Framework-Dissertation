@@ -239,6 +239,9 @@ source scripts/reproduction_common.sh
 export ARTIFACT_CATALOG="$CLI_ARTIFACT_CATALOG"
 load_framework_paths "$FRAMEWORK_DIR"
 artifact_catalog_bind_parent string_embeddings "${STRING_H5_FILE:-}"
+# The cumulative embedding state lives on persistent SAN. Bind its existing
+# parent before starting the container so initialization can write the state.
+add_mmfp_singularity_bind "$(dirname "$EMBEDDING_STATE_ROOT")"
 activate_or_create_mmfp_env
 PYTHON_BIN="$(command -v python)"
 
