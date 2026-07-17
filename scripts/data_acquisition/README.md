@@ -36,17 +36,31 @@ The profiles are:
 | `tools` | Pinned MMseqs2 `18-8cc5c` Linux AVX2 archive. |
 | `all` | Every row above, without duplicate downloads for files shared by profiles. |
 
+The `temporal` profile also derives and persists the two CAFA3-target-taxa
+TrEMBL caches after their authenticated full UniProt sources are available:
+
+```text
+derived_inputs/uniprot/cafa3_target_taxa/2025_01/uniprot_trembl_cafa3_targets.dat.gz
+derived_inputs/uniprot/cafa3_target_taxa/2026_02/uniprot_trembl_cafa3_targets.dat.gz
+```
+
+These are deliberately recorded as derived inputs rather than downloaded raw
+files. Each has a SHA-256 sidecar, ordinary provenance row, and a derivation
+contract binding it to the raw source digest, target-taxa resource digest,
+filter-script digest, record count, and output digest.
+
 Inspect the plan before starting the large transfer:
 
 ```bash
 bash scripts/data_acquisition/populate_san_frozen_inputs.sh --dry-run
 ```
 
-At the time the catalogue was frozen, `all` represented approximately 382 GiB
-of files with known sizes plus a conservative 11 GiB allowance for small files
-whose servers did not expose a pinned size. The default preflight also requires
-40 GiB to remain free. The script sums only files that are currently missing,
-so later profile runs do not reserve space for data already present.
+At the time the catalogue was frozen, `all` represented approximately 385 GiB
+of files with known sizes plus a conservative 12 GiB allowance for small and
+derived files whose servers did not expose a pinned size. The default preflight
+also requires 40 GiB to remain free. The script sums only files that are
+currently missing, so later profile runs do not reserve space for data already
+present.
 
 Populate everything:
 
@@ -67,6 +81,11 @@ a scheduled cluster job rather than as a long process on the login node.
 ### Idempotency and integrity
 
 - Existing authenticated files are skipped; they are never downloaded again.
+- Existing derived TrEMBL caches are skipped when their complete derivation
+  contract still matches the raw source, taxa list, and filter implementation.
+- Missing derived caches are streamed from the frozen raw inputs, validated,
+  and atomically published. A clean SAN rebuild therefore recreates both raw
+  files and these workflow-ready filtered caches in one invocation.
 - Interrupted transfers remain as `<filename>.partial` and are resumed.
 - Downloads are validated before an atomic rename publishes the final path.
 - Known file sizes and checksums are pinned in the committed catalogue.
@@ -75,8 +94,9 @@ a scheduled cluster job rather than as a long process on the login node.
   deterministically from the per-file provenance records.
 - `/SAN/bioinf/bmpfp/manifests/artifact_paths.tsv` is rebuilt atomically from
   every currently present row in `san_frozen_inputs.tsv` that has acquisition
-  provenance and SHA-256 sidecars. This compact
-  `artifact_id<TAB>absolute_path` map is the portable runtime lookup file.
+  provenance and SHA-256 sidecars, plus both complete derived-cache contracts.
+  This compact `artifact_id<TAB>absolute_path` map is the portable runtime
+  lookup file.
 - Mutable UniProt endpoints are checked before and after transfer. GOA 234 is
   downloaded from EBI's immutable historical release URL and verified using
   its pinned size, SHA-256 and embedded GAF release metadata. A later GOA
@@ -113,8 +133,9 @@ workflow's download fallback enabled.
 
 ### Deliberate exclusions
 
-This input loader does not generate benchmarks, embeddings, PDBs, checkpoints,
-or model results. Those are derived outputs and belong under the corresponding
+Apart from the two explicitly provenance-bound filtered TrEMBL input caches,
+this input loader does not generate benchmarks, embeddings, PDBs, checkpoints,
+or model results. Those outputs belong under the corresponding
 `benchmarks/`, `embeddings/`, `models/`, and `runs/` SAN directories. Per-run
 AlphaFold downloads and model caches remain workflow-managed rather than being
 treated as frozen global inputs.

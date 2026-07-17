@@ -5,4 +5,6 @@ cafa3_bp_training	/absolute/path/to/canonical_cafa3/bp-training.csv
 string_embeddings	/absolute/path/to/string/protein.network.embeddings.v12.0.h5
 string_aliases	/absolute/path/to/string/protein.aliases.v12.0.txt.gz
 goa_t1	/absolute/path/to/goa_uniprot_all.gaf.234.gz
+uniprot_trembl_cafa3_targets_t0	/absolute/path/to/2025_01/uniprot_trembl_cafa3_targets.dat.gz
+uniprot_trembl_cafa3_targets_t1	/absolute/path/to/2026_02/uniprot_trembl_cafa3_targets.dat.gz
 mmseqs2	/absolute/path/to/mmseqs-linux-avx2.tar.gz

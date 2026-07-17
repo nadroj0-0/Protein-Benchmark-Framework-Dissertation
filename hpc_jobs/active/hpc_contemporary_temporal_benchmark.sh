@@ -203,11 +203,15 @@ else
         stage_catalog_or_root uniprot_sprot_t0 \
             "uniprot/release_2025_01/uniprot_sprot-only2025_01.tar.gz"
     fi
-    stage_explicit_file T0_TREMBL_FILTERED_INPUT "uniprot/release_2025_01/uniprot_trembl_cafa3_targets.dat.gz"
+    stage_catalog_or_root uniprot_trembl_cafa3_targets_t0 \
+        "uniprot/release_2025_01/uniprot_trembl_cafa3_targets.dat.gz" \
+        "${T0_TREMBL_FILTERED_INPUT:-}"
     stage_catalog_or_root uniprot_sprot_t1 \
         "uniprot/release_2026_02/uniprot_sprot.dat.gz" \
         "${T1_SPROT_INPUT:-}"
-    stage_explicit_file T1_TREMBL_FILTERED_INPUT "uniprot/release_2026_02/uniprot_trembl_cafa3_targets.dat.gz"
+    stage_catalog_or_root uniprot_trembl_cafa3_targets_t1 \
+        "uniprot/release_2026_02/uniprot_trembl_cafa3_targets.dat.gz" \
+        "${T1_TREMBL_FILTERED_INPUT:-}"
 fi
 stage_catalog_or_root goa_t0 "goa/release_2025_01/goa_uniprot_all.gaf.225.gz" "${GOA_T0_INPUT:-}"
 stage_catalog_or_root goa_t1 "goa/release_2026_02/goa_uniprot_all.gaf.234.gz" "${GOA_T1_INPUT:-}"

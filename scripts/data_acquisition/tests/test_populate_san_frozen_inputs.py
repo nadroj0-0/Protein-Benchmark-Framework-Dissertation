@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import gzip
 import hashlib
 import http.server
 import os
@@ -124,6 +125,120 @@ class SanAcquisitionTest(unittest.TestCase):
             result = self.run_script(root, spec, "--profile", "references", "--dry-run")
             self.assertIn("No files were changed", result.stdout)
             self.assertFalse(root.exists())
+
+    def test_temporal_profile_derives_and_reuses_filtered_trembl(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            served = workspace / "served"
+            served.mkdir()
+
+            target_record = (
+                "ID   TARGET_HUMAN\n"
+                "AC   P00001;\n"
+                "OX   NCBI_TaxID=9606;\n"
+                "SQ   SEQUENCE   4 AA;\n"
+                "     AAAA\n"
+                "//\n"
+            ).encode("ascii")
+            excluded_record = (
+                "ID   EXCLUDED_TEST\n"
+                "AC   P00002;\n"
+                "OX   NCBI_TaxID=999999;\n"
+                "SQ   SEQUENCE   4 AA;\n"
+                "     CCCC\n"
+                "//\n"
+            ).encode("ascii")
+            trembl_gzip = served / "uniprot_trembl.dat.gz"
+            with trembl_gzip.open("wb") as compressed:
+                with gzip.GzipFile(fileobj=compressed, mode="wb", mtime=0) as handle:
+                    handle.write(target_record + excluded_record)
+
+            knowledgebase = served / "knowledgebase2025_01.tar.gz"
+            with tarfile.open(knowledgebase, "w:gz") as handle:
+                handle.add(
+                    trembl_gzip,
+                    arcname="knowledgebase/complete/uniprot_trembl.dat.gz",
+                )
+
+            handler = functools.partial(QuietHandler, directory=str(served))
+            QuietHandler.requests = 0
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                spec = workspace / "spec.tsv"
+                rows = [
+                    "# profiles\trole\trelease\trelative_path\turl\texpected_bytes\t"
+                    "checksum_algorithm\texpected_checksum\tvalidator",
+                    "\t".join(
+                        [
+                            "temporal",
+                            "uniprot_knowledgebase_t0",
+                            "2025_01",
+                            "frozen_inputs/uniprot/2025_01/knowledgebase2025_01.tar.gz",
+                            f"http://127.0.0.1:{server.server_port}/{knowledgebase.name}",
+                            str(knowledgebase.stat().st_size),
+                            "sha256",
+                            hashlib.sha256(knowledgebase.read_bytes()).hexdigest(),
+                            "tar-gzip",
+                        ]
+                    ),
+                    "\t".join(
+                        [
+                            "temporal",
+                            "uniprot_trembl_t1",
+                            "2026_02",
+                            "frozen_inputs/uniprot/2026_02/uniprot_trembl.dat.gz",
+                            f"http://127.0.0.1:{server.server_port}/{trembl_gzip.name}",
+                            str(trembl_gzip.stat().st_size),
+                            "sha256",
+                            hashlib.sha256(trembl_gzip.read_bytes()).hexdigest(),
+                            "uniprot-dat-gzip",
+                        ]
+                    ),
+                ]
+                spec.write_text("\n".join(rows) + "\n", encoding="ascii")
+                root = workspace / "store"
+
+                first = self.run_script(root, spec, "--profile", "temporal")
+                self.assertIn("derived:    2 created, 0 skipped", first.stdout)
+                derived_paths = [
+                    root
+                    / "derived_inputs/uniprot/cafa3_target_taxa/2025_01/"
+                    "uniprot_trembl_cafa3_targets.dat.gz",
+                    root
+                    / "derived_inputs/uniprot/cafa3_target_taxa/2026_02/"
+                    "uniprot_trembl_cafa3_targets.dat.gz",
+                ]
+                for path in derived_paths:
+                    with gzip.open(path, "rb") as handle:
+                        self.assertEqual(handle.read(), target_record)
+                    self.assertTrue(Path(f"{path}.sha256").is_file())
+                    self.assertTrue(Path(f"{path}.provenance.tsv").is_file())
+                    self.assertTrue(Path(f"{path}.derivation.tsv").is_file())
+
+                path_catalog = (
+                    root / "manifests" / "artifact_paths.tsv"
+                ).read_text(encoding="ascii")
+                self.assertIn("uniprot_trembl_cafa3_targets_t0\t", path_catalog)
+                self.assertIn("uniprot_trembl_cafa3_targets_t1\t", path_catalog)
+                self.assertEqual(QuietHandler.requests, 2)
+
+                server.shutdown()
+                thread.join(timeout=5)
+                second = self.run_script(root, spec, "--profile", "temporal")
+                self.assertIn("downloaded: 0", second.stdout)
+                self.assertIn("derived:    0 created, 2 skipped", second.stdout)
+
+                derived_paths[1].unlink()
+                rebuilt = self.run_script(root, spec, "--profile", "temporal")
+                self.assertIn("derived:    1 created, 1 skipped", rebuilt.stdout)
+                with gzip.open(derived_paths[1], "rb") as handle:
+                    self.assertEqual(handle.read(), target_record)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
 
     def test_csv_validator_accepts_both_canonical_protein_headers(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -74,10 +74,14 @@ prefer_existing_artifact T0_SPROT_ARCHIVE uniprot_sprot_t0 \
     "${T0_SPROT_ARCHIVE_SOURCE:-$T0_SPROT_ARCHIVE}"
 prefer_existing_artifact T0_FULL_ARCHIVE uniprot_knowledgebase_t0 \
     "${T0_TREMBL_ARCHIVE_SOURCE:-$T0_FULL_ARCHIVE}"
+prefer_existing_artifact T0_TREMBL_FILTERED uniprot_trembl_cafa3_targets_t0 \
+    "${T0_TREMBL_FILTERED_INPUT:-$T0_TREMBL_FILTERED}"
 prefer_existing_artifact T1_SPROT_DAT uniprot_sprot_t1 \
     "${T1_SPROT_INPUT:-$T1_SPROT_DAT}"
 prefer_existing_artifact T1_TREMBL_FULL uniprot_trembl_t1 \
     "${T1_TREMBL_DAT_SOURCE:-$T1_TREMBL_FULL}"
+prefer_existing_artifact T1_TREMBL_FILTERED uniprot_trembl_cafa3_targets_t1 \
+    "${T1_TREMBL_FILTERED_INPUT:-$T1_TREMBL_FILTERED}"
 prefer_existing_artifact T0_GOA goa_t0 "${GOA_T0_INPUT:-$T0_GOA}"
 prefer_existing_artifact T1_GOA goa_t1 "${GOA_T1_INPUT:-$T1_GOA}"
 prefer_existing_artifact T0_BENCHMARK_OBO go_basic_t0 \

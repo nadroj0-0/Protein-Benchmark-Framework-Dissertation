@@ -8,7 +8,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FRAMEWORK_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SPEC_FILE="${SAN_INPUT_SPEC:-${SCRIPT_DIR}/san_frozen_inputs.tsv}"
+FILTER_DAT="$FRAMEWORK_ROOT/scripts/benchmark_generation/filter_uniprot_dat.py"
+EXTRACT_MEMBER="$FRAMEWORK_ROOT/scripts/benchmark_generation/extract_tar_member.py"
+TARGET_TAXA="$FRAMEWORK_ROOT/benchmark_builders/contemporary_cafa/src/cafa_benchmark_builder/resources/cafa3_target_taxa.txt"
 DEFAULT_ROOT="/SAN/bioinf/bmpfp"
 ROOT="$DEFAULT_ROOT"
 RESERVE_GB=40
@@ -20,7 +24,16 @@ PROFILES=()
 DOWNLOADED=0
 SKIPPED=0
 VERIFIED=0
+DERIVED_CREATED=0
+DERIVED_SKIPPED=0
 FALLBACK_LOCK_DIR=""
+
+DERIVED_T0_ROLE="uniprot_trembl_cafa3_targets_t0"
+DERIVED_T0_RELEASE="2025_01"
+DERIVED_T0_RELATIVE="derived_inputs/uniprot/cafa3_target_taxa/2025_01/uniprot_trembl_cafa3_targets.dat.gz"
+DERIVED_T1_ROLE="uniprot_trembl_cafa3_targets_t1"
+DERIVED_T1_RELEASE="2026_02"
+DERIVED_T1_RELATIVE="derived_inputs/uniprot/cafa3_target_taxa/2026_02/uniprot_trembl_cafa3_targets.dat.gz"
 
 usage() {
     cat <<'EOF'
@@ -37,7 +50,7 @@ Options:
   --dry-run             Print the acquisition plan without writing or fetching.
   --verify-only         Require every selected file and fully verify it offline.
   --full-verify         Rehash and structurally inspect existing files. Newly
-                        downloaded files are always fully verified.
+                        downloaded and derived files are always fully verified.
   --list                List selected catalogue entries and exit.
   --help                Show this help.
 
@@ -138,6 +151,15 @@ profile_selected() {
         done
     done
     return 1
+}
+
+spec_value_for_role() {
+    local wanted_role="$1"
+    local field_number="$2"
+    awk -F '\t' -v wanted="$wanted_role" -v field="$field_number" '
+        $1 !~ /^#/ && $2 == wanted {print $field; found=1; exit}
+        END {exit !found}
+    ' "$SPEC_FILE"
 }
 
 file_size() {
@@ -356,6 +378,212 @@ verify_recorded_sha256() {
         die "Recorded SHA-256 mismatch for $path: expected=$expected observed=$observed"
 }
 
+recorded_sha256_value() {
+    local path="$1"
+    local sidecar="${path}.sha256"
+    local recorded
+    [[ -s "$sidecar" ]] || die "Missing SHA-256 sidecar: $sidecar"
+    recorded="$(awk 'NR == 1 {print $1}' "$sidecar")"
+    [[ "$recorded" =~ ^[0-9a-f]{64}$ ]] || die "Invalid SHA-256 sidecar: $sidecar"
+    printf '%s\n' "$recorded"
+}
+
+derivation_value() {
+    local path="$1"
+    local key="$2"
+    awk -F '\t' -v wanted="$key" '
+        $1 == wanted {print $2; found=1; exit}
+        END {exit !found}
+    ' "$path"
+}
+
+require_derivation_value() {
+    local path="$1"
+    local key="$2"
+    local expected="$3"
+    local observed
+    observed="$(derivation_value "$path" "$key")" || \
+        die "Derived provenance lacks $key: $path"
+    [[ "$observed" == "$expected" ]] || \
+        die "Derived provenance mismatch for $key in $path: expected=$expected observed=$observed"
+}
+
+count_uniprot_records() {
+    gzip -dc "$1" | awk '/^ID   / {count++} END {print count + 0}'
+}
+
+resolve_python_bin() {
+    local candidate
+    local candidates=()
+    [[ -z "${PYTHON_BIN:-}" ]] || candidates+=("$PYTHON_BIN")
+    candidates+=(python3 python)
+    for candidate in "${candidates[@]}"; do
+        command -v "$candidate" >/dev/null 2>&1 || continue
+        if "$candidate" -c 'import sys; raise SystemExit(sys.version_info < (3, 9))' \
+            >/dev/null 2>&1; then
+            PYTHON_BIN="$(command -v "$candidate")"
+            return 0
+        fi
+    done
+    die "Python >=3.9 is required to derive filtered TrEMBL caches; activate mmfp or set PYTHON_BIN"
+}
+
+write_derived_metadata() {
+    local role="$1"
+    local release="$2"
+    local relative_path="$3"
+    local source_role="$4"
+    local source_relative="$5"
+    local source_path="$6"
+    local archive_member="$7"
+    local output_path="$8"
+    local record_count="$9"
+    local source_sha taxa_sha filter_sha output_sha output_bytes timestamp
+    local derivation_tmp
+
+    source_sha="$(recorded_sha256_value "$source_path")"
+    taxa_sha="$(sha256_file "$TARGET_TAXA")"
+    filter_sha="$(sha256_file "$FILTER_DAT")"
+    output_sha="$(sha256_file "$output_path")"
+    output_bytes="$(file_size "$output_path")"
+    timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+    write_artifact_metadata "$role" "$release" "$relative_path" \
+        "derived://${source_role}#${archive_member}" "-" "-" "-" "$output_path" \
+        "derived-cafa3-target-taxa-filter" "$output_sha"
+
+    derivation_tmp="${output_path}.derivation.tsv.partial.$$"
+    printf 'schema_version\t1\n' > "$derivation_tmp"
+    printf 'role\t%s\n' "$role" >> "$derivation_tmp"
+    printf 'release\t%s\n' "$release" >> "$derivation_tmp"
+    printf 'source_artifact_id\t%s\n' "$source_role" >> "$derivation_tmp"
+    printf 'source_relative_path\t%s\n' "$source_relative" >> "$derivation_tmp"
+    printf 'source_sha256\t%s\n' "$source_sha" >> "$derivation_tmp"
+    printf 'archive_member\t%s\n' "$archive_member" >> "$derivation_tmp"
+    printf 'target_taxa_sha256\t%s\n' "$taxa_sha" >> "$derivation_tmp"
+    printf 'filter_script_sha256\t%s\n' "$filter_sha" >> "$derivation_tmp"
+    printf 'output_sha256\t%s\n' "$output_sha" >> "$derivation_tmp"
+    printf 'output_bytes\t%s\n' "$output_bytes" >> "$derivation_tmp"
+    printf 'record_count\t%s\n' "$record_count" >> "$derivation_tmp"
+    printf 'generated_utc\t%s\n' "$timestamp" >> "$derivation_tmp"
+    mv "$derivation_tmp" "${output_path}.derivation.tsv"
+}
+
+verify_derived_contract() {
+    local role="$1"
+    local release="$2"
+    local source_role="$3"
+    local source_relative="$4"
+    local source_path="$5"
+    local archive_member="$6"
+    local output_path="$7"
+    local derivation="${output_path}.derivation.tsv"
+    local source_sha taxa_sha filter_sha output_sha output_bytes record_count
+
+    source_sha="$(recorded_sha256_value "$source_path")"
+    taxa_sha="$(sha256_file "$TARGET_TAXA")"
+    filter_sha="$(sha256_file "$FILTER_DAT")"
+    output_sha="$(recorded_sha256_value "$output_path")"
+    output_bytes="$(file_size "$output_path")"
+
+    require_derivation_value "$derivation" schema_version 1
+    require_derivation_value "$derivation" role "$role"
+    require_derivation_value "$derivation" release "$release"
+    require_derivation_value "$derivation" source_artifact_id "$source_role"
+    require_derivation_value "$derivation" source_relative_path "$source_relative"
+    require_derivation_value "$derivation" source_sha256 "$source_sha"
+    require_derivation_value "$derivation" archive_member "$archive_member"
+    require_derivation_value "$derivation" target_taxa_sha256 "$taxa_sha"
+    require_derivation_value "$derivation" filter_script_sha256 "$filter_sha"
+    require_derivation_value "$derivation" output_sha256 "$output_sha"
+    require_derivation_value "$derivation" output_bytes "$output_bytes"
+
+    if [[ "$FULL_VERIFY" == "1" ]]; then
+        verify_recorded_sha256 "$output_path"
+        validate_artifact "$output_path" uniprot-dat-gzip
+        record_count="$(count_uniprot_records "$output_path")"
+        require_derivation_value "$derivation" record_count "$record_count"
+        VERIFIED=$((VERIFIED + 1))
+    fi
+}
+
+build_or_verify_derived_trembl() {
+    local role="$1"
+    local release="$2"
+    local relative_path="$3"
+    local source_role="$4"
+    local archive_member="$5"
+    local source_relative source_path destination partial record_count
+
+    source_relative="$(spec_value_for_role "$source_role" 4)" || \
+        die "Derived input $role requires missing specification role: $source_role"
+    source_path="$ROOT/$source_relative"
+    destination="$ROOT/$relative_path"
+    [[ -s "$source_path" ]] || die "Derived input source is missing: $source_path"
+    [[ -s "${source_path}.sha256" && -s "${source_path}.provenance.tsv" ]] || \
+        die "Derived input source is not authenticated: $source_path"
+
+    echo
+    echo "[$role] $relative_path"
+    if [[ -s "$destination" && -s "${destination}.sha256" && \
+          -s "${destination}.provenance.tsv" && -s "${destination}.derivation.tsv" ]]; then
+        verify_derived_contract "$role" "$release" "$source_role" "$source_relative" \
+            "$source_path" "$archive_member" "$destination"
+        echo "  present with matching derivation contract; skipping generation"
+        DERIVED_SKIPPED=$((DERIVED_SKIPPED + 1))
+        return 0
+    fi
+
+    if [[ "$VERIFY_ONLY" == "1" ]]; then
+        die "Selected derived artifact is missing or incomplete: $destination"
+    fi
+
+    resolve_python_bin
+    command -v gzip >/dev/null 2>&1 || die "gzip is required to derive filtered TrEMBL caches"
+    [[ -f "$FILTER_DAT" ]] || die "UniProt DAT filter is missing: $FILTER_DAT"
+    [[ -f "$EXTRACT_MEMBER" ]] || die "Archive member extractor is missing: $EXTRACT_MEMBER"
+    [[ -f "$TARGET_TAXA" ]] || die "CAFA3 target taxa file is missing: $TARGET_TAXA"
+
+    mkdir -p "$(dirname "$destination")"
+    partial="${destination}.partial.$$"
+    rm -f "$partial"
+    echo "  deriving CAFA3-target-taxa TrEMBL cache from $source_path"
+    if [[ "$archive_member" == "-" ]]; then
+        if ! gzip -dc "$source_path" \
+            | "$PYTHON_BIN" "$FILTER_DAT" --taxa-file "$TARGET_TAXA" \
+            | gzip -n -c > "$partial"; then
+            rm -f "$partial"
+            die "Failed to derive $role"
+        fi
+    else
+        if ! "$PYTHON_BIN" "$EXTRACT_MEMBER" --archive "$source_path" --suffix "$archive_member" \
+            | gzip -dc \
+            | "$PYTHON_BIN" "$FILTER_DAT" --taxa-file "$TARGET_TAXA" \
+            | gzip -n -c > "$partial"; then
+            rm -f "$partial"
+            die "Failed to derive $role"
+        fi
+    fi
+
+    validate_artifact "$partial" uniprot-dat-gzip
+    record_count="$(count_uniprot_records "$partial")"
+    (( record_count > 0 )) || die "Derived TrEMBL cache contains zero records: $partial"
+    mv "$partial" "$destination"
+    write_derived_metadata "$role" "$release" "$relative_path" "$source_role" \
+        "$source_relative" "$source_path" "$archive_member" "$destination" "$record_count"
+    echo "  derived and published atomically: records=$record_count"
+    DERIVED_CREATED=$((DERIVED_CREATED + 1))
+    VERIFIED=$((VERIFIED + 1))
+}
+
+process_temporal_derived_inputs() {
+    profile_selected temporal || return 0
+    build_or_verify_derived_trembl "$DERIVED_T0_ROLE" "$DERIVED_T0_RELEASE" \
+        "$DERIVED_T0_RELATIVE" uniprot_knowledgebase_t0 uniprot_trembl.dat.gz
+    build_or_verify_derived_trembl "$DERIVED_T1_ROLE" "$DERIVED_T1_RELEASE" \
+        "$DERIVED_T1_RELATIVE" uniprot_trembl_t1 -
+}
+
 fetch_text() {
     local url="$1"
     if command -v curl >/dev/null 2>&1; then
@@ -425,6 +653,15 @@ write_artifact_path_catalog() {
            -s "${destination}.provenance.tsv" ]] || continue
         printf '%s\t%s\n' "$role" "$destination" >> "$temporary"
     done < "$SPEC_FILE"
+    for derived_entry in \
+        "$DERIVED_T0_ROLE|$DERIVED_T0_RELATIVE" \
+        "$DERIVED_T1_ROLE|$DERIVED_T1_RELATIVE"; do
+        IFS='|' read -r role relative_path <<< "$derived_entry"
+        destination="$ROOT/$relative_path"
+        [[ -s "$destination" && -s "${destination}.sha256" && \
+           -s "${destination}.provenance.tsv" && -s "${destination}.derivation.tsv" ]] || continue
+        printf '%s\t%s\n' "$role" "$destination" >> "$temporary"
+    done
     if [[ -f "$catalog" ]] && cmp -s "$temporary" "$catalog"; then
         rm -f "$temporary"
     else
@@ -478,6 +715,24 @@ while IFS=$'\t' read -r profiles role release relative_path url expected_bytes \
         printf '%-18s %-32s %-16s %s\n' "$profiles" "$role" "$release" "$destination"
     fi
 done < "$SPEC_FILE"
+
+if profile_selected temporal; then
+    selected_count=$((selected_count + 2))
+    for derived_entry in \
+        "$DERIVED_T0_ROLE|$DERIVED_T0_RELATIVE" \
+        "$DERIVED_T1_ROLE|$DERIVED_T1_RELATIVE"; do
+        IFS='|' read -r role relative_path <<< "$derived_entry"
+        destination="$ROOT/$relative_path"
+        if [[ ! -s "$destination" || ! -s "${destination}.sha256" || \
+              ! -s "${destination}.provenance.tsv" || ! -s "${destination}.derivation.tsv" ]]; then
+            missing_count=$((missing_count + 1))
+            missing_unknown_count=$((missing_unknown_count + 1))
+        fi
+        if [[ "$LIST_ONLY" == "1" || "$DRY_RUN" == "1" ]]; then
+            printf '%-18s %-32s %-16s %s\n' temporal "$role" derived "$destination"
+        fi
+    done
+fi
 
 (( selected_count > 0 )) || die "No catalogue entries selected"
 unknown_allowance_bytes=$((missing_unknown_count * 1024 * 1024 * 1024))
@@ -612,6 +867,8 @@ if [[ "$needs_goa_guard" == "1" ]]; then
         die "GOA current release metadata changed during acquisition"
 fi
 
+process_temporal_derived_inputs
+
 catalog_metadata
 write_artifact_path_catalog
 
@@ -619,6 +876,7 @@ echo
 echo "Completed successfully"
 echo "  downloaded: $DOWNLOADED"
 echo "  skipped:    $SKIPPED"
+echo "  derived:    $DERIVED_CREATED created, $DERIVED_SKIPPED skipped"
 echo "  full checks: $VERIFIED"
 echo "  catalogue:  $ROOT/manifests/frozen_input_catalog.tsv"
 echo "  path map:   $ROOT/manifests/artifact_paths.tsv"
