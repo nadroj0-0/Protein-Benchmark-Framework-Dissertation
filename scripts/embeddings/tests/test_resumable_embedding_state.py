@@ -479,21 +479,23 @@ class ResumableEmbeddingStateTest(unittest.TestCase):
             rows = list(csv.DictReader(handle, delimiter="\t"))
         self.assertEqual([row["protein_id"] for row in rows], ["P1", "P2", "P3"])
 
-    def test_structure_uses_observed_wobble_tolerance_only_for_structure(self) -> None:
+    def test_gpu_modalities_use_observed_wobble_tolerance(self) -> None:
         self.initialize()
         controls = self.root / "tolerance-controls.tsv"
         generated_root = self.root / "tolerance-generated"
 
-        def verify(modality: str, directory: str) -> tuple[subprocess.CompletedProcess, dict]:
+        def verify(
+            modality: str, directory: str, dimension: int
+        ) -> tuple[subprocess.CompletedProcess, dict]:
             self.write_pairs(controls, [("P1", modality)])
             reference = self.state / "cache" / directory
             generated = generated_root / directory
             reference.mkdir(parents=True, exist_ok=True)
             generated.mkdir(parents=True, exist_ok=True)
-            np.save(reference / "P1.npy", np.zeros(2, dtype=np.float32))
+            np.save(reference / "P1.npy", np.zeros(dimension, dtype=np.float32))
             np.save(
                 generated / "P1.npy",
-                np.asarray([7.1e-5, 0.0], dtype=np.float32),
+                np.asarray([7.1e-5] + [0.0] * (dimension - 1), dtype=np.float32),
             )
             report_path = self.root / f"{modality}-tolerance.json"
             result = subprocess.run(
@@ -519,15 +521,20 @@ class ResumableEmbeddingStateTest(unittest.TestCase):
             )
             return result, json.loads(report_path.read_text(encoding="utf-8"))
 
-        structure_result, structure_report = verify("structure", "IF1")
+        structure_result, structure_report = verify("structure", "IF1", 2)
         self.assertEqual(structure_result.returncode, 0, structure_result.stderr)
         self.assertEqual(structure_report["atol"], 1e-4)
         self.assertEqual(structure_report["failed"], 0)
 
-        text_result, text_report = verify("text", "exp_text_embeddings_temporal")
-        self.assertNotEqual(text_result.returncode, 0)
-        self.assertEqual(text_report["atol"], 1e-6)
-        self.assertEqual(text_report["failed"], 1)
+        text_result, text_report = verify("text", "exp_text_embeddings_temporal", 3)
+        self.assertEqual(text_result.returncode, 0, text_result.stderr)
+        self.assertEqual(text_report["atol"], 1e-4)
+        self.assertEqual(text_report["failed"], 0)
+
+        ppi_result, ppi_report = verify("ppi", "ppi", 2)
+        self.assertNotEqual(ppi_result.returncode, 0)
+        self.assertEqual(ppi_report["atol"], 1e-6)
+        self.assertEqual(ppi_report["failed"], 1)
 
     def test_alphafold_prefetch_reuses_valid_persistent_pdb_without_api(self) -> None:
         pfp = self.root / "pfp"

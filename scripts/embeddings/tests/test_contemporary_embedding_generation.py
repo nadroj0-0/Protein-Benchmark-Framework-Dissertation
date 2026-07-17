@@ -427,6 +427,13 @@ class WorkflowScriptTests(unittest.TestCase):
         ):
             self.assertIn(label, workflow)
 
+    def test_real_retry_wrapper_is_pinned_to_animal(self) -> None:
+        wrapper = (
+            SCRIPT_DIR.parents[1]
+            / "hpc_jobs/active/hpc_contemporary_embedding_retry.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("#$ -l hostname=animal-206-2.local", wrapper)
+
 
 if __name__ == "__main__":
     unittest.main()

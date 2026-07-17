@@ -5,6 +5,7 @@
 #$ -l tscratch=120G
 #$ -l scratch0free=300G
 #$ -l h_rt=96:0:0
+#$ -l hostname=animal-206-2.local
 #$ -l gpu=true
 #$ -pe gpu 1
 #$ -j y
@@ -21,9 +22,10 @@ Usage: qsub hpc_jobs/active/hpc_contemporary_embedding_retry.sh \
   [--state-root PATH] [--artifact-catalog PATH] [--results-root PATH] \
   [--strict-framework-commit]
 
-The wrapper retries only pending pairs for one modality, merges valid arrays
-into the one archive-backed SAN state, copies compact reports home, and always
-removes job-owned scratch. It never submits another job.
+The wrapper retries only pending pairs for one modality on animal-206-2.local,
+merges valid arrays into the one archive-backed SAN state, copies compact
+reports home, and always removes job-owned scratch. It never submits another
+job.
 EOF
 }
 

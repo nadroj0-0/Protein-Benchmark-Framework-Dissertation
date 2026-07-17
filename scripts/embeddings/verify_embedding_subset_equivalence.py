@@ -13,7 +13,7 @@ import numpy as np
 
 DEFAULT_RTOL = 1e-5
 DEFAULT_ATOL = 1e-6
-STRUCTURE_ATOL = 1e-4
+GPU_EMBEDDING_ATOL = 1e-4
 
 
 def main() -> int:
@@ -34,7 +34,11 @@ def main() -> int:
     if specification is None:
         raise SystemExit(f"Unknown modality: {args.modality}")
     rtol = DEFAULT_RTOL if args.rtol is None else args.rtol
-    default_atol = STRUCTURE_ATOL if args.modality == "structure" else DEFAULT_ATOL
+    default_atol = (
+        GPU_EMBEDDING_ATOL
+        if args.modality in {"text", "structure"}
+        else DEFAULT_ATOL
+    )
     atol = default_atol if args.atol is None else args.atol
     directory = specification["cache_directory"]
     dimension = int(specification["dimension"])
@@ -108,8 +112,8 @@ def main() -> int:
                 "cli"
                 if args.atol is not None
                 else (
-                    "structure_observed_wobble"
-                    if args.modality == "structure"
+                    "gpu_embedding_observed_wobble"
+                    if args.modality in {"text", "structure"}
                     else "default"
                 )
             ),

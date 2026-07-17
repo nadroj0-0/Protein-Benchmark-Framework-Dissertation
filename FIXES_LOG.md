@@ -346,7 +346,7 @@ No PFP source, model, pooling rule, text cutoff, input sequence or accepted
 embedding was changed. The text tolerance remains unchanged until the balanced
 text diagnostic reports its repeatability.
 
-## 2026-07-18 - `[compat]` Calibrate IF1 subset equivalence
+## 2026-07-18 - `[compat]` Calibrate GPU subset equivalence
 
 ### Observed evidence
 
@@ -360,11 +360,14 @@ inputs or a different pooling recipe.
 
 ### Compatibility change
 
-- Use a structure-only subset-equivalence tolerance of `rtol=1e-5`,
-  `atol=1e-4`, just above the largest observed IF1 wobble.
-- Keep text, sequence and PPI defaults unchanged at `rtol=1e-5`, `atol=1e-6`.
+- Use a text/structure subset-equivalence tolerance of `rtol=1e-5`,
+  `atol=1e-4`, above the largest observed IF1 (`7.10e-5`) and text
+  (`5.72e-6`) cross-run differences.
+- Keep sequence and PPI defaults unchanged at `rtol=1e-5`, `atol=1e-6`.
 - Preserve hard rejection of missing, malformed, wrong-dimensional and
   non-finite arrays.
+- Pin the real contemporary retry wrapper to `animal-206-2.local`, matching the
+  successful same-node diagnostics and removing GPU-model variation.
 
 ### Scientific behavior
 
