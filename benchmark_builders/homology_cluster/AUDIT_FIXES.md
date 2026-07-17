@@ -73,11 +73,11 @@ SHA before later work.
 
 ## 5. Grid Engine parallel environment and array workflow — implemented; capacity pending pilot
 
-The worker requests `-pe smp 8`. `NSLOTS` is authoritative, production requires eight, and MMseqs2
+The worker requests `-pe smp 2`. `NSLOTS` is authoritative, production requires two, and MMseqs2
 threads must match. Task IDs map exactly `1→30`, `2→25`, `3→20`, `4→15`, `5→10`, `6→5`.
 The pilot launcher uses `-t 1`; the full launcher uses `-t 1-6`. Both export a whitelist and shared
 local checksum-pinned inputs with `NO_DOWNLOADS=1`. Six concurrently runnable tasks may request up
-to 48 slots, but Grid Engine controls scheduling.
+to 12 slots, but Grid Engine controls scheduling.
 
 The full launcher requires a validated 30% diagnostic publication, reviewed attrition policy,
 human approval, task context, and separately sourced resource measurements. Launcher-time evidence

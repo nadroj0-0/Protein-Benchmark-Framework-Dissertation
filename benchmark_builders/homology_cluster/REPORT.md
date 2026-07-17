@@ -63,7 +63,7 @@ measurements, reviewed production attrition policy, and human approval.
 
 Approval hashes bind the marker, report, task context, measurement evidence, frozen manifest, and
 reviewed policy. The marker, task context, and measurements must agree on pilot job/run identity,
-scope, full commit, task 1 / 30%, `smp 8`, `NSLOTS=8`, MMseqs2 threads, methodology, and exact
+scope, full commit, task 1 / 30%, `smp 2`, `NSLOTS=2`, MMseqs2 threads, methodology, and exact
 MMseqs2 version. The pilot attrition report is also tied to the publication's actual run-input
 manifest hash. Authorization reconstructs every pilot metric from its numerator/denominator,
 verifies the saved ratio and definitions, and requires the reviewed production limits to accept
@@ -72,7 +72,7 @@ the pilot observations. The pilot cannot approve itself and no skip flag exists.
 ## Grid Engine and scratch safety
 
 The deterministic task map is `1→30`, `2→25`, `3→20`, `4→15`, `5→10`, `6→5`. The worker and both
-launchers request Grid Engine `smp 8`; production requires `NSLOTS=8`, and MMseqs2 threads equal
+launchers request Grid Engine `smp 2`; production requires `NSLOTS=2`, and MMseqs2 threads equal
 `NSLOTS`. Array concurrency remains separate from within-task threading.
 
 Production requires an exact 40-character lowercase commit, detached checkout, exact HEAD match,

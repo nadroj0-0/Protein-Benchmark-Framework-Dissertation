@@ -398,9 +398,9 @@ The deterministic mapping is:
 1 -> 30%    2 -> 25%    3 -> 20%    4 -> 15%    5 -> 10%    6 -> 5%
 ```
 
-The pilot launcher constructs `qsub -t 1 -pe smp 8`; the full launcher constructs
-`qsub -t 1-6 -pe smp 8`. `NSLOTS` is authoritative within each task and must equal the MMseqs2
-thread count. Six runnable tasks can request up to 48 CPU slots, but scheduler concurrency remains
+The pilot launcher constructs `qsub -t 1 -pe smp 2`; the full launcher constructs
+`qsub -t 1-6 -pe smp 2`. `NSLOTS` is authoritative within each task and must equal the MMseqs2
+thread count. Six runnable tasks can request up to 12 CPU slots, but scheduler concurrency remains
 a Grid Engine decision.
 
 Production arrays require:

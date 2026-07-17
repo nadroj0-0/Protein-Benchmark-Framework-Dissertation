@@ -68,9 +68,9 @@ class PilotApprovalTests(unittest.TestCase):
             "uniprot_source_scope": "sprot-only",
             "run_id": "pilot-run",
             "framework_revision": COMMIT,
-            "requested_smp_slots": 8,
-            "nslots": 8,
-            "mmseqs_threads": 8,
+            "requested_smp_slots": 2,
+            "nslots": 2,
+            "mmseqs_threads": 2,
         }), encoding="utf-8")
         measurements = root / "pilot_measurements.json"
         measurements.write_text(json.dumps({

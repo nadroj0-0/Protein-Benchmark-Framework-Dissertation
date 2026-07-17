@@ -215,8 +215,8 @@ scripts/benchmark_generation/run_homology_cluster_benchmark.sh
 ```
 
 The array worker is `hpc_jobs/active/hpc_homology_cluster_benchmark.sh`. It requests
-`-pe smp 8`, uses scheduler-provided `NSLOTS`, and requires `THREADS == NSLOTS` (exactly eight in
-production). Six simultaneously runnable tasks can therefore consume up to 48 CPU slots; Grid
+`-pe smp 2`, uses scheduler-provided `NSLOTS`, and requires `THREADS == NSLOTS` (exactly two in
+production). Six simultaneously runnable tasks can therefore consume up to 12 CPU slots; Grid
 Engine decides actual concurrency.
 
 The locked mapping is:
@@ -340,7 +340,7 @@ python3 -m json.tool "$FROZEN_INPUT_MANIFEST" >/dev/null
 DRY_RUN=1 bash hpc_jobs/launchers/submit_homology_cluster_pilot.sh
 ```
 
-The preview prints mode, exact `qsub -t 1 -pe smp 8` command, task range, scope, full commit,
+The preview prints mode, exact `qsub -t 1 -pe smp 2` command, task range, scope, full commit,
 manifest, result root, methodology fields, input paths/hashes, and every exported value.
 
 ### 3. Manually submit the 30% diagnostic pilot later

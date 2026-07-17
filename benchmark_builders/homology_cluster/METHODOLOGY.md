@@ -170,8 +170,8 @@ identity tasks can have different failures.
 Task 1 is locked to the 30% diagnostic pilot. The full array requires a human-completed approval
 whose hashes bind the validated pilot publication, completion marker, attrition report, worker task
 context, reviewed production attrition policy, and a separate measurement-evidence document. The
-task context proves job ID, task 1, 30%, run ID, scope, full commit, requested `smp 8`, `NSLOTS=8`,
-and MMseqs threads 8. The completion marker must bind the same run ID.
+task context proves job ID, task 1, 30%, run ID, scope, full commit, requested `smp 2`, `NSLOTS=2`,
+and MMseqs threads 2. The completion marker must bind the same run ID.
 
 Authorization reconstructs the pilot's registered observations from their saved numerators and
 denominators, verifies each ratio and definition, and re-evaluates them against the reviewed policy.
@@ -187,8 +187,8 @@ pilot never approves itself.
 ## Grid Engine and publication safety
 
 The array mapping is `1→30`, `2→25`, `3→20`, `4→15`, `5→10`, `6→5`. Each task requests
-`-pe smp 8`; `NSLOTS` is authoritative and must equal MMseqs threads. Array concurrency and
-within-task threads are different: all six runnable tasks can request up to 48 slots.
+`-pe smp 2`; `NSLOTS` is authoritative and must equal MMseqs threads. Array concurrency and
+within-task threads are different: all six runnable tasks can request up to 12 slots.
 
 Production uses one shared local, checksum-verified input collection with `NO_DOWNLOADS=1`. It
 requires an exact 40-character lowercase framework SHA, detached checkout, exact HEAD equality,

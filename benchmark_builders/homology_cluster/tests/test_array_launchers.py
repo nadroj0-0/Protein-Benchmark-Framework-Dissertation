@@ -114,7 +114,7 @@ class ArrayLauncherTests(unittest.TestCase):
             self.assertFalse(qsub_log.exists())
             self.assertIn("Launcher mode       : diagnostic-pilot", completed.stdout)
             self.assertIn("Task range          : 1", completed.stdout)
-            self.assertIn("qsub -t 1 -pe smp 8", completed.stdout)
+            self.assertIn("qsub -t 1 -pe smp 2", completed.stdout)
             self.assertIn("DIAGNOSTIC_PILOT=1", completed.stdout)
             self.assertNotIn("HOMOLOGY_BUILDER_COMMAND", completed.stdout)
             exported_line = next(
@@ -131,7 +131,7 @@ class ArrayLauncherTests(unittest.TestCase):
             completed = self._run(PILOT_LAUNCHER, env)
             self.assertEqual(completed.returncode, 17, completed.stdout)
             lines = qsub_log.read_text().splitlines()
-            self.assertEqual(lines[:5], ["-t", "1", "-pe", "smp", "8"])
+            self.assertEqual(lines[:5], ["-t", "1", "-pe", "smp", "2"])
             self.assertIn("DIAGNOSTIC_PILOT=1", lines)
             self.assertIn("FIXTURE_MODE=0", lines)
 
@@ -166,7 +166,7 @@ class ArrayLauncherTests(unittest.TestCase):
             self.assertIn("authorize-array", authorization_args)
             self.assertIn("--pilot-measurement-evidence", authorization_args)
             lines = qsub_log.read_text().splitlines()
-            self.assertEqual(lines[:5], ["-t", "1-6", "-pe", "smp", "8"])
+            self.assertEqual(lines[:5], ["-t", "1-6", "-pe", "smp", "2"])
             self.assertIn("DIAGNOSTIC_PILOT=0", lines)
             self.assertIn("FIXTURE_MODE=0", lines)
             export_argument = lines[6]

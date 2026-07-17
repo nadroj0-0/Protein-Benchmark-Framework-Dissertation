@@ -7,7 +7,7 @@ FRAMEWORK_ROOT="$(cd "$LAUNCHER_DIR/../.." && pwd)"
 WORKER="$FRAMEWORK_ROOT/hpc_jobs/active/hpc_homology_cluster_benchmark.sh"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 DRY_RUN="${DRY_RUN:-0}"
-REQUESTED_SLOTS=8
+REQUESTED_SLOTS=2
 SPLIT_POLICY="${SPLIT_POLICY:-sequence-balanced}"
 TRAINING_POPULATION="${TRAINING_POPULATION:-annotated-only}"
 SEED="${SEED:-0}"
@@ -86,7 +86,7 @@ validate_common_contract() {
         "TRAINING_POPULATION must remain annotated-only"
     [[ "$SEED" =~ ^[0-9]+$ ]] || launcher_error "SEED must be a non-negative integer"
     [[ "$MIN_COUNT" =~ ^[1-9][0-9]*$ ]] || launcher_error "MIN_COUNT must be a positive integer"
-    [[ "$NO_DOWNLOADS" == "1" && "$REQUESTED_SLOTS" == "8" && "$FIXTURE_MODE" == "0" ]] || \
+    [[ "$NO_DOWNLOADS" == "1" && "$REQUESTED_SLOTS" == "2" && "$FIXTURE_MODE" == "0" ]] || \
         launcher_error "Production launcher constants were altered"
     require_value UNIPROT_RELEASE
     require_value GOA_RELEASE

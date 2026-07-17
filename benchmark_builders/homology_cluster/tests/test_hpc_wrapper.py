@@ -70,7 +70,7 @@ class HPCWrapperTests(unittest.TestCase):
             "IDENTITY": "30",
             "SGE_TASK_ID": "1",
             "JOB_ID": "fixture-job",
-            "NSLOTS": "8",
+            "NSLOTS": "2",
             "SPLIT_POLICY": "sequence-balanced",
             "TRAINING_POPULATION": "annotated-only",
             "UNIPROT_SOURCE_SCOPE": "sprot-only",
@@ -163,8 +163,8 @@ class HPCWrapperTests(unittest.TestCase):
             "HOME": str(home),
             "SGE_TASK_ID": "1",
             "JOB_ID": "12345",
-            "NSLOTS": "8",
-            "REQUESTED_SLOTS": "8",
+            "NSLOTS": "2",
+            "REQUESTED_SLOTS": "2",
             "UNIPROT_SOURCE_SCOPE": "sprot-only",
             "RUN_ID": "revision-fixture",
             "DIAGNOSTIC_PILOT": "1",
@@ -227,8 +227,8 @@ class HPCWrapperTests(unittest.TestCase):
             context = json.loads((final_root / "logs" / "hpc_task_context.json").read_text())
             self.assertEqual(context["sge_task_id"], 1)
             self.assertEqual(context["identity_percent"], 30)
-            self.assertEqual(context["nslots"], 8)
-            self.assertEqual(context["mmseqs_threads"], 8)
+            self.assertEqual(context["nslots"], 2)
+            self.assertEqual(context["mmseqs_threads"], 2)
 
     def test_builder_failure_publishes_failed_diagnostics_without_marker(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -580,7 +580,7 @@ class HPCWrapperTests(unittest.TestCase):
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False,
             )
             self.assertNotEqual(completed.returncode, 0, completed.stdout)
-            self.assertIn("must equal scheduler-provided NSLOTS=8", completed.stdout)
+            self.assertIn("must equal scheduler-provided NSLOTS=2", completed.stdout)
             self.assertFalse((root / "builder-ready").exists())
 
     def test_all_six_locked_array_mappings_and_invalid_task_ids(self):

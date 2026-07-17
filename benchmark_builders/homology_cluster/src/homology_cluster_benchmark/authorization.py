@@ -239,9 +239,9 @@ def validate_pilot_approval(
         "uniprot_source_scope": source_scope,
         "run_id": approval.get("pilot_run_id"),
         "framework_revision": framework_commit,
-        "requested_smp_slots": 8,
-        "nslots": 8,
-        "mmseqs_threads": 8,
+        "requested_smp_slots": 2,
+        "nslots": 2,
+        "mmseqs_threads": 2,
     }
     for key, value in task_expectations.items():
         if task_context.get(key) != value:

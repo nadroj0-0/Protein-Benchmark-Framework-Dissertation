@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # UCL Grid Engine wrapper. Resource directives are provisional until a measured smoke run.
 
-#$ -l tmem=64G
-#$ -l tscratch=200G
-#$ -l scratch0free=200G
-#$ -l h_rt=72:0:0
-#$ -pe smp 8
+#$ -l tmem=32G
+#$ -l tscratch=150G
+#$ -l scratch0free=300G
+#$ -l h_rt=96:0:0
+#$ -pe smp 2
 #$ -j y
 #$ -N homology_cluster
 
@@ -240,12 +240,12 @@ if [[ "$REQUESTED_THREADS" != "$ALLOCATED_SLOTS" ]]; then
     echo "THREADS=$REQUESTED_THREADS must equal scheduler-provided NSLOTS=$ALLOCATED_SLOTS" >&2
     exit 1
 fi
-if [[ -n "${REQUESTED_SLOTS:-}" && "$REQUESTED_SLOTS" != "8" ]]; then
-    echo "REQUESTED_SLOTS must equal the locked smp request of 8" >&2
+if [[ -n "${REQUESTED_SLOTS:-}" && "$REQUESTED_SLOTS" != "2" ]]; then
+    echo "REQUESTED_SLOTS must equal the locked smp request of 2" >&2
     exit 1
 fi
-if [[ "$FIXTURE_MODE_VALUE" != "1" && "$ALLOCATED_SLOTS" != "8" ]]; then
-    echo "Production array task requires the requested smp allocation of NSLOTS=8" >&2
+if [[ "$FIXTURE_MODE_VALUE" != "1" && "$ALLOCATED_SLOTS" != "2" ]]; then
+    echo "Production array task requires the requested smp allocation of NSLOTS=2" >&2
     exit 1
 fi
 
@@ -800,11 +800,11 @@ export OUTPUT_ROOT="$SCRATCH_OUTPUTS/benchmark"
 export TEMP_DIR="$SCRATCH_TEMP"
 export PERSISTENT_RESULTS_ROOT
 export THREADS="$ALLOCATED_SLOTS"
-export REQUESTED_SLOTS=8 ALLOCATED_SLOTS
+export REQUESTED_SLOTS=2 ALLOCATED_SLOTS
 export UNIPROT_SOURCE_SCOPE FRAMEWORK_REVISION RUN_ID
 export DIAGNOSTIC_PILOT="$DIAGNOSTIC_PILOT_VALUE"
 export LOG_FILE="$SCRATCH_OUTPUTS/logs/homology_cluster_builder.log"
-printf '{"job_id":"%s","sge_task_id":%s,"identity_percent":%s,"uniprot_source_scope":"%s","run_id":"%s","framework_revision":"%s","requested_smp_slots":8,"nslots":%s,"mmseqs_threads":%s,"maximum_array_cpu_slots_if_all_six_run":48}\n' \
+printf '{"job_id":"%s","sge_task_id":%s,"identity_percent":%s,"uniprot_source_scope":"%s","run_id":"%s","framework_revision":"%s","requested_smp_slots":2,"nslots":%s,"mmseqs_threads":%s,"maximum_array_cpu_slots_if_all_six_run":12}\n' \
     "$JOB_KEY" "$TASK_ID" "$IDENTITY" "$UNIPROT_SOURCE_SCOPE" "$RUN_ID" \
     "$FRAMEWORK_REVISION" "$ALLOCATED_SLOTS" "$THREADS" \
     > "$SCRATCH_OUTPUTS/logs/hpc_task_context.json"
