@@ -295,3 +295,31 @@ environment before containerized Python attempted to write it.
 
 This changes filesystem visibility only. It does not modify PFP, embedding
 generation, benchmark inputs, model training, or evaluation behavior.
+
+## 2026-07-17 - `[compat]` Add a non-merging embedding repeatability diagnostic
+
+### Observed behavior
+
+Contemporary text and structure retries regenerated accepted controls with
+small floating-point differences and correctly refused to merge. The existing
+equivalence report established that a difference existed, but did not measure
+same-node repeatability or record enough numerical and hardware evidence to set
+a defensible tolerance.
+
+### Diagnostic addition
+
+- Add a text/structure-only workflow that generates one accepted control set
+  twice from one hashed input view.
+- Pin its HPC wrapper to `animal-206-2.local`, the node used by the original
+  contemporary generation, and verify the assigned host at runtime.
+- Record exact source/input hashes, GPU identity, CUDA/PyTorch settings, and
+  per-protein maximum/mean/RMSE/L2/relative/cosine metrics.
+- Publish the baseline and both small repeat caches for inspection.
+- Treat missing or invalid arrays as hard failures while retaining numerical
+  differences as observations.
+
+### Scientific behavior
+
+The diagnostic has no state merge path and does not change PFP, accepted
+embeddings, model behavior or production tolerances. It only gathers evidence
+for a later reviewed tolerance decision.

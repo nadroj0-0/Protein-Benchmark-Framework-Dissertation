@@ -340,6 +340,25 @@ under `$HOME/contemporary_embedding_retry_results`, and always deletes its
 scratch directory. These commands are intentionally manual; the initializer
 does not submit retries automatically.
 
+If text or structure stops at the subset-equivalence gate, diagnose the
+numerical floor before retrying or changing tolerance:
+
+```bash
+qsub hpc_jobs/active/hpc_contemporary_embedding_reproducibility.sh \
+  --modality text
+qsub hpc_jobs/active/hpc_contemporary_embedding_reproducibility.sh \
+  --modality structure
+```
+
+These are independent diagnostic jobs. Both are pinned to
+`animal-206-2.local`, request one GPU, run the same 20 controls twice from one
+hashed input view, and write to
+`$HOME/contemporary_embedding_reproducibility_results`. They never merge into
+SAN retry state. Inspect `embedding_reproducibility.md`, the detailed TSV and
+`runtime_hardware.json` before deciding whether the production tolerance is too
+strict. The wrapper always copies compact evidence home and removes its owned
+scratch directory, including on failure.
+
 ## Homology-cluster identity array
 
 ### Final scratch-first runtime entrypoints

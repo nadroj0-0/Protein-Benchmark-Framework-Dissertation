@@ -180,6 +180,35 @@ framework compatibility scripts recorded by the state. Use
 `--strict-framework-commit` when a frozen release requires whole-repository
 revision equality.
 
+### Same-node text and structure diagnostic
+
+`run_contemporary_embedding_reproducibility.sh` investigates a failed
+subset-equivalence gate without changing the cumulative state. For either
+`text` or `structure` it:
+
+1. deterministically selects 20 accepted controls from the existing state;
+2. materializes their accepted arrays into disposable scratch;
+3. builds one shared control-only PFP input view;
+4. freezes and hashes one exact text TSV or set of AlphaFold PDB files;
+5. generates the controls twice as separate model invocations on the same GPU;
+6. compares repeat 1 with repeat 2 and both repeats with the baseline;
+7. records maximum/mean absolute difference, RMSE, L2 difference, relative
+   difference, cosine similarity, existing `allclose` status and exact equality.
+
+The corresponding HPC wrapper is pinned to `animal-206-2.local`, requests one
+GPU, verifies the assigned host at runtime, and publishes the reference and two
+small generated control caches with JSON, TSV and Markdown reports. It records
+GPU/driver/PyTorch settings and hashes the exact sources and inputs. Numerical
+differences are observations, not automatic failures; missing, malformed or
+non-finite control arrays remain hard integrity failures.
+
+There is deliberately no `merge` operation in this workflow. The experiment
+does not silently relax the production tolerance or alter accepted SAN arrays.
+Its repeat-to-repeat distribution provides the evidence needed for a later,
+explicit tolerance decision. Model weights or authenticated AlphaFold PDBs may
+be added to the state's non-scientific `source_cache`; the accepted-array
+ledger, coverage and benchmark contract are not changed.
+
 ### Reusing frozen dependencies
 
 Embedding workflows resolve static inputs in the same order as the rest of the
@@ -207,10 +236,12 @@ python -m unittest discover -s scripts/embeddings/tests -v
 bash -n scripts/embeddings/run_contemporary_embedding_generation.sh
 bash -n scripts/embeddings/initialize_contemporary_embedding_state.sh
 bash -n scripts/embeddings/run_contemporary_embedding_retry.sh
+bash -n scripts/embeddings/run_contemporary_embedding_reproducibility.sh
 bash -n scripts/embeddings/generate_embeddings_structure.sh
 bash -n hpc_jobs/active/hpc_contemporary_embedding_generation.sh
 bash -n hpc_jobs/active/hpc_contemporary_embedding_state_initialize.sh
 bash -n hpc_jobs/active/hpc_contemporary_embedding_retry.sh
+bash -n hpc_jobs/active/hpc_contemporary_embedding_reproducibility.sh
 ```
 
 The HPC wrapper performs the real bounded preflight before the full run. It
