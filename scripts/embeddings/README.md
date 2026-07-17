@@ -145,6 +145,9 @@ archive and retry delta form one logical cache.
 It verifies that the assembly report covers every target/modality pair and that
 the archive contains exactly the arrays reported as available. It indexes the
 archive without extracting it persistently. Contract drift is rejected.
+The HPC initializer and retry wrappers explicitly bind their caller-selected
+benchmark, reuse-plan, baseline and state directories into the MMFP Singularity
+runtime; SAN is not visible inside that container unless it is bound.
 
 The gate in `configs/contemporary_embedding_resume.json` scales Zijian's
 published CAFA3 coverage proportions to the contemporary target count. For the

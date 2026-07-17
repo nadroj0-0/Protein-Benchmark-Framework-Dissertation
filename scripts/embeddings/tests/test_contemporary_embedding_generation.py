@@ -15,6 +15,7 @@ import numpy as np
 
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
+REPO_ROOT = SCRIPT_DIR.parents[1]
 ACTION_COLUMNS = (
     "protein_id",
     "sequence",
@@ -382,6 +383,24 @@ class WorkflowScriptTests(unittest.TestCase):
         self.assertIn('os.environ.get("PFP_COMMIT", "unknown")', workflow)
         self.assertIn('PFP_COMMIT="$PFP_COMMIT"', wrapper)
         self.assertIn('FRAMEWORK_COMMIT="$FRAMEWORK_COMMIT"', wrapper)
+
+    def test_persistent_inputs_are_bound_before_mmfp_python_starts(self) -> None:
+        wrappers = (
+            "hpc_jobs/active/hpc_contemporary_embedding_state_initialize.sh",
+            "hpc_jobs/active/hpc_contemporary_embedding_retry.sh",
+        )
+        for relative_path in wrappers:
+            with self.subTest(wrapper=relative_path):
+                source = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+                activation = source.index("activate_or_create_mmfp_env")
+                for expression in (
+                    'add_mmfp_singularity_bind "$BENCHMARK_DIR"',
+                    'add_mmfp_singularity_bind "$BASELINE_ROOT"',
+                    'add_mmfp_singularity_bind "$PLAN_DIR"',
+                    'add_mmfp_singularity_bind "$(dirname "$STATE_ROOT")"',
+                ):
+                    self.assertIn(expression, source)
+                    self.assertLess(source.index(expression), activation)
 
 
 if __name__ == "__main__":

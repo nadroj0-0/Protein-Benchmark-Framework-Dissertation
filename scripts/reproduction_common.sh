@@ -23,6 +23,29 @@ load_framework_paths() {
   export MMFP_SINGULARITY_IMAGE_URI="${MMFP_SINGULARITY_IMAGE_URI:-docker://python:3.9.23-slim-bookworm}"
 }
 
+add_mmfp_singularity_bind() {
+  local bind_path="$1"
+  local resolved_path
+  local bind_spec
+
+  [[ -d "$bind_path" ]] || {
+    echo "Cannot bind missing directory into MMFP Singularity: $bind_path" >&2
+    return 1
+  }
+  resolved_path="$(cd "$bind_path" && pwd -P)"
+  case "$resolved_path" in
+    *:*|*,*)
+      echo "MMFP Singularity bind path contains an unsupported ':' or ',': $resolved_path" >&2
+      return 1
+      ;;
+  esac
+  bind_spec="${resolved_path}:${resolved_path}"
+  case ",${SINGULARITY_BINDPATH:-}," in
+    *",${bind_spec},"*) return 0 ;;
+  esac
+  export SINGULARITY_BINDPATH="${SINGULARITY_BINDPATH:+${SINGULARITY_BINDPATH},}${bind_spec}"
+}
+
 clone_or_reuse_pfp() {
   if [ -e "${PFP_CLONE_DIR}" ] && [ ! -d "${PFP_CLONE_DIR}/.git" ]; then
     echo "PFP_CLONE_DIR exists but is not a git checkout: ${PFP_CLONE_DIR}" >&2

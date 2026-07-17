@@ -149,6 +149,12 @@ git_in_dir "$PFP_DIR" checkout --detach "$PFP_COMMIT"
 cd "$FRAMEWORK_DIR"
 source scripts/reproduction_common.sh
 load_framework_paths "$FRAMEWORK_DIR"
+# The MMFP Python executable is a Singularity launcher. Home and scratch are
+# visible automatically, but persistent SAN paths must be bound explicitly.
+add_mmfp_singularity_bind "$BENCHMARK_DIR"
+add_mmfp_singularity_bind "$BASELINE_ROOT"
+add_mmfp_singularity_bind "$PLAN_DIR"
+add_mmfp_singularity_bind "$(dirname "$STATE_ROOT")"
 activate_or_create_mmfp_env
 PYTHON_BIN="$(command -v python)"
 
