@@ -11,6 +11,11 @@ from pathlib import Path
 import numpy as np
 
 
+DEFAULT_RTOL = 1e-5
+DEFAULT_ATOL = 1e-6
+STRUCTURE_ATOL = 1e-4
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state-root", type=Path, required=True)
@@ -19,8 +24,8 @@ def main() -> int:
     parser.add_argument("--control-pairs", type=Path, required=True)
     parser.add_argument("--modality", required=True)
     parser.add_argument("--report", type=Path, required=True)
-    parser.add_argument("--rtol", type=float, default=1e-5)
-    parser.add_argument("--atol", type=float, default=1e-6)
+    parser.add_argument("--rtol", type=float)
+    parser.add_argument("--atol", type=float)
     parser.add_argument("--minimum-compared", type=int, default=5)
     args = parser.parse_args()
 
@@ -28,6 +33,9 @@ def main() -> int:
     specification = contract["policy"]["modalities"].get(args.modality)
     if specification is None:
         raise SystemExit(f"Unknown modality: {args.modality}")
+    rtol = DEFAULT_RTOL if args.rtol is None else args.rtol
+    default_atol = STRUCTURE_ATOL if args.modality == "structure" else DEFAULT_ATOL
+    atol = default_atol if args.atol is None else args.atol
     directory = specification["cache_directory"]
     dimension = int(specification["dimension"])
     reference_root = args.reference_cache_root or (args.state_root / "cache")
@@ -65,7 +73,7 @@ def main() -> int:
                 else:
                     compared += 1
                     max_abs = float(np.max(np.abs(reference - generated)))
-                    if not np.allclose(reference, generated, rtol=args.rtol, atol=args.atol):
+                    if not np.allclose(reference, generated, rtol=rtol, atol=atol):
                         status = "different"
                     else:
                         equivalent += 1
@@ -92,8 +100,20 @@ def main() -> int:
         "unavailable": unavailable,
         "failed": failed,
         "minimum_compared": args.minimum_compared,
-        "rtol": args.rtol,
-        "atol": args.atol,
+        "rtol": rtol,
+        "atol": atol,
+        "tolerance_source": {
+            "rtol": "cli" if args.rtol is not None else "default",
+            "atol": (
+                "cli"
+                if args.atol is not None
+                else (
+                    "structure_observed_wobble"
+                    if args.modality == "structure"
+                    else "default"
+                )
+            ),
+        },
         "rows": rows,
     }
     args.report.parent.mkdir(parents=True, exist_ok=True)

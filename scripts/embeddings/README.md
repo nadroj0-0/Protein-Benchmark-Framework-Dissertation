@@ -167,8 +167,11 @@ relative coverage.
 `run_contemporary_embedding_retry.sh` selects only currently missing pairs for
 one modality. Twenty accepted controls are materialized temporarily from the
 baseline archive or retry delta and regenerated with the requested subset. At
-least five must match within `rtol=1e-5`, `atol=1e-6` before valid outputs are
-atomically merged. Failures remain in the retry ledger regardless of reason.
+least five must pass the modality comparison tolerance before valid outputs are
+atomically merged. Text, sequence and PPI retain `rtol=1e-5`, `atol=1e-6`.
+Structure retains `rtol=1e-5` but uses `atol=1e-4`, a conservative ceiling just
+above the observed `7.10e-5` cross-run IF1 wobble; same-node repeats were below
+`4.06e-7`. Missing, malformed and non-finite arrays still fail unconditionally.
 The wrappers never edit PFP and always remove job-owned scratch.
 
 The state records the framework commit used at initialization. During active

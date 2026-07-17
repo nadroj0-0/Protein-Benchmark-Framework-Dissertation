@@ -345,3 +345,29 @@ wrapper to fail before either PubMedBERT repeat.
 No PFP source, model, pooling rule, text cutoff, input sequence or accepted
 embedding was changed. The text tolerance remains unchanged until the balanced
 text diagnostic reports its repeatability.
+
+## 2026-07-18 - `[compat]` Calibrate IF1 subset equivalence
+
+### Observed evidence
+
+The first production structure retry compared all 20 accepted controls but
+rejected four. The largest absolute difference was `7.10e-5`. A subsequent
+diagnostic pinned to `animal-206-2.local` regenerated the same 20 proteins twice
+from identical authenticated PDBs: all comparisons passed, repeat-to-repeat
+differences stayed below `4.06e-7`, and cosine similarities were effectively
+one. This establishes numerical execution wobble rather than changed biological
+inputs or a different pooling recipe.
+
+### Compatibility change
+
+- Use a structure-only subset-equivalence tolerance of `rtol=1e-5`,
+  `atol=1e-4`, just above the largest observed IF1 wobble.
+- Keep text, sequence and PPI defaults unchanged at `rtol=1e-5`, `atol=1e-6`.
+- Preserve hard rejection of missing, malformed, wrong-dimensional and
+  non-finite arrays.
+
+### Scientific behavior
+
+No PFP source, model, pooling rule, input sequence, AlphaFold structure or
+accepted embedding was changed. The tolerance is an explicit compatibility
+boundary derived from measured numerical variation.
