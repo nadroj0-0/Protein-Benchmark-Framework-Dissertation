@@ -186,7 +186,8 @@ revision equality.
 subset-equivalence gate without changing the cumulative state. For either
 `text` or `structure` it:
 
-1. deterministically selects 20 accepted controls from the existing state;
+1. deterministically selects 20 accepted controls, balanced across the global
+   training, validation and test splits;
 2. materializes their accepted arrays into disposable scratch;
 3. builds one shared control-only PFP input view;
 4. freezes and hashes one exact text TSV or set of AlphaFold PDB files;

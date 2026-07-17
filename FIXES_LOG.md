@@ -323,3 +323,25 @@ a defensible tolerance.
 The diagnostic has no state merge path and does not change PFP, accepted
 embeddings, model behavior or production tolerances. It only gathers evidence
 for a later reviewed tolerance decision.
+
+## 2026-07-18 - `[compat]` Balance temporal-text diagnostic controls
+
+### Observed evidence
+
+The first text diagnostic selected the lexicographically first 20 accepted
+proteins, all from training/validation. PFP correctly found zero historical test
+proteins but did not create an empty historical TSV, causing the framework
+wrapper to fail before either PubMedBERT repeat.
+
+### Compatibility changes
+
+- Balance diagnostic controls deterministically across global training,
+  validation and test splits so both current and historical text paths run.
+- Materialize an empty historical TSV when PFP has no requested test proteins,
+  allowing the published temporal recipe to handle the empty set normally.
+
+### Scientific behavior
+
+No PFP source, model, pooling rule, text cutoff, input sequence or accepted
+embedding was changed. The text tolerance remains unchanged until the balanced
+text diagnostic reports its repeatability.

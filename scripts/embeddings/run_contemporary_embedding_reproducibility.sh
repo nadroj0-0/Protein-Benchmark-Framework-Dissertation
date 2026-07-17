@@ -161,6 +161,7 @@ fi
 echo "==> [3/8] Select and materialize accepted controls"
 "$PYTHON_BIN" "$HERE/manage_resumable_embedding_state.py" controls \
   --state-root "$STATE_ROOT" --modality "$MODALITY" --count "$CONTROL_COUNT" \
+  --plan-dir "$PLAN_DIR" --balance-global-splits \
   --output "$CONTROLS" > "$OUTPUT_DIR/reports/control_selection.json"
 selected_count="$(($(wc -l < "$CONTROLS") - 1))"
 [[ "$selected_count" == "$CONTROL_COUNT" ]] || \

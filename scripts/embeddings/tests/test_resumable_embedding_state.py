@@ -422,6 +422,63 @@ class ResumableEmbeddingStateTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertEqual(json.loads(report.read_text())["failed"], 0)
 
+    def test_diagnostic_controls_are_balanced_across_global_splits(self) -> None:
+        self.initialize()
+        generated = self.root / "balanced-generated"
+        for protein_id in ("P1", "P2", "P3"):
+            self.save(generated, "exp_text_embeddings_temporal", protein_id, 3, 1)
+        self.run_state(
+            "merge",
+            "--state-root",
+            str(self.state),
+            "--generated-cache-root",
+            str(generated),
+            "--attempt-id",
+            "balanced-controls",
+        )
+
+        plan = self.root / "balanced-plan"
+        plan.mkdir()
+        fields = ["protein_id", "target_memberships"]
+        tables = {
+            "reuse_proteins.tsv": [
+                {"protein_id": "P1", "target_memberships": '["bp-training.csv"]'},
+                {"protein_id": "P2", "target_memberships": '["cc-validation.csv"]'},
+            ],
+            "regenerate_proteins.tsv": [
+                {"protein_id": "P3", "target_memberships": '["mf-test.csv"]'},
+            ],
+        }
+        for name, rows in tables.items():
+            with (plan / name).open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=fields, delimiter="\t")
+                writer.writeheader()
+                writer.writerows(rows)
+
+        controls = self.root / "balanced-controls.tsv"
+        result = self.run_state(
+            "controls",
+            "--state-root",
+            str(self.state),
+            "--modality",
+            "text",
+            "--count",
+            "3",
+            "--plan-dir",
+            str(plan),
+            "--balance-global-splits",
+            "--output",
+            str(controls),
+        )
+        report = json.loads(result.stdout)
+        self.assertEqual(
+            report["global_split_counts"],
+            {"training": 1, "validation": 1, "test": 1},
+        )
+        with controls.open(encoding="utf-8", newline="") as handle:
+            rows = list(csv.DictReader(handle, delimiter="\t"))
+        self.assertEqual([row["protein_id"] for row in rows], ["P1", "P2", "P3"])
+
     def test_alphafold_prefetch_reuses_valid_persistent_pdb_without_api(self) -> None:
         pfp = self.root / "pfp"
         scripts = pfp / "scripts"

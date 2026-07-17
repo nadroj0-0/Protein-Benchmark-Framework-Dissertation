@@ -16,6 +16,7 @@ ANALYZER = REPO_ROOT / "scripts/embeddings/analyze_embedding_reproducibility.py"
 RUNTIME = REPO_ROOT / "scripts/embeddings/record_embedding_runtime.py"
 WORKFLOW = REPO_ROOT / "scripts/embeddings/run_contemporary_embedding_reproducibility.sh"
 WRAPPER = REPO_ROOT / "hpc_jobs/active/hpc_contemporary_embedding_reproducibility.sh"
+TEXT_RECIPE = REPO_ROOT / "scripts/embeddings/run_pfp_temporal_text.py"
 
 
 class ReproducibilityAnalysisTest(unittest.TestCase):
@@ -174,7 +175,13 @@ class ReproducibilityWorkflowContractTest(unittest.TestCase):
         self.assertIn("run_structure_repeat repeat_2", source)
         self.assertIn('"accepted_embedding_state_modified": False', source)
         self.assertIn('"source_cache_writes_allowed": True', source)
+        self.assertIn("--balance-global-splits", source)
         self.assertNotIn("manage_resumable_embedding_state.py\" merge", source)
+
+    def test_text_recipe_materializes_an_empty_historical_file(self) -> None:
+        source = TEXT_RECIPE.read_text(encoding="utf-8")
+        self.assertIn("if not historical.exists():", source)
+        self.assertIn("historical.touch()", source)
 
 
 if __name__ == "__main__":

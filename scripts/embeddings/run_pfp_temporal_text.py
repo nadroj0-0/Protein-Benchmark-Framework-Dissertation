@@ -68,6 +68,10 @@ def main() -> int:
         splits=["test"],
         workers=args.workers,
     )
+    historical_created_empty = False
+    if not historical.exists():
+        historical.touch()
+        historical_created_empty = True
     punct_metadata = module.build_historical_punct_v1_test_tsv(
         historical_tsv=historical,
         output_tsv=punct,
@@ -96,6 +100,7 @@ def main() -> int:
         "historical_success": historical_success,
         "historical_failed": historical_failed,
         "historical_status_counts": historical_status,
+        "historical_created_empty": historical_created_empty,
         "punctuation_recipe": punct_metadata,
         "mixed_recipe": mixed_metadata,
         "embedding_input": str(current),

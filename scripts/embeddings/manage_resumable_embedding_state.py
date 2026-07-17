@@ -987,6 +987,89 @@ def command_pending(args: argparse.Namespace) -> dict:
         }
 
 
+def load_planner_global_splits(plan_dir: Path) -> Dict[str, str]:
+    split_by_id: Dict[str, str] = {}
+    for action in ("reuse", "regenerate"):
+        path = plan_dir / f"{action}_proteins.tsv"
+        if not path.is_file():
+            raise ValueError(f"Missing planner action table: {path}")
+        with path.open(encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle, delimiter="\t")
+            required = {"protein_id", "target_memberships"}
+            if reader.fieldnames is None or not required.issubset(reader.fieldnames):
+                raise ValueError(f"Invalid planner action-table schema: {path}")
+            for row in reader:
+                protein_id = row["protein_id"]
+                memberships = json.loads(row["target_memberships"])
+                splits = {
+                    name.removesuffix(".csv").rsplit("-", 1)[1]
+                    for name in memberships
+                }
+                if len(splits) != 1:
+                    raise ValueError(
+                        f"Protein {protein_id} does not have one global target split: "
+                        f"{memberships}"
+                    )
+                split = next(iter(splits))
+                if split not in {"training", "validation", "test"}:
+                    raise ValueError(f"Unknown target split for {protein_id}: {split}")
+                if protein_id in split_by_id:
+                    raise ValueError(f"Protein occurs in both planner actions: {protein_id}")
+                split_by_id[protein_id] = split
+    return split_by_id
+
+
+def balanced_controls(
+    accepted: Sequence[str], split_by_id: Mapping[str, str], count: int
+) -> Tuple[List[str], Dict[str, int]]:
+    split_order = ("training", "validation", "test")
+    buckets = {
+        split: [
+            protein_id
+            for protein_id in accepted
+            if split_by_id.get(protein_id) == split
+        ]
+        for split in split_order
+    }
+    missing_plan_ids = sorted(set(accepted) - set(split_by_id))
+    if missing_plan_ids:
+        raise ValueError(
+            f"Accepted controls are absent from planner tables: {missing_plan_ids[:10]} "
+            f"(total={len(missing_plan_ids)})"
+        )
+    empty_splits = [split for split in split_order if not buckets[split]]
+    if empty_splits:
+        raise ValueError(
+            "Cannot balance diagnostic controls; no accepted proteins for: "
+            + ", ".join(empty_splits)
+        )
+    if count < len(split_order):
+        raise ValueError(
+            f"Balanced controls require at least {len(split_order)} proteins"
+        )
+
+    selected: List[str] = []
+    offsets = {split: 0 for split in split_order}
+    while len(selected) < count:
+        progressed = False
+        for split in split_order:
+            offset = offsets[split]
+            if offset >= len(buckets[split]):
+                continue
+            selected.append(buckets[split][offset])
+            offsets[split] += 1
+            progressed = True
+            if len(selected) == count:
+                break
+        if not progressed:
+            break
+    counts = {
+        split: sum(split_by_id[item] == split for item in selected)
+        for split in split_order
+    }
+    return selected, counts
+
+
 def command_controls(args: argparse.Namespace) -> dict:
     if args.count <= 0:
         raise ValueError("--count must be positive")
@@ -1005,19 +1088,32 @@ def command_controls(args: argparse.Namespace) -> dict:
                 args.modality,
             )
         )
-        selected = accepted[: args.count]
+        split_counts = None
+        if args.balance_global_splits:
+            if args.plan_dir is None:
+                raise ValueError("--balance-global-splits requires --plan-dir")
+            selected, split_counts = balanced_controls(
+                accepted,
+                load_planner_global_splits(Path(args.plan_dir)),
+                args.count,
+            )
+        else:
+            selected = accepted[: args.count]
         lines = ["protein_id\tmodality\tsequence_sha256"]
         lines.extend(
             f"{protein_id}\t{args.modality}\t{targets[protein_id]}"
             for protein_id in selected
         )
         atomic_write_text(Path(args.output), "\n".join(lines) + "\n")
-        return {
+        result = {
             "output": str(Path(args.output).resolve()),
             "modality": args.modality,
             "requested_count": args.count,
             "selected_count": len(selected),
         }
+        if split_counts is not None:
+            result["global_split_counts"] = split_counts
+        return result
 
 
 def materialize_pairs(
@@ -1220,6 +1316,8 @@ def parse_args() -> argparse.Namespace:
     add_state_root(controls)
     controls.add_argument("--modality", choices=("sequence", "text", "structure", "ppi"), required=True)
     controls.add_argument("--count", type=int, default=20)
+    controls.add_argument("--plan-dir", type=Path)
+    controls.add_argument("--balance-global-splits", action="store_true")
     controls.add_argument("--output", type=Path, required=True)
 
     materialize = subparsers.add_parser("materialize")
