@@ -267,6 +267,44 @@ unconditional even if home publication fails. Optional overrides include
 `PREFLIGHT_PER_SPLIT`, the complete `FRAMEWORK_COMMIT`, and the pinned
 `PFP_COMMIT`.
 
+The completion JSON uses commit values already resolved by the host wrapper; it
+does not invoke `git` inside the MMFP Python container.
+
+### Contemporary embedding state and retries
+
+The completed cache and exact benchmark inputs are preserved at:
+
+```text
+/SAN/bioinf/bmpfp/embeddings/contemporary/2025_01_to_2026_02_supervisor/
+/SAN/bioinf/bmpfp/benchmarks/contemporary/2025_01_to_2026_02_supervisor/
+```
+
+Initialize the archive-backed state once:
+
+```bash
+qsub hpc_jobs/active/hpc_contemporary_embedding_state_initialize.sh
+```
+
+This CPU-only job verifies the archive, indexes its assembly report, binds the
+state to the exact CSV/sequence/manifests/runtime contract, and writes the
+state beneath the embedding release as `retry_state/`. It does not extract the
+baseline arrays persistently and does not generate embeddings.
+
+After inspecting the initialization report, retry one modality per job:
+
+```bash
+qsub hpc_jobs/active/hpc_contemporary_embedding_retry.sh --modality structure
+qsub hpc_jobs/active/hpc_contemporary_embedding_retry.sh --modality text
+qsub hpc_jobs/active/hpc_contemporary_embedding_retry.sh --modality ppi
+```
+
+ProtT5 currently has complete coverage and does not need a retry. Each retry
+requests only the pending protein/modality pairs, verifies regenerated control
+arrays, merges valid successes into one SAN delta, publishes compact reports
+under `$HOME/contemporary_embedding_retry_results`, and always deletes its
+scratch directory. These commands are intentionally manual; the initializer
+does not submit retries automatically.
+
 ## Homology-cluster identity array
 
 ### Final scratch-first runtime entrypoints

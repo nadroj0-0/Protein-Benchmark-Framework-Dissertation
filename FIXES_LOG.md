@@ -4,6 +4,55 @@ This log records compatibility changes made around the immutable upstream PFP
 code. Changes tagged `[compat]` must preserve the original model and embedding
 semantics; behavior-changing corrections belong on a later `[fix]` branch.
 
+## 2026-07-17 - `[compat]` Preserve and resume the contemporary embedding cache
+
+### Observed failure
+
+Contemporary job `7070469` completed all four preflight and full-generation
+processes, assembled the combined cache, and wrote authenticated archives. Its
+final completion-marker writer then tried to invoke `git` from inside the MMFP
+Python container, where `git` is unavailable, so the wrapper labelled the
+otherwise complete result `.failed`. The combined cache retained complete
+ProtT5 coverage but incomplete text, structure, and PPI source coverage.
+
+The project SAN also has a 250,000-file quota. Extracting the combined cache's
+hundreds of thousands of per-protein arrays into a conventional persistent
+state would exceed that quota.
+
+### Compatibility change
+
+- Remove the final Python runtime `git` subprocess. The host HPC wrapper passes
+  the commits it already resolved and verified into the completion metadata.
+- Preserve the authenticated combined archive as an immutable baseline and
+  store only newly recovered arrays in one retry delta.
+- Extend the resumable state manager through opt-in baseline arguments; CAFA3
+  flat-cache behavior remains unchanged.
+- Bind the contemporary state to the exact nine CSV hashes, protein sequence
+  hashes, benchmark/reuse-plan manifests, environment, commits, scripts,
+  runtime values, baseline archive, and assembly report.
+- Add archive indexing, archive-member verification, scratch materialization,
+  hydration, one-modality retry selection, control equivalence, and atomic
+  delta merging.
+- Scale Zijian's published CAFA3 coverage proportions to the contemporary
+  target count instead of reusing CAFA3's smaller absolute counts.
+
+### Scientific behavior
+
+Models, weights, text cutoff, pooling, PPI source, IF1 extraction, benchmark
+membership, and PFP missing-modality behavior are unchanged. The changes affect
+completion reporting, persistent representation, validation, and retry scope.
+
+### Validation
+
+- All 24 focused embedding tests pass, including baseline archive verification,
+  archive-plus-delta coverage, control materialization, retry merge, hydration,
+  contemporary workspace selection, and no-runtime-git behavior.
+- Python compilation, shell syntax checks, and `git diff --check` pass.
+- The preserved SAN archive and all nine benchmark CSVs/five pickles pass
+  SHA-256 verification.
+- The state initializer must complete on the cluster before retry jobs are
+  submitted.
+
 ## 2026-07-16 - `[compat]` Preserve partial embedding work and retry by modality
 
 ### Observed failure

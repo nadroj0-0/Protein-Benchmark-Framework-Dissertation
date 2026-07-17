@@ -118,6 +118,56 @@ transfer method for every protein and modality. The compact reuse-plan
 completion, output, run, and summary manifests are copied beside the assembly
 reports, while the acquisition table records their hashes and original paths.
 
+The completion marker no longer invokes `git` from the Python runtime. The HPC
+wrapper already resolves and verifies both commits before entering the workflow;
+it passes those values as environment metadata to the final JSON writer. A
+missing `git` executable inside the MMFP container therefore cannot invalidate
+an otherwise complete embedding run.
+
+## Archive-backed contemporary retries
+
+The successful 2025_01 to 2026_02 supervisor-profile cache contains hundreds
+of thousands of `.npy` files. Extracting all of them on SAN would exceed the
+project store's file quota. The contemporary retry path therefore treats the
+authenticated `contemporary_embedding_cache.tar.gz` as an immutable baseline
+and stores only newly recovered arrays under `retry_state/cache/`. Together the
+archive and retry delta form one logical cache.
+
+`initialize_contemporary_embedding_state.sh` binds this state to:
+
+- all nine contemporary CSV hashes;
+- every target protein and sequence SHA-256 from the exact reuse plan;
+- the benchmark build and reuse-plan manifests;
+- PFP/framework commits, environment report, compatibility scripts and runtime
+  policy;
+- the baseline archive and its complete assembly report.
+
+It verifies that the assembly report covers every target/modality pair and that
+the archive contains exactly the arrays reported as available. It indexes the
+archive without extracting it persistently. Contract drift is rejected.
+
+The gate in `configs/contemporary_embedding_resume.json` scales Zijian's
+published CAFA3 coverage proportions to the contemporary target count. For the
+current 156,421 proteins this means:
+
+```text
+ProtT5      ceil(156,421 * 69,811 / 69,811) = 156,421
+text        ceil(156,421 * 69,517 / 69,811) = 155,763
+ESM-IF1     ceil(156,421 * 67,948 / 69,811) = 152,247
+PPI         ceil(156,421 * 58,294 / 69,811) = 130,616
+```
+
+These are scaled coverage floors, not the raw CAFA3 counts. Retaining the raw
+counts would make the larger contemporary benchmark pass with much poorer
+relative coverage.
+
+`run_contemporary_embedding_retry.sh` selects only currently missing pairs for
+one modality. Twenty accepted controls are materialized temporarily from the
+baseline archive or retry delta and regenerated with the requested subset. At
+least five must match within `rtol=1e-5`, `atol=1e-6` before valid outputs are
+atomically merged. Failures remain in the retry ledger regardless of reason.
+The wrappers never edit PFP and always remove job-owned scratch.
+
 ## Lightweight validation
 
 No network, model, or full-data access is needed for the focused contract
@@ -126,8 +176,12 @@ tests:
 ```bash
 python -m unittest discover -s scripts/embeddings/tests -v
 bash -n scripts/embeddings/run_contemporary_embedding_generation.sh
+bash -n scripts/embeddings/initialize_contemporary_embedding_state.sh
+bash -n scripts/embeddings/run_contemporary_embedding_retry.sh
 bash -n scripts/embeddings/generate_embeddings_structure.sh
 bash -n hpc_jobs/active/hpc_contemporary_embedding_generation.sh
+bash -n hpc_jobs/active/hpc_contemporary_embedding_state_initialize.sh
+bash -n hpc_jobs/active/hpc_contemporary_embedding_retry.sh
 ```
 
 The HPC wrapper performs the real bounded preflight before the full run. It

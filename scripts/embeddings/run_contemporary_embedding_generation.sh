@@ -365,23 +365,21 @@ tar -czf "$OUTPUT_DIR/archives/contemporary_embedding_cache.tar.gz" \
   done
 } > "$OUTPUT_DIR/reports/archive_manifest.tsv"
 
-"$PYTHON_BIN" - "$OUTPUT_DIR" "$PFP_ROOT" "$FRAMEWORK_ROOT" "$TEXT_CUTOFF_DATE" <<'PY'
+"$PYTHON_BIN" - "$OUTPUT_DIR" "$TEXT_CUTOFF_DATE" <<'PY'
 import json
-import subprocess
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 output = Path(sys.argv[1])
-pfp = Path(sys.argv[2])
-framework = Path(sys.argv[3])
 payload = {
     "complete": True,
     "schema_version": 1,
     "completed_at": datetime.now(timezone.utc).isoformat(),
-    "text_cutoff_date": sys.argv[4],
-    "pfp_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=pfp, text=True).strip(),
-    "framework_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=framework, text=True).strip(),
+    "text_cutoff_date": sys.argv[2],
+    "pfp_commit": os.environ.get("PFP_COMMIT", "unknown"),
+    "framework_commit": os.environ.get("FRAMEWORK_COMMIT", "unknown"),
     "final_cache_archive": "archives/contemporary_embedding_cache.tar.gz",
     "assembly_summary": "reports/assembly/assembly_summary.json",
 }

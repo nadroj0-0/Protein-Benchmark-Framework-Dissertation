@@ -4,6 +4,7 @@ import csv
 import hashlib
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -148,6 +149,62 @@ class WorkspaceTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "Unsafe protein ID"):
                 module.load_regeneration_rows(plan)
+
+    def test_retry_workspace_selects_requested_and_control_from_both_actions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            plan = root / "plan"
+            benchmark = root / "benchmark"
+            data = root / "data"
+            write_plan(
+                plan,
+                benchmark,
+                [action_row("CONTROL", "AAAA", "reuse", "bp-training.csv")],
+                [action_row("REQUEST", "BBBB", "regenerate", "mf-test.csv")],
+            )
+            requested = root / "requested.tsv"
+            controls = root / "controls.tsv"
+            for path, protein_id in ((requested, "REQUEST"), (controls, "CONTROL")):
+                with path.open("w", encoding="utf-8", newline="") as handle:
+                    writer = csv.writer(handle, delimiter="\t")
+                    writer.writerow(["protein_id", "modality"])
+                    writer.writerow([protein_id, "structure"])
+            report = root / "report.json"
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT_DIR / "prepare_contemporary_retry_workspace.py"),
+                    "--plan-dir",
+                    str(plan),
+                    "--target-benchmark-dir",
+                    str(benchmark),
+                    "--data-dir",
+                    str(data),
+                    "--requested-pairs",
+                    str(requested),
+                    "--control-pairs",
+                    str(controls),
+                    "--modality",
+                    "structure",
+                    "--report",
+                    str(report),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            payload = json.loads(report.read_text(encoding="utf-8"))
+            self.assertEqual(payload["requested_count"], 1)
+            self.assertEqual(payload["control_count"], 1)
+            self.assertEqual(payload["protein_count"], 2)
+            self.assertEqual(
+                set(json.loads((data / "BPO_train_sequences.json").read_text())),
+                {"CONTROL"},
+            )
+            self.assertEqual(
+                set(json.loads((data / "MFO_test_sequences.json").read_text())),
+                {"REQUEST"},
+            )
 
 
 class TextReductionTests(unittest.TestCase):
@@ -309,6 +366,22 @@ class AssemblyTests(unittest.TestCase):
             self.write_array(generated, "prott5", "EXTRA", 1024, 1.0)
             with self.assertRaisesRegex(ValueError, "outside the regenerate partition"):
                 module.validate_generated_scope(generated, {"EXPECTED"})
+
+
+class WorkflowScriptTests(unittest.TestCase):
+    def test_completion_marker_does_not_invoke_git_inside_python_runtime(self) -> None:
+        workflow = (SCRIPT_DIR / "run_contemporary_embedding_generation.sh").read_text(
+            encoding="utf-8"
+        )
+        wrapper = (
+            SCRIPT_DIR.parents[1]
+            / "hpc_jobs/active/hpc_contemporary_embedding_generation.sh"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("subprocess.check_output", workflow)
+        self.assertNotIn("import subprocess", workflow)
+        self.assertIn('os.environ.get("PFP_COMMIT", "unknown")', workflow)
+        self.assertIn('PFP_COMMIT="$PFP_COMMIT"', wrapper)
+        self.assertIn('FRAMEWORK_COMMIT="$FRAMEWORK_COMMIT"', wrapper)
 
 
 if __name__ == "__main__":

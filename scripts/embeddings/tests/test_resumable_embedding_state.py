@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import csv
+import gzip
+import hashlib
 import json
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -76,12 +79,18 @@ class ResumableEmbeddingStateTest(unittest.TestCase):
         self.temporary.cleanup()
 
     def run_state(self, *arguments: str, check: bool = True) -> subprocess.CompletedProcess:
-        return subprocess.run(
+        result = subprocess.run(
             [sys.executable, str(STATE_SCRIPT), *arguments],
-            check=check,
+            check=False,
             capture_output=True,
             text=True,
         )
+        if check and result.returncode != 0:
+            self.fail(
+                f"State command failed ({result.returncode}):\n"
+                f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+            )
+        return result
 
     def initialize(self, benchmark_id: str = "fixture") -> None:
         self.run_state(
@@ -177,6 +186,8 @@ class ResumableEmbeddingStateTest(unittest.TestCase):
 
     def test_contract_drift_is_rejected(self) -> None:
         self.initialize()
+        contract = json.loads((self.state / "contract.json").read_text(encoding="utf-8"))
+        self.assertNotIn("baseline", contract)
         result = self.run_state(
             "initialize",
             "--state-root",
@@ -224,6 +235,128 @@ class ResumableEmbeddingStateTest(unittest.TestCase):
         self.assertFalse((self.state / "cache/prott5/P1.npy").exists())
         ledger = (self.state / "failure_ledger.tsv").read_text(encoding="utf-8")
         self.assertIn("invalid_generated_array", ledger)
+
+    def test_archive_baseline_and_delta_share_one_logical_state(self) -> None:
+        reuse_table = self.root / "reuse.tsv"
+        regenerate_table = self.root / "regenerate.tsv"
+        with reuse_table.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle, delimiter="\t")
+            writer.writerow(["protein_id", "sequence", "sequence_sha256"])
+            writer.writerow(["P1", "ACDE", hashlib.sha256(b"ACDE").hexdigest()])
+        with regenerate_table.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle, delimiter="\t")
+            writer.writerow(["protein_id", "sequence", "sequence_sha256"])
+            writer.writerow(["P2", "FGHI", hashlib.sha256(b"FGHI").hexdigest()])
+            writer.writerow(["P3", "KLMN", hashlib.sha256(b"KLMN").hexdigest()])
+
+        package = self.root / "package/data/embedding_cache"
+        specifications = {
+            "prott5": ("prott5", "sequence", 4),
+            "text": ("exp_text_embeddings_temporal", "text", 3),
+            "structure": ("IF1", "structure", 2),
+            "ppi": ("ppi", "ppi", 2),
+        }
+        for directory, _, dimension in specifications.values():
+            self.save(package, directory, "P1", dimension, 1)
+        self.save(package, "prott5", "P2", 4, 2)
+
+        report = self.root / "embedding_assembly.tsv.gz"
+        with gzip.open(report, "wt", encoding="utf-8", newline="") as handle:
+            fields = ["protein_id", "modality", "status", "dimension"]
+            writer = csv.DictWriter(handle, fieldnames=fields, delimiter="\t")
+            writer.writeheader()
+            for protein_id in ("P1", "P2", "P3"):
+                for report_modality, (_, _, dimension) in specifications.items():
+                    available = protein_id == "P1" or (
+                        protein_id == "P2" and report_modality == "prott5"
+                    )
+                    writer.writerow(
+                        {
+                            "protein_id": protein_id,
+                            "modality": report_modality,
+                            "status": "available" if available else "missing",
+                            "dimension": dimension,
+                        }
+                    )
+        archive = self.root / "baseline.tar.gz"
+        with tarfile.open(archive, "w:gz") as handle:
+            handle.add(self.root / "package/data", arcname="data")
+
+        result = self.run_state(
+            "initialize",
+            "--state-root",
+            str(self.state),
+            "--benchmark-id",
+            "archive-fixture",
+            "--benchmark-dir",
+            str(self.benchmark),
+            "--target-table",
+            str(reuse_table),
+            "--target-table",
+            str(regenerate_table),
+            "--policy",
+            str(self.policy),
+            "--pfp-commit",
+            "1" * 40,
+            "--framework-commit",
+            "2" * 40,
+            "--baseline-archive",
+            str(archive),
+            "--baseline-assembly-report",
+            str(report),
+        )
+        summary = json.loads(result.stdout)
+        self.assertEqual(summary["coverage"]["sequence"]["accepted"], 2)
+        self.assertEqual(summary["coverage"]["text"]["accepted"], 1)
+        self.assertEqual(
+            len(list((self.state / "cache/prott5").glob("*.npy"))), 0
+        )
+
+        controls = self.root / "archive-controls.tsv"
+        self.write_pairs(controls, [("P1", "sequence")])
+        materialized = self.root / "materialized"
+        self.run_state(
+            "materialize",
+            "--state-root",
+            str(self.state),
+            "--pairs",
+            str(controls),
+            "--output-cache-root",
+            str(materialized),
+        )
+        np.testing.assert_array_equal(
+            np.load(materialized / "prott5/P1.npy"),
+            np.full(4, 1, dtype=np.float32),
+        )
+
+        retry = self.root / "archive-retry.tsv"
+        self.write_pairs(retry, [("P3", "sequence")])
+        generated = self.root / "archive-generated"
+        self.save(generated, "prott5", "P3", 4, 3)
+        self.run_state(
+            "merge",
+            "--state-root",
+            str(self.state),
+            "--generated-cache-root",
+            str(generated),
+            "--attempt-id",
+            "archive-attempt",
+            "--requested-pairs",
+            str(retry),
+        )
+        self.assertTrue((self.state / "cache/prott5/P3.npy").is_file())
+
+        hydrated = self.root / "hydrated"
+        self.run_state(
+            "hydrate",
+            "--state-root",
+            str(self.state),
+            "--output-cache-root",
+            str(hydrated),
+        )
+        self.assertTrue((hydrated / "prott5/P1.npy").is_file())
+        self.assertTrue((hydrated / "prott5/P2.npy").is_file())
+        self.assertTrue((hydrated / "prott5/P3.npy").is_file())
 
     def test_retry_workspace_and_equivalence_use_only_selected_ids(self) -> None:
         self.initialize()

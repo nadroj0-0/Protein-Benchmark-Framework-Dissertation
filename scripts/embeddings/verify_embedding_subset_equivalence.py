@@ -14,6 +14,7 @@ import numpy as np
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state-root", type=Path, required=True)
+    parser.add_argument("--reference-cache-root", type=Path)
     parser.add_argument("--generated-cache-root", type=Path, required=True)
     parser.add_argument("--control-pairs", type=Path, required=True)
     parser.add_argument("--modality", required=True)
@@ -29,6 +30,7 @@ def main() -> int:
         raise SystemExit(f"Unknown modality: {args.modality}")
     directory = specification["cache_directory"]
     dimension = int(specification["dimension"])
+    reference_root = args.reference_cache_root or (args.state_root / "cache")
     rows = []
     with args.control_pairs.open(encoding="utf-8", newline="") as handle:
         controls = list(csv.DictReader(handle, delimiter="\t"))
@@ -41,7 +43,7 @@ def main() -> int:
     equivalent = 0
     for control in controls:
         protein_id = control["protein_id"]
-        reference_path = args.state_root / "cache" / directory / f"{protein_id}.npy"
+        reference_path = reference_root / directory / f"{protein_id}.npy"
         generated_path = args.generated_cache_root / directory / f"{protein_id}.npy"
         status = "equivalent"
         detail = ""

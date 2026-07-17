@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "description": "Contemporary acceptance thresholds scaled from Zijian's published CAFA3 embedding coverage",
+  "reference": {
+    "benchmark": "Zijian canonical CAFA3 cache",
+    "target_count": 69811,
+    "sequence_accepted": 69811,
+    "text_accepted": 69517,
+    "structure_accepted": 67948,
+    "ppi_accepted": 58294
+  },
+  "modalities": {
+    "sequence": {
+      "cache_directory": "prott5",
+      "dimension": 1024,
+      "min_accepted_fraction": 1.0,
+      "model": "Rostlab/prot_t5_xl_half_uniref50-enc"
+    },
+    "text": {
+      "cache_directory": "exp_text_embeddings_temporal",
+      "dimension": 768,
+      "min_accepted_fraction": 0.9957886292991076,
+      "model": "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext",
+      "pooling": "CLS token selected as array[0,0,:]"
+    },
+    "structure": {
+      "cache_directory": "IF1",
+      "dimension": 512,
+      "min_accepted_fraction": 0.9733136611708757,
+      "model": "esm_if1_gvp4_t16_142M_UR50",
+      "pooling": "mean"
+    },
+    "ppi": {
+      "cache_directory": "ppi",
+      "dimension": 512,
+      "min_accepted_fraction": 0.8350259987681025,
+      "source": "STRING protein network embeddings v12.0"
+    }
+  }
+}
