@@ -7,6 +7,7 @@ import http.server
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tarfile
 import tempfile
 import threading
@@ -31,10 +32,17 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
 
 class SanAcquisitionTest(unittest.TestCase):
     def run_script(
-        self, root: Path, spec: Path, *arguments: str, check: bool = True
+        self,
+        root: Path,
+        spec: Path,
+        *arguments: str,
+        check: bool = True,
+        environment_overrides: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
         environment["SAN_INPUT_SPEC"] = str(spec)
+        if environment_overrides:
+            environment.update(environment_overrides)
         return subprocess.run(
             ["bash", str(SCRIPT), "--root", str(root), "--reserve-gb", "0", *arguments],
             cwd=REPOSITORY,
@@ -199,8 +207,29 @@ class SanAcquisitionTest(unittest.TestCase):
                 ]
                 spec.write_text("\n".join(rows) + "\n", encoding="ascii")
                 root = workspace / "store"
+                python_wrapper = workspace / "python-with-bind-check.sh"
+                python_wrapper.write_text(
+                    "#!/bin/sh\n"
+                    "case \"${SINGULARITY_BINDPATH:-}\" in\n"
+                    "  *\"${EXPECTED_BIND}\"*) ;;\n"
+                    "  *) echo \"missing expected bind: ${EXPECTED_BIND}\" >&2; exit 97 ;;\n"
+                    "esac\n"
+                    f'exec "{sys.executable}" "$@"\n',
+                    encoding="ascii",
+                )
+                python_wrapper.chmod(0o755)
+                run_environment = {
+                    "PYTHON_BIN": str(python_wrapper),
+                    "EXPECTED_BIND": f"{root.resolve()}:{root.resolve()}",
+                }
 
-                first = self.run_script(root, spec, "--profile", "temporal")
+                first = self.run_script(
+                    root,
+                    spec,
+                    "--profile",
+                    "temporal",
+                    environment_overrides=run_environment,
+                )
                 self.assertIn("derived:    2 created, 0 skipped", first.stdout)
                 derived_paths = [
                     root
@@ -226,12 +255,24 @@ class SanAcquisitionTest(unittest.TestCase):
 
                 server.shutdown()
                 thread.join(timeout=5)
-                second = self.run_script(root, spec, "--profile", "temporal")
+                second = self.run_script(
+                    root,
+                    spec,
+                    "--profile",
+                    "temporal",
+                    environment_overrides=run_environment,
+                )
                 self.assertIn("downloaded: 0", second.stdout)
                 self.assertIn("derived:    0 created, 2 skipped", second.stdout)
 
                 derived_paths[1].unlink()
-                rebuilt = self.run_script(root, spec, "--profile", "temporal")
+                rebuilt = self.run_script(
+                    root,
+                    spec,
+                    "--profile",
+                    "temporal",
+                    environment_overrides=run_environment,
+                )
                 self.assertIn("derived:    1 created, 1 skipped", rebuilt.stdout)
                 with gzip.open(derived_paths[1], "rb") as handle:
                     self.assertEqual(handle.read(), target_record)

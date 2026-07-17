@@ -13,6 +13,8 @@ SPEC_FILE="${SAN_INPUT_SPEC:-${SCRIPT_DIR}/san_frozen_inputs.tsv}"
 FILTER_DAT="$FRAMEWORK_ROOT/scripts/benchmark_generation/filter_uniprot_dat.py"
 EXTRACT_MEMBER="$FRAMEWORK_ROOT/scripts/benchmark_generation/extract_tar_member.py"
 TARGET_TAXA="$FRAMEWORK_ROOT/benchmark_builders/contemporary_cafa/src/cafa_benchmark_builder/resources/cafa3_target_taxa.txt"
+# shellcheck source=../reproduction_common.sh
+source "$FRAMEWORK_ROOT/scripts/reproduction_common.sh"
 DEFAULT_ROOT="/SAN/bioinf/bmpfp"
 ROOT="$DEFAULT_ROOT"
 RESERVE_GB=40
@@ -538,6 +540,7 @@ build_or_verify_derived_trembl() {
         die "Selected derived artifact is missing or incomplete: $destination"
     fi
 
+    add_mmfp_singularity_bind "$ROOT"
     resolve_python_bin
     command -v gzip >/dev/null 2>&1 || die "gzip is required to derive filtered TrEMBL caches"
     [[ -f "$FILTER_DAT" ]] || die "UniProt DAT filter is missing: $FILTER_DAT"
