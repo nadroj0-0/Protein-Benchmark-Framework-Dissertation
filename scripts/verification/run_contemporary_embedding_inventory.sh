@@ -6,6 +6,8 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 FRAMEWORK_ROOT="$(cd "${HERE}/../.." && pwd)"
+# shellcheck disable=SC1091
+source "$FRAMEWORK_ROOT/scripts/artifact_catalog.sh"
 
 REQUIRED_CSVS=(
   bp-training.csv bp-validation.csv bp-test.csv
@@ -53,9 +55,9 @@ Required run paths:
 
 Optional inputs:
   --source-benchmark-dir PATH   Canonical CAFA3 source CSVs represented by the
-                                published cache. Default: download Zenodo 7409660.
+                                published cache. Default: catalogue, then Zenodo 7409660.
   --embedding-archive-dir PATH  Directory containing Zijian's three published
-                                embedding tarballs. Default: download them from
+                                embedding tarballs. Default: catalogue, then
                                 Zenodo 19498341 into the work directory.
   --pfp-reference-dir PATH      Local PFP Git clone containing the pinned
                                 reference commit. Default: clone psipred/PFP.
@@ -64,6 +66,7 @@ Optional inputs:
   --policy NAME                 paper-faithful or maximize-coverage.
   --report-level NAME           compact or full (default: compact).
   --python-bin PATH             Python executable (default: PYTHON_BIN or python3).
+  --artifact-catalog PATH       Existing-artifact path map; explicit directories win.
   -h, --help                    Show this help.
 
 This workflow inventories and plans only. It does not generate embeddings.
@@ -73,6 +76,10 @@ EOF
 die() {
   echo "ERROR: $*" >&2
   exit 2
+}
+
+warn() {
+  echo "WARNING: $*" >&2
 }
 
 is_required_csv() {
@@ -209,6 +216,12 @@ while [[ $# -gt 0 ]]; do
       PYTHON_BIN="$2"
       shift 2
       ;;
+    --artifact-catalog)
+      [[ $# -ge 2 ]] || die "--artifact-catalog requires a path"
+      ARTIFACT_CATALOG="$2"
+      export ARTIFACT_CATALOG
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -218,6 +231,7 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 
 [[ -n "$WORK_DIR" ]] || die "--work-dir is required"
 [[ -n "$OUTPUT_DIR" ]] || die "--output-dir is required"
@@ -287,9 +301,7 @@ for name in "${REQUIRED_CSVS[@]}"; do
 done
 
 echo "==> [2/7] Stage and authenticate the canonical cache-source benchmark"
-if [[ -n "$SOURCE_BENCHMARK_DIR" ]]; then
-  [[ -d "$SOURCE_BENCHMARK_DIR" ]] || \
-    die "Source benchmark directory does not exist: $SOURCE_BENCHMARK_DIR"
+if [[ -n "$SOURCE_BENCHMARK_DIR" && -d "$SOURCE_BENCHMARK_DIR" ]]; then
   for name in "${REQUIRED_CSVS[@]}"; do
     [[ -f "${SOURCE_BENCHMARK_DIR}/${name}" ]] || \
       die "Source benchmark is missing: $name"
@@ -297,10 +309,18 @@ if [[ -n "$SOURCE_BENCHMARK_DIR" ]]; then
   done
   SOURCE_ORIGIN="$SOURCE_BENCHMARK_DIR"
 else
+  if [[ -n "$SOURCE_BENCHMARK_DIR" ]]; then
+    warn "Source benchmark directory does not exist; falling back to the artifact catalogue or Zenodo: $SOURCE_BENCHMARK_DIR"
+  fi
   for name in "${REQUIRED_CSVS[@]}"; do
-    download_file "${CAFA3_BASE_URL}/${name}?download=1" "${SOURCE_STAGE}/${name}"
+    source_path="$(resolve_artifact_path "$(canonical_cafa3_artifact_id "$name")" "" || true)"
+    if [[ -n "$source_path" ]]; then
+      cp -p "$source_path" "${SOURCE_STAGE}/${name}"
+    else
+      download_file "${CAFA3_BASE_URL}/${name}?download=1" "${SOURCE_STAGE}/${name}"
+    fi
   done
-  SOURCE_ORIGIN="$CAFA3_BASE_URL"
+  SOURCE_ORIGIN="${ARTIFACT_CATALOG:-$CAFA3_BASE_URL}"
 fi
 
 # Accept either pristine Zenodo MF headers (protein) or the sole normalization
@@ -402,8 +422,11 @@ archive_sha256() {
 for name in "${ARCHIVE_NAMES[@]}"; do
   destination="${ARCHIVE_STAGE}/${name}"
   if [[ -n "$EMBEDDING_ARCHIVE_DIR" ]]; then
-    source_path="${EMBEDDING_ARCHIVE_DIR}/${name}"
-    [[ -f "$source_path" ]] || die "Embedding archive does not exist: $source_path"
+    source_path="$(resolve_artifact_path "$(zijian_embedding_artifact_id "$name")" "${EMBEDDING_ARCHIVE_DIR}/${name}" || true)"
+  else
+    source_path="$(resolve_artifact_path "$(zijian_embedding_artifact_id "$name")" "" || true)"
+  fi
+  if [[ -n "$source_path" ]]; then
     cp -p "$source_path" "$destination"
     source_description="$source_path"
   else

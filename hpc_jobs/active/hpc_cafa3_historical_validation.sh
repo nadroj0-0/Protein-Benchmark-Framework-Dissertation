@@ -13,6 +13,16 @@
 
 set -euo pipefail
 
+CLI_ARTIFACT_CATALOG="${ARTIFACT_CATALOG:-}"
+CLI_OFFICIAL_CAFA3_ARCHIVE=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --artifact-catalog) CLI_ARTIFACT_CATALOG="$2"; shift 2 ;;
+        --official-cafa3-archive) CLI_OFFICIAL_CAFA3_ARCHIVE="$2"; shift 2 ;;
+        *) echo "Unknown argument: $1" >&2; exit 2 ;;
+    esac
+done
+
 HISTORICAL_TEST_SOURCE="${HISTORICAL_TEST_SOURCE:-official-groundtruth}"
 if [ -z "${HISTORICAL_BENCHMARK_ONTOLOGY:-}" ]; then
     if [ "$HISTORICAL_TEST_SOURCE" = "official-groundtruth" ]; then
@@ -61,6 +71,7 @@ git clone "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"
 cd "$FRAMEWORK_DIR"
 
 source scripts/reproduction_common.sh
+export ARTIFACT_CATALOG="$CLI_ARTIFACT_CATALOG"
 load_framework_paths "$FRAMEWORK_DIR"
 activate_or_create_mmfp_env
 export PYTHON_BIN="$(command -v python)"
@@ -85,7 +96,10 @@ export HISTORICAL_T1_ENDPOINT_POLICY="${HISTORICAL_T1_ENDPOINT_POLICY:-assigned-
 export HISTORICAL_BACKFILL_POLICY="${HISTORICAL_BACKFILL_POLICY:-exclude-pre-t0}"
 export HISTORICAL_BENCHMARK_ONTOLOGY
 
-bash scripts/validation/run_cafa3_historical_validation.sh
+command=(bash scripts/validation/run_cafa3_historical_validation.sh)
+[[ -z "${ARTIFACT_CATALOG:-}" ]] || command+=(--artifact-catalog "$ARTIFACT_CATALOG")
+[[ -z "$CLI_OFFICIAL_CAFA3_ARCHIVE" ]] || command+=(--official-cafa3-archive "$CLI_OFFICIAL_CAFA3_ARCHIVE")
+"${command[@]}"
 STATUS=$?
 
 echo

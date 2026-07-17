@@ -73,6 +73,10 @@ a scheduled cluster job rather than as a long process on the login node.
 - Every downloaded file receives a SHA-256 sidecar and provenance TSV.
 - `/SAN/bioinf/bmpfp/manifests/frozen_input_catalog.tsv` is rebuilt
   deterministically from the per-file provenance records.
+- `/SAN/bioinf/bmpfp/manifests/artifact_paths.tsv` is rebuilt atomically from
+  every currently present row in `san_frozen_inputs.tsv` that has acquisition
+  provenance and SHA-256 sidecars. This compact
+  `artifact_id<TAB>absolute_path` map is the portable runtime lookup file.
 - Mutable UniProt endpoints are checked before and after transfer. GOA 234 is
   downloaded from EBI's immutable historical release URL and verified using
   its pinned size, SHA-256 and embedded GAF release metadata. A later GOA
@@ -85,6 +89,27 @@ a scheduled cluster job rather than as a long process on the login node.
 The script refuses to trust an already-present, unpinned file unless it has the
 SHA-256 sidecar produced by an earlier successful acquisition. This prevents a
 partially copied or manually substituted file from being silently adopted.
+
+### Using the files without SAN coupling
+
+`frozen_input_catalog.tsv` is the provenance inventory. `artifact_paths.tsv` is
+the machine-local runtime lookup. They deliberately have different jobs.
+
+Current workflows resolve each static input in this order: a valid explicit
+path, its entry in `ARTIFACT_CATALOG`, then the original download URL. Point a
+cluster job at this store with:
+
+```bash
+--artifact-catalog /SAN/bioinf/bmpfp/manifests/artifact_paths.tsv
+```
+
+Shell entry points that do not expose that CLI flag accept the same path via
+the `ARTIFACT_CATALOG` environment variable. On a different machine, create an
+equivalent two-column TSV with absolute paths, or copy
+`configs/artifact_paths.example.tsv` to the ignored
+`configs/artifact_paths.local.tsv`. No `/SAN` path is required by the resolver.
+Missing or empty explicit/catalogue paths produce a warning and leave the
+workflow's download fallback enabled.
 
 ### Deliberate exclusions
 

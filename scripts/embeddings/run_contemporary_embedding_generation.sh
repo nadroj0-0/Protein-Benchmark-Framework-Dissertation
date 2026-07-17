@@ -19,6 +19,7 @@ PFP_ROOT=""
 WORK_DIR=""
 OUTPUT_DIR=""
 TEXT_CUTOFF_DATE=""
+PUBLISHED_EMBEDDING_ARCHIVE_DIR=""
 
 usage() {
   cat <<'EOF'
@@ -28,7 +29,8 @@ Usage: run_contemporary_embedding_generation.sh \
   --pfp-root PATH \
   --work-dir PATH \
   --output-dir PATH \
-  --text-cutoff-date YYYY-MM-DD
+  --text-cutoff-date YYYY-MM-DD \
+  [--published-embedding-archive-dir PATH] [--artifact-catalog PATH]
 
 The PFP checkout must be a disposable, pinned scratch clone. The workflow
 never edits tracked upstream PFP source; its one UniProt-only PPI compatibility
@@ -50,6 +52,8 @@ while [[ $# -gt 0 ]]; do
     --work-dir) WORK_DIR="$2"; shift 2 ;;
     --output-dir) OUTPUT_DIR="$2"; shift 2 ;;
     --text-cutoff-date) TEXT_CUTOFF_DATE="$2"; shift 2 ;;
+    --published-embedding-archive-dir) PUBLISHED_EMBEDDING_ARCHIVE_DIR="$2"; shift 2 ;;
+    --artifact-catalog) ARTIFACT_CATALOG="$2"; export ARTIFACT_CATALOG; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
   esac
@@ -65,6 +69,7 @@ done
 [[ ! -e "$WORK_DIR" ]] || die "Work directory already exists: $WORK_DIR"
 [[ ! -e "$OUTPUT_DIR" ]] || die "Output directory already exists: $OUTPUT_DIR"
 command -v "$PYTHON_BIN" >/dev/null 2>&1 || die "Python not found: $PYTHON_BIN"
+artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 
 mkdir -p "$WORK_DIR" "$OUTPUT_DIR/logs" "$OUTPUT_DIR/reports" "$OUTPUT_DIR/archives"
 WORK_DIR="$(cd "$WORK_DIR" && pwd)"
@@ -199,14 +204,24 @@ for name in \
   mmfp_embeddings_struct_ppi.tar.gz \
   mmfp_embeddings_text_temporal.tar.gz; do
   destination="$ARCHIVE_STAGE/$name"
-  download_file "$MMFP_BASE_URL/$name?download=1" "$destination"
+  explicit_archive=""
+  if [[ -n "$PUBLISHED_EMBEDDING_ARCHIVE_DIR" ]]; then
+    explicit_archive="$PUBLISHED_EMBEDDING_ARCHIVE_DIR/$name"
+  fi
+  archive_source="$(resolve_artifact_path "$(zijian_embedding_artifact_id "$name")" "$explicit_archive" || true)"
+  if [[ -n "$archive_source" ]]; then
+    echo "Staging published embedding archive: $archive_source"
+    cp -p "$archive_source" "$destination"
+  else
+    download_file "$MMFP_BASE_URL/$name?download=1" "$destination"
+  fi
   observed="$(sha256_file "$destination")"
   wanted="$(archive_sha256 "$name")"
   [[ "$observed" == "$wanted" ]] || die "Published archive checksum mismatch: $name"
   tar -tzf "$destination" >/dev/null
   tar -xzf "$destination" -C "$PUBLISHED_ROOT"
   printf 'published-embedding-archive\t%s\t%s\t%s\t%s\n' \
-    "$name" "$MMFP_BASE_URL/$name" "$destination" "$observed" >> "$ACQUISITION_LOG"
+    "$name" "${archive_source:-$MMFP_BASE_URL/$name}" "$destination" "$observed" >> "$ACQUISITION_LOG"
 done
 PUBLISHED_CACHE="$PUBLISHED_ROOT/data/embedding_cache"
 [[ "$(file_count "$PUBLISHED_CACHE/prott5")" == "69811" ]] || die "Published ProtT5 count mismatch"

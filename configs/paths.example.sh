@@ -4,6 +4,11 @@
 # Copy this file to configs/paths.local.sh and edit it for your machine.
 # Do not commit paths.local.sh; it is intentionally machine-specific.
 
+# Optional catalogue of already-downloaded large artifacts. Every workflow
+# still accepts its individual explicit path overrides. Resolution order is:
+# explicit path, catalogue entry, then the workflow's original download.
+# export ARTIFACT_CATALOG="/SAN/bioinf/bmpfp/manifests/artifact_paths.tsv"
+
 # Local/reference PFP checkout. On Jordan's Mac this may currently resolve via
 # ~/PFP, which is a compatibility symlink into the supplementary archive.
 export PFP_DIR="${PFP_DIR:-$HOME/PFP}"

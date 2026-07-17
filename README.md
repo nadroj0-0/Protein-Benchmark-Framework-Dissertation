@@ -25,6 +25,7 @@ contracts before expensive training is launched.
 ├── benchmark_reuse_planner/                # Exact CSV-to-CSV reuse/regenerate partition
 ├── embedding_inventory/                    # CSV-native embedding inventory/reuse planner
 ├── scripts/
+│   ├── artifact_catalog.sh                # Portable existing-artifact resolver
 │   ├── reproduction/                      # Main PFP reproduction entrypoints
 │   ├── embeddings/                        # Embedding wrappers and FASTA builder
 │   ├── verification/                      # Shell and Python verification gates
@@ -41,6 +42,7 @@ contracts before expensive training is launched.
 │   ├── embedding_inventory.cafa3_published.json
 │   ├── embedding_inventory.contemporary.json
 │   ├── embedding_inventory.homology.example.json
+│   ├── artifact_paths.example.tsv         # Example machine-local artifact map
 │   └── paths.example.sh                   # Example local/HPC path configuration
 ```
 
@@ -66,6 +68,36 @@ and accompanied by SHA-256/provenance sidecars. See
 [`scripts/data_acquisition/README.md`](scripts/data_acquisition/README.md) for
 profiles, storage estimates, verification modes, and the distinction from the
 legacy home-directory script.
+
+## Portable artifact catalogue
+
+Large frozen inputs are not hard-coded to SAN. Catalogue-aware workflows use
+this resolution order for each artifact they need:
+
+1. a valid explicit file/directory supplied to that workflow;
+2. the matching artifact ID in `ARTIFACT_CATALOG`;
+3. the workflow's original authenticated download fallback.
+
+`populate_san_frozen_inputs.sh` writes the runtime map to
+`/SAN/bioinf/bmpfp/manifests/artifact_paths.tsv`. Supply it explicitly to a
+current HPC wrapper, for example:
+
+```bash
+qsub hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh \
+  --artifact-catalog /SAN/bioinf/bmpfp/manifests/artifact_paths.tsv
+```
+
+For local use, copy `configs/artifact_paths.example.tsv` to the ignored file
+`configs/artifact_paths.local.tsv` and replace its paths. Alternatively export
+`ARTIFACT_CATALOG=/absolute/path/to/artifact_paths.tsv`. The catalogue is parsed
+as tab-separated data, never executed as shell code. It may contain every known
+artifact; a workflow reads only the IDs it needs. Moving the store therefore
+requires updating one machine-local catalogue rather than editing scripts.
+
+The catalogue covers static database snapshots, reference datasets, STRING
+inputs, published MMFP bundles and the pinned MMseqs2 archive. Repository
+clones, package/model installation, and dynamic UniProt/AlphaFold requests are
+runtime dependencies and retain their existing network paths.
 
 ## Embedding inventory and reuse planning
 
@@ -108,7 +140,8 @@ qsub -v BENCHMARK_DIR=/path/to/contemporary/run/outputs \
   hpc_jobs/active/hpc_contemporary_embedding_inventory.sh
 ```
 
-This downloads the published embedding archives only into scratch and returns
+This stages the published embedding archives from explicit/catalogue paths, or
+downloads them only into scratch as a fallback, and returns
 the two binary manifests, per-modality ID lists, and the ProtT5 generation
 FASTA. It does not generate embeddings. The scheduler-neutral implementation is
 `scripts/verification/run_contemporary_embedding_inventory.sh`; both a single

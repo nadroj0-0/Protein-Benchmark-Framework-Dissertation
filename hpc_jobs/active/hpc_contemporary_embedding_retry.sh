@@ -18,7 +18,7 @@ usage() {
 Usage: qsub hpc_jobs/active/hpc_contemporary_embedding_retry.sh \
   --modality sequence|text|structure|ppi \
   [--benchmark-dir PATH] [--baseline-root PATH] [--plan-dir PATH] \
-  [--state-root PATH] [--san-input-root PATH] [--results-root PATH]
+  [--state-root PATH] [--artifact-catalog PATH] [--results-root PATH]
 
 The wrapper retries only pending pairs for one modality, merges valid arrays
 into the one archive-backed SAN state, copies compact reports home, and always
@@ -33,7 +33,7 @@ BENCHMARK_DIR=/SAN/bioinf/bmpfp/benchmarks/contemporary/2025_01_to_2026_02_super
 BASELINE_ROOT=/SAN/bioinf/bmpfp/embeddings/contemporary/2025_01_to_2026_02_supervisor
 PLAN_DIR=""
 STATE_ROOT=""
-SAN_INPUT_ROOT=/SAN/bioinf/bmpfp
+CLI_ARTIFACT_CATALOG="${ARTIFACT_CATALOG:-}"
 CLI_RESULTS_ROOT=""
 TEXT_CUTOFF_DATE="2025-03-08"
 while [[ $# -gt 0 ]]; do
@@ -43,7 +43,7 @@ while [[ $# -gt 0 ]]; do
     --baseline-root) BASELINE_ROOT="$2"; shift 2 ;;
     --plan-dir) PLAN_DIR="$2"; shift 2 ;;
     --state-root) STATE_ROOT="$2"; shift 2 ;;
-    --san-input-root) SAN_INPUT_ROOT="$2"; shift 2 ;;
+    --artifact-catalog) CLI_ARTIFACT_CATALOG="$2"; shift 2 ;;
     --results-root) CLI_RESULTS_ROOT="$2"; shift 2 ;;
     --text-cutoff-date) TEXT_CUTOFF_DATE="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -158,6 +158,7 @@ git_in_dir "$PFP_DIR" checkout --detach "$PFP_COMMIT"
 
 cd "$FRAMEWORK_DIR"
 source scripts/reproduction_common.sh
+export ARTIFACT_CATALOG="$CLI_ARTIFACT_CATALOG"
 load_framework_paths "$FRAMEWORK_DIR"
 # Retry bookkeeping and the baseline archive live on persistent SAN. Expose
 # only the caller-selected directories to the immutable MMFP container.
@@ -165,8 +166,8 @@ add_mmfp_singularity_bind "$BENCHMARK_DIR"
 add_mmfp_singularity_bind "$BASELINE_ROOT"
 add_mmfp_singularity_bind "$PLAN_DIR"
 add_mmfp_singularity_bind "$(dirname "$STATE_ROOT")"
-if [[ -d "$SAN_INPUT_ROOT" ]]; then
-  add_mmfp_singularity_bind "$SAN_INPUT_ROOT"
+if [[ "$MODALITY" == "ppi" ]]; then
+  artifact_catalog_bind_parent string_embeddings "${STRING_H5_FILE:-}"
 fi
 activate_or_create_mmfp_env
 PYTHON_BIN="$(command -v python)"
@@ -182,10 +183,12 @@ command=(
   --modality "$MODALITY"
   --text-cutoff-date "$TEXT_CUTOFF_DATE"
 )
+if [[ -n "${ARTIFACT_CATALOG:-}" ]]; then
+  command+=(--artifact-catalog "$ARTIFACT_CATALOG")
+fi
 printf 'Command:'; printf ' %q' "${command[@]}"; printf '\n'
 set +e
 PYTHON_BIN="$PYTHON_BIN" FRAMEWORK_COMMIT="$FRAMEWORK_COMMIT" \
-  SAN_INPUT_ROOT="$SAN_INPUT_ROOT" \
   "${command[@]}" 2>&1 | tee "$WORKFLOW_LOG"
 WORKFLOW_STATUS=${PIPESTATUS[0]}
 set -e

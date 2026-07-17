@@ -29,7 +29,7 @@ Usage: run_cafa3_embedding_retry.sh \
   --embedding-state-root PATH \
   --modality sequence|text|structure|ppi \
   [--text-cutoff-date YYYY-MM-DD] \
-  [--embedding-policy PATH]
+  [--embedding-policy PATH] [--artifact-catalog PATH]
 
 Only missing pairs for the selected modality are generated. Twenty accepted
 control proteins are regenerated in the same subset and must be numerically
@@ -57,10 +57,12 @@ while [[ $# -gt 0 ]]; do
     --modality) MODALITY="$2"; shift 2 ;;
     --text-cutoff-date) TEXT_CUTOFF_DATE="$2"; shift 2 ;;
     --embedding-policy) EMBEDDING_POLICY="$2"; shift 2 ;;
+    --artifact-catalog) ARTIFACT_CATALOG="$2"; export ARTIFACT_CATALOG; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; die "Unknown argument: $1" ;;
   esac
 done
+artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 
 [[ -d "$PFP_ROOT/.git" ]] || die "PFP root is not a Git checkout: $PFP_ROOT"
 [[ -n "$WORK_DIR" ]] || die "--work-dir is required"

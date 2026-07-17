@@ -27,6 +27,18 @@ HISTORICAL_TEST_SOURCE="${HISTORICAL_TEST_SOURCE:-official-groundtruth}"
 HISTORICAL_T1_ENDPOINT_POLICY="${HISTORICAL_T1_ENDPOINT_POLICY:-assigned-date-proxy}"
 HISTORICAL_BACKFILL_POLICY="${HISTORICAL_BACKFILL_POLICY:-exclude-pre-t0}"
 HISTORICAL_BENCHMARK_ONTOLOGY="${HISTORICAL_BENCHMARK_ONTOLOGY:-}"
+OFFICIAL_CAFA3_ARCHIVE_INPUT="${OFFICIAL_CAFA3_ARCHIVE_INPUT:-}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --artifact-catalog) ARTIFACT_CATALOG="$2"; export ARTIFACT_CATALOG; shift 2 ;;
+    --official-cafa3-archive) OFFICIAL_CAFA3_ARCHIVE_INPUT="$2"; shift 2 ;;
+    *) echo "Unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+# shellcheck disable=SC1091
+source "$REPO_ROOT/scripts/artifact_catalog.sh"
+artifact_catalog_configure "$REPO_ROOT" "${ARTIFACT_CATALOG:-}"
 
 FILTER_DAT="${REPO_ROOT}/scripts/benchmark_generation/filter_uniprot_dat.py"
 EXTRACT_MEMBER="${REPO_ROOT}/scripts/benchmark_generation/extract_tar_member.py"
@@ -527,8 +539,9 @@ if [ "$HISTORICAL_TEST_SOURCE" = "raw-goa" ]; then
 fi
 DEEPGOPLUS_PICKLES_URL="${DEEPGOPLUS_PICKLES_URL:-$DEFAULT_DEEPGOPLUS_PICKLES_URL}"
 OFFICIAL_CAFA3_ARCHIVE="${REFERENCE}/deepgoplus_pickles_reference.tar.gz"
+OFFICIAL_CAFA3_ARCHIVE_INPUT="$(resolve_artifact_path deepgoplus_cafa "$OFFICIAL_CAFA3_ARCHIVE_INPUT" || true)"
 stage_override_or_download \
-  "${OFFICIAL_CAFA3_ARCHIVE_INPUT:-}" \
+  "$OFFICIAL_CAFA3_ARCHIVE_INPUT" \
   "$DEEPGOPLUS_PICKLES_URL" \
   "$OFFICIAL_CAFA3_ARCHIVE"
 
@@ -691,7 +704,12 @@ echo "==> [5/8] Download canonical CAFA3 reference CSV artefacts"
 REFERENCE_CSV_DIR="${REFERENCE}/cafa3_zenodo_7409660"
 mkdir -p "$REFERENCE_CSV_DIR"
 for csv_file in "${CSV_FILES[@]}"; do
-  download "${CAFA3_REFERENCE_CSV_BASE_URL}/${csv_file}?download=1" "${REFERENCE_CSV_DIR}/${csv_file}"
+  csv_source="$(resolve_artifact_path "$(canonical_cafa3_artifact_id "$csv_file")" "" || true)"
+  if [[ -n "$csv_source" ]]; then
+    cp -p "$csv_source" "${REFERENCE_CSV_DIR}/${csv_file}"
+  else
+    download "${CAFA3_REFERENCE_CSV_BASE_URL}/${csv_file}?download=1" "${REFERENCE_CSV_DIR}/${csv_file}"
+  fi
 done
 REFERENCE_CSV_DIR="$(locate_complete_set "$REFERENCE_CSV_DIR" "${CSV_FILES[@]}")" || {
   echo "Could not locate all 9 reference CSVs under ${REFERENCE}/cafa3_zenodo_7409660" >&2

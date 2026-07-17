@@ -6,6 +6,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRAMEWORK_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BUILDER_ROOT="$FRAMEWORK_ROOT/benchmark_builders/homology_cluster"
+# shellcheck source=../reproduction_common.sh
+source "$FRAMEWORK_ROOT/scripts/reproduction_common.sh"
+artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 IDENTITY="${IDENTITY:-30}"
@@ -46,6 +49,17 @@ ACTIVE_CHILD_PID=""
 SIGNAL_STATUS=0
 SIGNAL_WATCHDOG_PID=""
 SIGNAL_GRACE_SECONDS=10
+
+UNIREF90_FASTA="$(resolve_artifact_path uniref90_t1 "${UNIREF90_FASTA:-}" || true)"
+IDMAPPING="$(resolve_artifact_path idmapping_t1 "${IDMAPPING:-}" || true)"
+UNIPROT_SPROT_SEQUENCES="$(resolve_artifact_path uniprot_sprot_t1 "${UNIPROT_SPROT_SEQUENCES:-}" || true)"
+UNIPROT_TREMBL_SEQUENCES="$(resolve_artifact_path uniprot_trembl_t1 "${UNIPROT_TREMBL_SEQUENCES:-}" || true)"
+GOA="$(resolve_artifact_path goa_t1 "${GOA:-}" || true)"
+GO_OBO="$(resolve_artifact_path go_basic_t1 "${GO_OBO:-}" || true)"
+for catalog_input in "$UNIREF90_FASTA" "$IDMAPPING" "$UNIPROT_SPROT_SEQUENCES" \
+    "$UNIPROT_TREMBL_SEQUENCES" "$GOA" "$GO_OBO"; do
+    [[ -z "$catalog_input" ]] || add_mmfp_singularity_bind "$(dirname "$catalog_input")"
+done
 
 forward_signal() {
     local signal_name="$1"

@@ -15,11 +15,24 @@ LOGS="${RUN_DIR}/logs"
 REPORT_COPY_DIR="${REPORT_COPY_DIR:-${HOME}/cafa3_deepgoplus_pickle_generation_reports/${TIMESTAMP}}"
 KEEP_SCRATCH="${KEEP_SCRATCH:-0}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
+DEEPGOPLUS_ARCHIVE="${DEEPGOPLUS_ARCHIVE:-}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --artifact-catalog) ARTIFACT_CATALOG="$2"; export ARTIFACT_CATALOG; shift 2 ;;
+    --deepgoplus-archive) DEEPGOPLUS_ARCHIVE="$2"; shift 2 ;;
+    *) echo "Unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+# shellcheck disable=SC1091
+source "$REPO_ROOT/scripts/artifact_catalog.sh"
+artifact_catalog_configure "$REPO_ROOT" "${ARTIFACT_CATALOG:-}"
 
 DEFAULT_DEEPGOPLUS_CAFA_URLS=(
   "https://deepgo.cbrc.kaust.edu.sa/data/data-cafa.tar.gz"
   "https://deepgo.cbrc.kaust.edu.sa/data/deepgoplus-cafa.tar.gz"
 )
+CANDIDATE_URLS=()
 
 REQUIRED_RELATIVE_FILES=(
   "go.obo"
@@ -200,7 +213,15 @@ if [ -n "${DEEPGOPLUS_CAFA_DIR:-}" ] && [ -d "${DEEPGOPLUS_CAFA_DIR}" ]; then
   CAFA_ROOT="$(locate_cafa_root "${REFERENCE}/deepgoplus_cafa" || true)"
   CAFA_STATUS="copied from DEEPGOPLUS_CAFA_DIR=${DEEPGOPLUS_CAFA_DIR}"
 else
-  if [ -n "${DEEPGOPLUS_CAFA_URL:-}" ]; then
+  ARCHIVE_SOURCE="$(resolve_artifact_path deepgoplus_cafa "$DEEPGOPLUS_ARCHIVE" || true)"
+  if [[ -n "$ARCHIVE_SOURCE" ]]; then
+    mkdir -p "${REFERENCE}/deepgoplus_cafa/extracted"
+    ARCHIVE="${REFERENCE}/$(basename "$ARCHIVE_SOURCE")"
+    cp -p "$ARCHIVE_SOURCE" "$ARCHIVE"
+    extract_archive "$ARCHIVE" "${REFERENCE}/deepgoplus_cafa/extracted"
+    CAFA_ROOT="$(locate_cafa_root "${REFERENCE}/deepgoplus_cafa/extracted" || true)"
+    CAFA_STATUS="staged from ${ARCHIVE_SOURCE}"
+  elif [ -n "${DEEPGOPLUS_CAFA_URL:-}" ]; then
     CANDIDATE_URLS=("$DEEPGOPLUS_CAFA_URL")
   else
     CANDIDATE_URLS=("${DEFAULT_DEEPGOPLUS_CAFA_URLS[@]}")

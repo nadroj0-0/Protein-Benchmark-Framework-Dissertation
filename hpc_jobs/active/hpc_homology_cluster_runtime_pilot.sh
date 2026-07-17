@@ -15,6 +15,13 @@
 
 set -euo pipefail
 
+if [[ "${1:-}" == "--artifact-catalog" ]]; then
+  [[ $# -ge 2 ]] || { echo "--artifact-catalog requires a path" >&2; exit 2; }
+  export ARTIFACT_CATALOG="$2"
+  shift 2
+fi
+[[ $# -eq 0 ]] || { echo "Unknown pilot argument: $1" >&2; exit 2; }
+
 FRAMEWORK_ROOT="${FRAMEWORK_SOURCE_ROOT:-${SGE_O_WORKDIR:-$PWD}}"
 export HOMOLOGY_RUNTIME_KIND=pilot
 exec bash "$FRAMEWORK_ROOT/scripts/benchmark_generation/run_homology_cluster_runtime_hpc.sh"

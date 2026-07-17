@@ -31,7 +31,9 @@ HPC wrapper:
 qsub hpc_jobs/active/hpc_cafa3_deepgoplus_pickle_generation_validation.sh
 ```
 
-By default the runner downloads the public CAFA archive candidates:
+The runner accepts `--deepgoplus-archive PATH`. Otherwise it checks the
+`deepgoplus_cafa` entry in `--artifact-catalog PATH`, then downloads the public
+CAFA archive candidates:
 
 ```text
 https://deepgo.cbrc.kaust.edu.sa/data/data-cafa.tar.gz
@@ -42,6 +44,13 @@ It can also use a local extracted copy:
 
 ```bash
 export DEEPGOPLUS_CAFA_DIR="/path/to/data-cafa"
+```
+
+On UCL HPC the shared frozen archive can be selected with:
+
+```bash
+qsub hpc_jobs/active/hpc_cafa3_deepgoplus_pickle_generation_validation.sh \
+  --artifact-catalog /SAN/bioinf/bmpfp/manifests/artifact_paths.tsv
 ```
 
 The runner copies reports/logs back to:
@@ -75,8 +84,9 @@ HPC wrapper:
 qsub hpc_jobs/active/hpc_cafa3_deepgoplus_validation.sh
 ```
 
-This path downloads the DeepGOPlus CAFA archive by default. It tries the known
-CAFA archive first and then the older DeepGOPlus-named archive as a fallback:
+This path prefers an explicit extracted directory or archive, then the
+`deepgoplus_cafa` catalogue entry. If neither exists, it tries the known CAFA
+archive first and then the older DeepGOPlus-named archive as a fallback:
 
 ```text
 https://deepgo.cbrc.kaust.edu.sa/data/data-cafa.tar.gz

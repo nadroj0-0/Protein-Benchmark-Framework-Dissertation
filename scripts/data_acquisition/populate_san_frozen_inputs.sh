@@ -189,6 +189,8 @@ validate_spec() {
         [[ "$profiles" == \#* ]] && continue
         [[ -n "$role" && -n "$release" && -n "$relative_path" && -n "$url" ]] || \
             die "Malformed row in $SPEC_FILE"
+        [[ "$role" =~ ^[A-Za-z0-9._-]+$ ]] || \
+            die "Unsafe artifact role in $SPEC_FILE: $role"
         [[ "$relative_path" != /* && "$relative_path" != *".."* ]] || \
             die "Unsafe relative path in $SPEC_FILE: $relative_path"
         [[ "$expected_bytes" == "-" || "$expected_bytes" =~ ^[1-9][0-9]*$ ]] || \
@@ -408,6 +410,28 @@ catalog_metadata() {
     fi
 }
 
+write_artifact_path_catalog() {
+    local catalog="$ROOT/manifests/artifact_paths.tsv"
+    local temporary="${catalog}.partial.$$"
+    local profiles role release relative_path url expected_bytes
+    local checksum_algorithm expected_checksum validator destination
+    printf 'artifact_id\tpath\n' > "$temporary"
+    while IFS=$'\t' read -r profiles role release relative_path url expected_bytes \
+        checksum_algorithm expected_checksum validator; do
+        [[ -n "$profiles" ]] || continue
+        [[ "$profiles" == \#* ]] && continue
+        destination="$ROOT/$relative_path"
+        [[ -s "$destination" && -s "${destination}.sha256" && \
+           -s "${destination}.provenance.tsv" ]] || continue
+        printf '%s\t%s\n' "$role" "$destination" >> "$temporary"
+    done < "$SPEC_FILE"
+    if [[ -f "$catalog" ]] && cmp -s "$temporary" "$catalog"; then
+        rm -f "$temporary"
+    else
+        mv "$temporary" "$catalog"
+    fi
+}
+
 release_lock() {
     if [[ -n "$FALLBACK_LOCK_DIR" ]]; then
         rmdir "$FALLBACK_LOCK_DIR" 2>/dev/null || true
@@ -589,6 +613,7 @@ if [[ "$needs_goa_guard" == "1" ]]; then
 fi
 
 catalog_metadata
+write_artifact_path_catalog
 
 echo
 echo "Completed successfully"
@@ -596,4 +621,5 @@ echo "  downloaded: $DOWNLOADED"
 echo "  skipped:    $SKIPPED"
 echo "  full checks: $VERIFIED"
 echo "  catalogue:  $ROOT/manifests/frozen_input_catalog.tsv"
+echo "  path map:   $ROOT/manifests/artifact_paths.tsv"
 du -sh "$ROOT"

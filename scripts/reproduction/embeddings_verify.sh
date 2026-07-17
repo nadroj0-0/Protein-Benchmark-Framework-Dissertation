@@ -52,7 +52,9 @@ cd published
 # --- 3. Data (same 5 tarballs, extract from repo root, no -C) ----------
 for f in mmfp_embeddings_struct_ppi mmfp_embeddings_prott5 \
          mmfp_embeddings_text_temporal mmfp_checkpoints mmfp_data_splits; do
-  wget -c "https://zenodo.org/records/19498341/files/${f}.tar.gz"
+  explicit="${PUBLISHED_BUNDLE_DIR:+${PUBLISHED_BUNDLE_DIR}/${f}.tar.gz}"
+  stage_or_download_artifact "$(zijian_bundle_artifact_id "$f")" "$explicit" \
+    "${f}.tar.gz" "https://zenodo.org/records/19498341/files/${f}.tar.gz"
   tar -xzf "${f}.tar.gz"
 done
 

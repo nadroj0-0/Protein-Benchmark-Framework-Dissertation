@@ -19,7 +19,7 @@ Usage: qsub hpc_jobs/active/hpc_cafa3_embedding_retry.sh \
   --modality sequence|text|structure|ppi \
   [--embedding-state-root /SAN/bioinf/bmpfp/embedding_states/cafa3_full_reproduction] \
   [--results-root /absolute/path] \
-  [--text-cutoff-date YYYY-MM-DD]
+  [--text-cutoff-date YYYY-MM-DD] [--artifact-catalog PATH]
 
 This wrapper never submits another job. It retries only missing pairs for one
 modality, publishes valid arrays into the single persistent state, copies only
@@ -33,12 +33,14 @@ MODALITY=""
 EMBEDDING_STATE_ROOT="/SAN/bioinf/bmpfp/embedding_states/cafa3_full_reproduction"
 CLI_RESULTS_ROOT=""
 TEXT_CUTOFF_DATE="2016-02-17"
+CLI_ARTIFACT_CATALOG="${ARTIFACT_CATALOG:-}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --modality) MODALITY="$2"; shift 2 ;;
     --embedding-state-root) EMBEDDING_STATE_ROOT="$2"; shift 2 ;;
     --results-root) CLI_RESULTS_ROOT="$2"; shift 2 ;;
     --text-cutoff-date) TEXT_CUTOFF_DATE="$2"; shift 2 ;;
+    --artifact-catalog) CLI_ARTIFACT_CATALOG="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; die "Unknown argument: $1" ;;
   esac
@@ -154,7 +156,9 @@ git_in_dir "$PFP_DIR" checkout --detach "$PFP_COMMIT"
 
 cd "$FRAMEWORK_DIR"
 source scripts/reproduction_common.sh
+export ARTIFACT_CATALOG="$CLI_ARTIFACT_CATALOG"
 load_framework_paths "$FRAMEWORK_DIR"
+artifact_catalog_bind_parent string_embeddings "${STRING_H5_FILE:-}"
 activate_or_create_mmfp_env
 PYTHON_BIN="$(command -v python)"
 
@@ -167,6 +171,9 @@ command=(
   --modality "$MODALITY"
   --text-cutoff-date "$TEXT_CUTOFF_DATE"
 )
+if [[ -n "${ARTIFACT_CATALOG:-}" ]]; then
+  command+=(--artifact-catalog "$ARTIFACT_CATALOG")
+fi
 printf 'Command:'; printf ' %q' "${command[@]}"; printf '\n'
 set +e
 PYTHON_BIN="$PYTHON_BIN" "${command[@]}" 2>&1 | tee "$WORKFLOW_LOG"

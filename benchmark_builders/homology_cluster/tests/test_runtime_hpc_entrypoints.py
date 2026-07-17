@@ -187,10 +187,14 @@ class RuntimeHPCEntrypointTests(unittest.TestCase):
         self.assertNotIn("GOA_RELEASES_URL", driver)
         self.assertNotIn("GOA_MD5_URL", driver)
         self.assertNotIn("goa_current_release_numbers", driver)
-        self.assertIn('SAN_INPUT_ROOT="${SAN_INPUT_ROOT:-/SAN/bioinf/bmpfp}"', driver)
         self.assertIn(
-            "frozen_inputs/goa/234/goa_uniprot_all.gaf.234.gz", driver
+            'artifact_catalog_configure "$FRAMEWORK_DIR" "${ARTIFACT_CATALOG:-}"',
+            driver,
         )
+        self.assertIn("use_catalog_input_if_available GOA GOA_SHA256", driver)
+        self.assertIn('unset "$path_variable" "$hash_variable"', driver)
+        self.assertIn("    goa_t1 \\", driver)
+        self.assertNotIn("SAN_INPUT_ROOT=", driver)
 
 
 if __name__ == "__main__":

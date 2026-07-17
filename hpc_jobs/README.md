@@ -24,6 +24,23 @@ qsub -v SAN_INPUT_PROFILES=homology,tools \
 The scheduler-neutral implementation and complete inventory are documented in
 [`scripts/data_acquisition/README.md`](../scripts/data_acquisition/README.md).
 
+The successful loader also writes
+`/SAN/bioinf/bmpfp/manifests/artifact_paths.tsv`. Pass that one catalogue to
+current jobs so they reuse frozen inputs instead of downloading them:
+
+```bash
+CATALOG=/SAN/bioinf/bmpfp/manifests/artifact_paths.tsv
+qsub hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh \
+  --artifact-catalog "$CATALOG"
+qsub hpc_jobs/active/hpc_homology_cluster_runtime_pilot.sh \
+  --artifact-catalog "$CATALOG"
+```
+
+Explicit per-artifact overrides remain authoritative. If neither an explicit
+path nor a valid catalogue entry exists, the original scratch download path is
+used. Older wrappers without an `--artifact-catalog` parser can receive it as
+`qsub -v ARTIFACT_CATALOG="$CATALOG" ...`.
+
 This directory contains cluster submission wrappers for running the
 framework on UCL/SGE machines.
 
@@ -72,16 +89,18 @@ qsub hpc_jobs/active/hpc_cafa3_full_from_scratch_reproduction.sh
 ```
 
 It clones pinned framework and PFP commits into `/scratch0`, validates the
-author-supplied MMFP package pins, downloads and authenticates the nine Zenodo
-7409660 CSVs, builds `proteins.fasta`, and runs all four embedding modalities in
+author-supplied MMFP package pins, stages and authenticates the nine canonical
+CSV files from an explicit path/catalogue when available (otherwise Zenodo
+7409660), builds `proteins.fasta`, and runs all four embedding modalities in
 parallel after a bounded preflight. The CAFA assessment tool is pinned to the
 official supplementary-code tag `v1.0-beta` at commit
 `d72f0a5abb66d3224bd808e2015b55f1c9d18340`. The IF1 NumPy/device
 compatibility path and PPI zero-CAFA-ID guard are isolated scratch copies;
 upstream PFP is unchanged.
 
-Only after regeneration finishes does the job download the three authenticated
-embedding archives from Zenodo 19498341. It records byte hashes and numeric
+Only after regeneration finishes does the job stage the three authenticated
+embedding archives from an explicit path/catalogue, falling back to Zenodo
+19498341. It records byte hashes and numeric
 comparisons for every union protein/modality, compresses the row-level table,
 and deletes both the extracted published cache and its archives. Fresh training
 therefore uses regenerated arrays only. It requires all three checkpoints and
@@ -159,7 +178,8 @@ environment fails loudly.
 `hpc_contemporary_embedding_inventory.sh` is a CPU-only integration test for
 the completed nine contemporary CSVs against Zijian's published embeddings.
 The benchmark path is supplied at submission time, never embedded in the
-wrapper. The job downloads Zenodo records 7409660 and 19498341 into scratch,
+wrapper. The job stages records 7409660 and 19498341 from explicit or catalogue
+paths when available, otherwise downloads them into scratch,
 authenticates the nine source CSVs and three embedding archives, validates the
 published cache, and runs the existing provenance-aware planner. Only compact
 reports, the binary `reuse`/`regenerate` manifests and lists, and
@@ -187,13 +207,14 @@ Any role can be overridden with `BP_TRAINING_CSV`, `BP_VALIDATION_CSV`,
 `SOURCE_BENCHMARK_DIR`, `PUBLISHED_EMBEDDING_ARCHIVE_DIR`, `PFP_REFERENCE_DIR`, `ALIASES_FILE`,
 `INVENTORY_CONFIG`, `INVENTORY_POLICY`, `REPORT_LEVEL`, `RESULTS_ROOT`, and the
 complete 40-character `FRAMEWORK_COMMIT`.
-The default is to download the canonical source CSVs and published embedding
-archives during each job, as requested.
+Without explicit paths or a catalogue, the default remains downloading the
+canonical source CSVs and published embedding archives during each job.
 
 `hpc_contemporary_benchmark_reuse_plan.sh` runs the newer CSV-only binary reuse
 planner. It stages the completed contemporary nine-CSV benchmark in scratch and,
-by default, downloads and authenticates Zijian's canonical CAFA3 CSVs from
-Zenodo record 7409660. It compares exact case-sensitive protein IDs and complete
+uses an explicit embedded benchmark, then the artifact catalogue, then the
+authenticated Zenodo 7409660 download fallback for Zijian's canonical CAFA3
+CSVs. It compares exact case-sensitive protein IDs and complete
 sequences, producing only `reuse` and `regenerate` buckets. It does not download
 or inspect embedding arrays. Results are published under
 `$HOME/contemporary_benchmark_reuse_results`; scratch cleanup is unconditional.
@@ -298,10 +319,11 @@ qsub hpc_jobs/active/hpc_contemporary_embedding_retry.sh --modality text
 qsub hpc_jobs/active/hpc_contemporary_embedding_retry.sh --modality ppi
 ```
 
-The retry wrapper prefers frozen inputs under `/SAN/bioinf/bmpfp`: canonical
-CAFA3 CSVs are copied into scratch before PFP's header normalization, the STRING
-H5 is read directly from SAN, and the compressed STRING alias file is expanded
-into scratch. Missing SAN inputs retain the original download fallback. Model
+The retry wrapper resolves explicit inputs and then the artifact catalogue:
+canonical CAFA3 CSVs are copied into scratch before PFP's header normalization,
+the STRING H5 is read directly from its resolved location, and the compressed
+STRING alias file is expanded into scratch. Missing catalogue inputs retain the
+original download fallback. Model
 weights and AlphaFold structures acquired during retries are retained once in
 the retry state's `source_cache/` for later attempts.
 
@@ -354,13 +376,14 @@ Both wrappers delegate to
 - verifies the detached scratch checkout with host Git and passes that exact clean state into the
   minimal Singularity runtime, avoiding a redundant in-container Git dependency;
 - defaults to `sprot-and-trembl`, while accepting `sprot-only` and `trembl-only` explicitly;
-- prefers authenticated frozen inputs under `/SAN/bioinf/bmpfp`, stages any supplied source paths
-  into task-owned scratch, and downloads only sources still missing;
+- resolves supplied source paths first, then the portable artifact catalogue,
+  stages the selected inputs into task-owned scratch, and downloads only sources still missing;
 - checks that mutable UniProt endpoints still mean release `2026_02`, while downloading GOA `234`
   from EBI's immutable historical URL and validating its pinned SHA-256 and embedded release
   metadata;
-- downloads pinned MMseqs2 release `18-8cc5c` into scratch when `MMSEQS_BIN` is
-  not supplied, and separately validates and records its binary-reported full
+- stages the pinned MMseqs2 release `18-8cc5c` archive from the catalogue when
+  available (otherwise downloads it into scratch) when `MMSEQS_BIN` is not
+  supplied, and separately validates and records its binary-reported full
   Git commit `8cc5ce367b5638c4306c2d7cfc652dd099a4643f`;
 - creates the checksum-bound frozen-input manifest and a clearly labelled automatic, non-blocking
   runtime attrition policy;
@@ -453,8 +476,9 @@ validation/review, approval creation, full preview/submission, monitoring, and s
 aggregation—is documented in
 [`benchmark_builders/homology_cluster/README.md`](../benchmark_builders/homology_cluster/README.md).
 
-`hpc_contemporary_temporal_benchmark.sh` stages any locally available frozen
-2025/2026 UniProt, GOA and GO inputs, downloads missing inputs into scratch,
+`hpc_contemporary_temporal_benchmark.sh` stages explicit inputs first, then any
+matching artifact-catalogue entries, and downloads only missing 2025/2026
+UniProt, GOA and GO inputs into scratch,
 stream-filters full TrEMBL sources to the CAFA3 taxa, and invokes
 `scripts/benchmark_generation/run_contemporary_temporal_benchmark.sh`, copies
 the complete benchmark run to durable storage and clears scratch. It builds the
@@ -482,6 +506,14 @@ an optional cache, not a requirement. If no files are available, the job uses
 the official frozen URLs and keeps only the filtered/required products in
 scratch. Colon-separated `UNIPROT_T0_INPUTS` and `UNIPROT_T1_INPUTS` are copied
 to scratch when explicitly supplied.
+
+The preferred cluster invocation uses the generated path catalogue:
+
+```bash
+qsub -v PROFILE=supervisor \
+  hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh \
+  --artifact-catalog /SAN/bioinf/bmpfp/manifests/artifact_paths.tsv
+```
 
 For benchmark validation:
 

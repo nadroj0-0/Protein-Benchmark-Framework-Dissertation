@@ -26,7 +26,7 @@ Usage: run_contemporary_embedding_retry.sh \
   --pfp-root PATH --work-dir PATH --output-dir PATH \
   --benchmark-dir PATH --plan-dir PATH --state-root PATH \
   --modality sequence|text|structure|ppi \
-  [--text-cutoff-date YYYY-MM-DD]
+  [--text-cutoff-date YYYY-MM-DD] [--artifact-catalog PATH]
 
 Only currently missing pairs for one modality are generated. Accepted control
 arrays are materialized from the immutable baseline archive or retry delta into
@@ -47,10 +47,12 @@ while [[ $# -gt 0 ]]; do
     --state-root) STATE_ROOT="$2"; shift 2 ;;
     --modality) MODALITY="$2"; shift 2 ;;
     --text-cutoff-date) TEXT_CUTOFF_DATE="$2"; shift 2 ;;
+    --artifact-catalog) ARTIFACT_CATALOG="$2"; export ARTIFACT_CATALOG; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; die "Unknown argument: $1" ;;
   esac
 done
+artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 
 [[ -d "$PFP_ROOT/.git" ]] || die "PFP root is not a Git checkout: $PFP_ROOT"
 [[ -n "$WORK_DIR" ]] || die "--work-dir is required"

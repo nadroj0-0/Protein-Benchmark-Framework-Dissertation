@@ -15,6 +15,18 @@ LOGS="${RUN_DIR}/logs"
 REPORT_COPY_DIR="${REPORT_COPY_DIR:-${HOME}/cafa3_deepgoplus_validation_reports/${TIMESTAMP}}"
 KEEP_SCRATCH="${KEEP_SCRATCH:-0}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
+DEEPGOPLUS_ARCHIVE="${DEEPGOPLUS_ARCHIVE:-}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --artifact-catalog) ARTIFACT_CATALOG="$2"; export ARTIFACT_CATALOG; shift 2 ;;
+    --deepgoplus-archive) DEEPGOPLUS_ARCHIVE="$2"; shift 2 ;;
+    *) echo "Unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+# shellcheck disable=SC1091
+source "$REPO_ROOT/scripts/artifact_catalog.sh"
+artifact_catalog_configure "$REPO_ROOT" "${ARTIFACT_CATALOG:-}"
 
 CAFA3_REFERENCE_RECORD_URL="https://zenodo.org/records/7409660"
 CAFA3_REFERENCE_CSV_BASE_URL="${CAFA3_REFERENCE_RECORD_URL}/files"
@@ -22,6 +34,7 @@ DEFAULT_DEEPGOPLUS_PICKLES_URLS=(
   "https://deepgo.cbrc.kaust.edu.sa/data/data-cafa.tar.gz"
   "https://deepgo.cbrc.kaust.edu.sa/data/deepgoplus-cafa.tar.gz"
 )
+CANDIDATE_URLS=()
 
 CSV_FILES=(
   bp-training.csv bp-validation.csv bp-test.csv
@@ -198,7 +211,15 @@ if [ -n "${DEEPGOPLUS_PICKLES_DIR:-}" ] && [ -d "${DEEPGOPLUS_PICKLES_DIR}" ]; t
   REFERENCE_PICKLE_DIR="$(locate_complete_set "${REFERENCE}/deepgoplus_pickles" "${PICKLE_FILES[@]}")"
   PICKLE_STATUS="copied from DEEPGOPLUS_PICKLES_DIR=${DEEPGOPLUS_PICKLES_DIR}"
 else
-  if [ -n "${DEEPGOPLUS_PICKLES_URL:-}" ]; then
+  ARCHIVE_SOURCE="$(resolve_artifact_path deepgoplus_cafa "$DEEPGOPLUS_ARCHIVE" || true)"
+  if [[ -n "$ARCHIVE_SOURCE" ]]; then
+    mkdir -p "${REFERENCE}/deepgoplus_pickles/extracted"
+    PICKLE_ARCHIVE="${REFERENCE}/$(basename "$ARCHIVE_SOURCE")"
+    cp -p "$ARCHIVE_SOURCE" "$PICKLE_ARCHIVE"
+    extract_archive "$PICKLE_ARCHIVE" "${REFERENCE}/deepgoplus_pickles/extracted"
+    REFERENCE_PICKLE_DIR="$(locate_complete_set "${REFERENCE}/deepgoplus_pickles/extracted" "${PICKLE_FILES[@]}" || true)"
+    PICKLE_STATUS="staged from ${ARCHIVE_SOURCE}"
+  elif [ -n "${DEEPGOPLUS_PICKLES_URL:-}" ]; then
     CANDIDATE_URLS=("$DEEPGOPLUS_PICKLES_URL")
   else
     CANDIDATE_URLS=("${DEFAULT_DEEPGOPLUS_PICKLES_URLS[@]}")
@@ -250,7 +271,12 @@ echo "==> [3/5] Download canonical CAFA3 reference CSV artefacts"
 REFERENCE_CSV_DIR="${REFERENCE}/cafa3_zenodo_7409660"
 mkdir -p "$REFERENCE_CSV_DIR"
 for csv_file in "${CSV_FILES[@]}"; do
-  download "${CAFA3_REFERENCE_CSV_BASE_URL}/${csv_file}?download=1" "${REFERENCE_CSV_DIR}/${csv_file}"
+  csv_source="$(resolve_artifact_path "$(canonical_cafa3_artifact_id "$csv_file")" "" || true)"
+  if [[ -n "$csv_source" ]]; then
+    cp -p "$csv_source" "${REFERENCE_CSV_DIR}/${csv_file}"
+  else
+    download "${CAFA3_REFERENCE_CSV_BASE_URL}/${csv_file}?download=1" "${REFERENCE_CSV_DIR}/${csv_file}"
+  fi
 done
 REFERENCE_CSV_DIR="$(locate_complete_set "$REFERENCE_CSV_DIR" "${CSV_FILES[@]}")" || {
   echo "Could not locate all 9 reference CSVs under ${REFERENCE}/cafa3_zenodo_7409660" >&2

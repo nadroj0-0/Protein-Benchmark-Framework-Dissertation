@@ -13,6 +13,16 @@
 
 set -euo pipefail
 
+CLI_ARTIFACT_CATALOG="${ARTIFACT_CATALOG:-}"
+CLI_DEEPGOPLUS_ARCHIVE=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --artifact-catalog) CLI_ARTIFACT_CATALOG="$2"; shift 2 ;;
+        --deepgoplus-archive) CLI_DEEPGOPLUS_ARCHIVE="$2"; shift 2 ;;
+        *) echo "Unknown argument: $1" >&2; exit 2 ;;
+    esac
+done
+
 WORK=/scratch0/cafa3_deepgoplus_pickle_generation_${JOB_ID}
 OUTDIR="$HOME/cafa3_deepgoplus_pickle_generation_reports"
 FRAMEWORK_REPO_URL="${FRAMEWORK_REPO_URL:-https://github.com/nadroj0-0/Protein-Benchmark-Framework-Dissertation.git}"
@@ -46,6 +56,7 @@ git clone "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"
 cd "$FRAMEWORK_DIR"
 
 source scripts/reproduction_common.sh
+export ARTIFACT_CATALOG="$CLI_ARTIFACT_CATALOG"
 load_framework_paths "$FRAMEWORK_DIR"
 activate_or_create_mmfp_env
 
@@ -61,7 +72,10 @@ export REPORT_COPY_DIR="$OUTDIR/$RUN_TAG"
 export KEEP_SCRATCH=0
 export PYTHON_BIN=python
 
-bash scripts/validation/run_cafa3_deepgoplus_pickle_generation_validation.sh
+command=(bash scripts/validation/run_cafa3_deepgoplus_pickle_generation_validation.sh)
+[[ -z "${ARTIFACT_CATALOG:-}" ]] || command+=(--artifact-catalog "$ARTIFACT_CATALOG")
+[[ -z "$CLI_DEEPGOPLUS_ARCHIVE" ]] || command+=(--deepgoplus-archive "$CLI_DEEPGOPLUS_ARCHIVE")
+"${command[@]}"
 STATUS=$?
 
 echo

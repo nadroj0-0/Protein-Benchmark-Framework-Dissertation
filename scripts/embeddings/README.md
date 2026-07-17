@@ -171,6 +171,23 @@ least five must match within `rtol=1e-5`, `atol=1e-6` before valid outputs are
 atomically merged. Failures remain in the retry ledger regardless of reason.
 The wrappers never edit PFP and always remove job-owned scratch.
 
+### Reusing frozen dependencies
+
+Embedding workflows resolve static inputs in the same order as the rest of the
+framework: explicit path, `ARTIFACT_CATALOG`, then network fallback. The
+catalogued embedding inputs are the nine canonical CAFA3 CSVs, STRING v12.0
+aliases/network embeddings, and Zijian's published embedding bundles. On UCL
+HPC, pass:
+
+```bash
+--artifact-catalog /SAN/bioinf/bmpfp/manifests/artifact_paths.tsv
+```
+
+The catalogue does not replace dynamic per-protein acquisition. UniProt text,
+AlphaFold structures not already present in resumable source state, and model
+caches remain workflow-managed. This keeps the code portable while avoiding
+repeat downloads of large frozen files.
+
 ## Lightweight validation
 
 No network, model, or full-data access is needed for the focused contract

@@ -10,6 +10,9 @@ BUILDER_ROOT="$FRAMEWORK_ROOT/benchmark_builders/contemporary_cafa"
 FILTER_DAT="$SCRIPT_DIR/filter_uniprot_dat.py"
 EXTRACT_MEMBER="$SCRIPT_DIR/extract_tar_member.py"
 TARGET_TAXA="$BUILDER_ROOT/src/cafa_benchmark_builder/resources/cafa3_target_taxa.txt"
+# shellcheck source=../reproduction_common.sh
+source "$FRAMEWORK_ROOT/scripts/reproduction_common.sh"
+artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 
 PROFILE="${PROFILE:-contemporary-cafa3-style}"
 DB_ROOT="${DB_ROOT:-$HOME/protein_databases}"
@@ -51,6 +54,55 @@ T1_GOA="$T1_GOA_DIR/goa_uniprot_all.gaf.234.gz"
 T0_BENCHMARK_OBO="$ONTOLOGY_T0_BENCHMARK_DIR/go-basic.obo"
 T0_SOURCE_OBO="$ONTOLOGY_T0_SOURCE_DIR/go-basic.obo"
 T1_SOURCE_OBO="$ONTOLOGY_T1_SOURCE_DIR/go-basic.obo"
+
+prefer_existing_artifact() {
+    local variable_name="$1"
+    local artifact_id="$2"
+    local explicit_path="${3:-${!variable_name:-}}"
+    local resolved=""
+    resolved="$(resolve_artifact_path "$artifact_id" "$explicit_path" || true)"
+    if [[ -n "$resolved" ]]; then
+        printf -v "$variable_name" '%s' "$resolved"
+        add_mmfp_singularity_bind "$(dirname "$resolved")"
+    fi
+}
+
+# A direct local path wins, followed by the portable catalogue. The variables
+# retain their DB_ROOT destinations when neither source exists, preserving the
+# original download-and-stage fallback below.
+prefer_existing_artifact T0_SPROT_ARCHIVE uniprot_sprot_t0 \
+    "${T0_SPROT_ARCHIVE_SOURCE:-$T0_SPROT_ARCHIVE}"
+prefer_existing_artifact T0_FULL_ARCHIVE uniprot_knowledgebase_t0 \
+    "${T0_TREMBL_ARCHIVE_SOURCE:-$T0_FULL_ARCHIVE}"
+prefer_existing_artifact T1_SPROT_DAT uniprot_sprot_t1 \
+    "${T1_SPROT_INPUT:-$T1_SPROT_DAT}"
+prefer_existing_artifact T1_TREMBL_FULL uniprot_trembl_t1 \
+    "${T1_TREMBL_DAT_SOURCE:-$T1_TREMBL_FULL}"
+prefer_existing_artifact T0_GOA goa_t0 "${GOA_T0_INPUT:-$T0_GOA}"
+prefer_existing_artifact T1_GOA goa_t1 "${GOA_T1_INPUT:-$T1_GOA}"
+prefer_existing_artifact T0_BENCHMARK_OBO go_basic_t0 \
+    "${GO_BASIC_T0_INPUT:-$T0_BENCHMARK_OBO}"
+prefer_existing_artifact T0_SOURCE_OBO go_basic_t0_source_resolution \
+    "${GO_BASIC_T0_SOURCE_INPUT:-$T0_SOURCE_OBO}"
+prefer_existing_artifact T1_SOURCE_OBO go_basic_t1 \
+    "${GO_BASIC_T1_INPUT:-$T1_SOURCE_OBO}"
+
+if [[ -n "${T0_TREMBL_DAT_SOURCE:-}" && ! -s "$T0_TREMBL_DAT_SOURCE" ]]; then
+    artifact_catalog_warn "T0_TREMBL_DAT_SOURCE is missing or empty; trying the archive catalogue/download fallback: $T0_TREMBL_DAT_SOURCE"
+    unset T0_TREMBL_DAT_SOURCE
+fi
+if [[ -n "${T0_TREMBL_ARCHIVE_SOURCE:-}" ]]; then
+    T0_TREMBL_ARCHIVE_SOURCE="$(resolve_artifact_path uniprot_knowledgebase_t0 "$T0_TREMBL_ARCHIVE_SOURCE" || true)"
+    if [[ -z "$T0_TREMBL_ARCHIVE_SOURCE" ]]; then
+        unset T0_TREMBL_ARCHIVE_SOURCE
+    fi
+fi
+if [[ -n "${T1_TREMBL_DAT_SOURCE:-}" ]]; then
+    T1_TREMBL_DAT_SOURCE="$(resolve_artifact_path uniprot_trembl_t1 "$T1_TREMBL_DAT_SOURCE" || true)"
+    if [[ -z "$T1_TREMBL_DAT_SOURCE" ]]; then
+        unset T1_TREMBL_DAT_SOURCE
+    fi
+fi
 
 UNIPROT_2025_BASE="https://ftp.uniprot.org/pub/databases/uniprot/previous_releases/release-2025_01/knowledgebase"
 UNIPROT_CURRENT_BASE="https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/complete"

@@ -21,7 +21,8 @@ Usage: qsub hpc_jobs/active/hpc_contemporary_embedding_generation.sh \
   --target-benchmark-dir /absolute/path/to/outputs \
   --reuse-plan-dir /absolute/path/to/plan \
   [--results-root /absolute/output/path] \
-  [--text-cutoff-date YYYY-MM-DD]
+  [--text-cutoff-date YYYY-MM-DD] \
+  [--published-embedding-archive-dir PATH] [--artifact-catalog PATH]
 EOF
 }
 
@@ -34,6 +35,8 @@ TARGET_BENCHMARK_DIR=""
 REUSE_PLAN_DIR=""
 CLI_RESULTS_ROOT=""
 CLI_TEXT_CUTOFF_DATE=""
+CLI_PUBLISHED_ARCHIVE_DIR=""
+CLI_ARTIFACT_CATALOG="${ARTIFACT_CATALOG:-}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --target-benchmark-dir)
@@ -54,6 +57,16 @@ while [[ $# -gt 0 ]]; do
     --text-cutoff-date)
       [[ $# -ge 2 ]] || die "--text-cutoff-date requires YYYY-MM-DD"
       CLI_TEXT_CUTOFF_DATE="$2"
+      shift 2
+      ;;
+    --published-embedding-archive-dir)
+      [[ $# -ge 2 ]] || die "--published-embedding-archive-dir requires a path"
+      CLI_PUBLISHED_ARCHIVE_DIR="$2"
+      shift 2
+      ;;
+    --artifact-catalog)
+      [[ $# -ge 2 ]] || die "--artifact-catalog requires a path"
+      CLI_ARTIFACT_CATALOG="$2"
       shift 2
       ;;
     -h|--help)
@@ -204,7 +217,9 @@ git_in_dir "$PFP_DIR" checkout --detach "$PFP_COMMIT"
 
 cd "$FRAMEWORK_DIR"
 source scripts/reproduction_common.sh
+export ARTIFACT_CATALOG="$CLI_ARTIFACT_CATALOG"
 load_framework_paths "$FRAMEWORK_DIR"
+artifact_catalog_bind_parent string_embeddings "${STRING_H5_FILE:-}"
 activate_or_create_mmfp_env
 PYTHON_BIN="$(command -v python)"
 
@@ -233,6 +248,12 @@ COMMAND=(
   --output-dir "$SCRATCH_RESULT_ROOT"
   --text-cutoff-date "$TEXT_CUTOFF_DATE"
 )
+if [[ -n "$CLI_PUBLISHED_ARCHIVE_DIR" ]]; then
+  COMMAND+=(--published-embedding-archive-dir "$CLI_PUBLISHED_ARCHIVE_DIR")
+fi
+if [[ -n "${ARTIFACT_CATALOG:-}" ]]; then
+  COMMAND+=(--artifact-catalog "$ARTIFACT_CATALOG")
+fi
 
 echo "==> Running contemporary embedding generation"
 printf 'Command:'

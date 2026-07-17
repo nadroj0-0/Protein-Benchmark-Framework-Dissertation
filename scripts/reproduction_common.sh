@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Shared shell helpers for the root-level PFP reproduction wrappers.
 
+# shellcheck disable=SC1091
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/artifact_catalog.sh"
+
 load_framework_paths() {
   local framework_root="$1"
   if [ -f "${framework_root}/configs/paths.local.sh" ]; then
@@ -21,6 +24,8 @@ load_framework_paths() {
   export MMFP_SINGULARITY_IMAGE="${MMFP_SINGULARITY_IMAGE:-${MMFP_SINGULARITY_DIR}/python-3.9.23.sif}"
   export MMFP_SINGULARITY_VENV="${MMFP_SINGULARITY_VENV:-${MMFP_SINGULARITY_DIR}/venv}"
   export MMFP_SINGULARITY_IMAGE_URI="${MMFP_SINGULARITY_IMAGE_URI:-docker://python:3.9.23-slim-bookworm}"
+
+  artifact_catalog_configure "$framework_root" "${ARTIFACT_CATALOG:-}"
 }
 
 add_mmfp_singularity_bind() {

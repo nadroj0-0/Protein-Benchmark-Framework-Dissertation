@@ -367,6 +367,7 @@ export SINGULARITYENV_HOMOLOGY_HOST_GIT_VERIFIED_REPOSITORY="$FRAMEWORK_DIR"
 checkpoint_disk_usage framework-cloned
 # shellcheck source=../reproduction_common.sh
 source "$FRAMEWORK_DIR/scripts/reproduction_common.sh"
+artifact_catalog_configure "$FRAMEWORK_DIR" "${ARTIFACT_CATALOG:-}"
 validate_mmfp_env "$PYTHON_BIN"
 
 MINIMUM_SCRATCH_GB="${MINIMUM_SCRATCH_GB:-275}"
@@ -389,39 +390,40 @@ GOA_URL="https://ftp.ebi.ac.uk/pub/databases/GO/goa/old/UNIPROT/goa_uniprot_all.
 PINNED_GOA_SHA256="f315375b07946a0649142b2f4de2e15e282316989677a04e7a561203186dd2ff"
 GO_OBO_URL="https://release.geneontology.org/2026-06-19/ontology/go-basic.obo"
 UNIPROT_RELNOTES_URL="https://ftp.uniprot.org/pub/databases/uniprot/current_release/relnotes.txt"
-SAN_INPUT_ROOT="${SAN_INPUT_ROOT:-/SAN/bioinf/bmpfp}"
-
-use_san_input_if_available() {
+use_catalog_input_if_available() {
     local path_variable="$1"
     local hash_variable="$2"
-    local relative_path="$3"
+    local artifact_id="$3"
     local pinned_sha="$4"
-    local candidate="$SAN_INPUT_ROOT/$relative_path"
-    if [[ -z "${!path_variable:-}" && -s "$candidate" ]]; then
+    local candidate=""
+    candidate="$(resolve_artifact_path "$artifact_id" "${!path_variable:-}" || true)"
+    if [[ -n "$candidate" ]]; then
         printf -v "$path_variable" '%s' "$candidate"
         printf -v "$hash_variable" '%s' "$pinned_sha"
         export "$path_variable" "$hash_variable"
-        echo "Using frozen SAN input for $path_variable: $candidate"
+        echo "Using existing artifact for $path_variable: $candidate"
+    else
+        unset "$path_variable" "$hash_variable"
     fi
 }
 
-use_san_input_if_available UNIREF90_FASTA UNIREF90_FASTA_SHA256 \
-    frozen_inputs/uniref90/2026_02/uniref90.fasta.gz \
+use_catalog_input_if_available UNIREF90_FASTA UNIREF90_FASTA_SHA256 \
+    uniref90_t1 \
     ed80f79bbf1f054b3ea444ce0db0819586731e4dc3a3fb0c75a60ff273eedefb
-use_san_input_if_available IDMAPPING IDMAPPING_SHA256 \
-    frozen_inputs/idmapping/2026_02/idmapping_selected.tab.gz \
+use_catalog_input_if_available IDMAPPING IDMAPPING_SHA256 \
+    idmapping_t1 \
     96707b0430f76e78f708eaa70d6cae7ccb4bb8e4b6b981c7d169215d650cc605
-use_san_input_if_available UNIPROT_SPROT_SEQUENCES UNIPROT_SPROT_SEQUENCES_SHA256 \
-    frozen_inputs/uniprot/2026_02/uniprot_sprot.dat.gz \
+use_catalog_input_if_available UNIPROT_SPROT_SEQUENCES UNIPROT_SPROT_SEQUENCES_SHA256 \
+    uniprot_sprot_t1 \
     741bcb144f98b8d10f0369b145d562b6751bfd17c285e936553aeb9cb54ab592
-use_san_input_if_available UNIPROT_TREMBL_SEQUENCES UNIPROT_TREMBL_SEQUENCES_SHA256 \
-    frozen_inputs/uniprot/2026_02/uniprot_trembl.dat.gz \
+use_catalog_input_if_available UNIPROT_TREMBL_SEQUENCES UNIPROT_TREMBL_SEQUENCES_SHA256 \
+    uniprot_trembl_t1 \
     ae40f0dc517e92a9f3b9b2cf8000c977c4d08458aefb7667692133298842fe69
-use_san_input_if_available GOA GOA_SHA256 \
-    frozen_inputs/goa/234/goa_uniprot_all.gaf.234.gz \
+use_catalog_input_if_available GOA GOA_SHA256 \
+    goa_t1 \
     "$PINNED_GOA_SHA256"
-use_san_input_if_available GO_OBO GO_OBO_SHA256 \
-    frozen_inputs/ontology/2026-06-19/go-basic.obo \
+use_catalog_input_if_available GO_OBO GO_OBO_SHA256 \
+    go_basic_t1 \
     c72fc198a86983d55e43aac585d1ffdbeb6e3601475b3f18b6045acdc0a0734c
 
 download_file() {
@@ -535,11 +537,22 @@ else
     }
     if grep -qw avx2 /proc/cpuinfo; then
         MMSEQS_ARCHIVE_NAME="mmseqs-linux-avx2.tar.gz"
+        MMSEQS_ARCHIVE="$(resolve_artifact_path mmseqs2 "${MMSEQS_ARCHIVE:-}" || true)"
     else
         MMSEQS_ARCHIVE_NAME="mmseqs-linux-sse41.tar.gz"
+        MMSEQS_ARCHIVE="${MMSEQS_ARCHIVE:-}"
+        if [[ -n "$MMSEQS_ARCHIVE" && ! -s "$MMSEQS_ARCHIVE" ]]; then
+            artifact_catalog_warn "explicit SSE4.1 MMseqs2 archive is missing or empty; using the download fallback: $MMSEQS_ARCHIVE"
+            MMSEQS_ARCHIVE=""
+        fi
     fi
     MMSEQS_URL="https://github.com/soedinglab/MMseqs2/releases/download/$MMSEQS_RELEASE_TAG/$MMSEQS_ARCHIVE_NAME"
-    download_file "$MMSEQS_URL" "$TOOLS_ROOT/$MMSEQS_ARCHIVE_NAME"
+    if [[ -n "$MMSEQS_ARCHIVE" ]]; then
+        echo "Staging existing MMseqs2 archive: $MMSEQS_ARCHIVE"
+        cp -p "$MMSEQS_ARCHIVE" "$TOOLS_ROOT/$MMSEQS_ARCHIVE_NAME"
+    else
+        download_file "$MMSEQS_URL" "$TOOLS_ROOT/$MMSEQS_ARCHIVE_NAME"
+    fi
     tar -xzf "$TOOLS_ROOT/$MMSEQS_ARCHIVE_NAME" -C "$TOOLS_ROOT"
     MMSEQS_BIN="$TOOLS_ROOT/mmseqs/bin/mmseqs"
     [[ -x "$MMSEQS_BIN" ]] || { echo "Downloaded MMseqs2 executable is missing" >&2; exit 1; }

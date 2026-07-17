@@ -19,10 +19,11 @@ Usage: qsub hpc_jobs/active/hpc_cafa3_full_from_scratch_reproduction.sh \
   [--results-root /absolute/path] \
   [--embedding-state-root /SAN/bioinf/bmpfp/embedding_states/cafa3_full_reproduction] \
   [--embedding-mode initial|resume] \
-  [--text-cutoff-date YYYY-MM-DD]
+  [--text-cutoff-date YYYY-MM-DD] \
+  [--published-embedding-archive-dir PATH] [--artifact-catalog PATH]
 
-The job downloads every external input into node-local scratch. No persistent
-database, CSV, PFP, or published-embedding input path is required. Validated
+The job stages explicit/catalogued frozen inputs into node-local scratch and
+downloads only missing inputs. No persistent input path is required. Validated
 regenerated arrays and authenticated AlphaFold PDBs are accumulated only under
 the explicit persistent embedding-state root.
 EOF
@@ -37,6 +38,8 @@ CLI_RESULTS_ROOT=""
 TEXT_CUTOFF_DATE="2016-02-17"
 EMBEDDING_STATE_ROOT="/SAN/bioinf/bmpfp/embedding_states/cafa3_full_reproduction"
 EMBEDDING_MODE="initial"
+CLI_PUBLISHED_ARCHIVE_DIR=""
+CLI_ARTIFACT_CATALOG="${ARTIFACT_CATALOG:-}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --results-root)
@@ -57,6 +60,16 @@ while [[ $# -gt 0 ]]; do
     --embedding-mode)
       [[ $# -ge 2 ]] || die "--embedding-mode requires initial or resume"
       EMBEDDING_MODE="$2"
+      shift 2
+      ;;
+    --published-embedding-archive-dir)
+      [[ $# -ge 2 ]] || die "--published-embedding-archive-dir requires a path"
+      CLI_PUBLISHED_ARCHIVE_DIR="$2"
+      shift 2
+      ;;
+    --artifact-catalog)
+      [[ $# -ge 2 ]] || die "--artifact-catalog requires a path"
+      CLI_ARTIFACT_CATALOG="$2"
       shift 2
       ;;
     -h|--help)
@@ -223,7 +236,9 @@ git_in_dir "$PFP_DIR" checkout --detach "$PFP_COMMIT"
 
 cd "$FRAMEWORK_DIR"
 source scripts/reproduction_common.sh
+export ARTIFACT_CATALOG="$CLI_ARTIFACT_CATALOG"
 load_framework_paths "$FRAMEWORK_DIR"
+artifact_catalog_bind_parent string_embeddings "${STRING_H5_FILE:-}"
 activate_or_create_mmfp_env
 PYTHON_BIN="$(command -v python)"
 
@@ -236,6 +251,12 @@ COMMAND=(
   --embedding-mode "$EMBEDDING_MODE"
   --text-cutoff-date "$TEXT_CUTOFF_DATE"
 )
+if [[ -n "$CLI_PUBLISHED_ARCHIVE_DIR" ]]; then
+  COMMAND+=(--published-embedding-archive-dir "$CLI_PUBLISHED_ARCHIVE_DIR")
+fi
+if [[ -n "${ARTIFACT_CATALOG:-}" ]]; then
+  COMMAND+=(--artifact-catalog "$ARTIFACT_CATALOG")
+fi
 
 echo "==> Running complete CAFA3 reproduction"
 printf 'Command:'

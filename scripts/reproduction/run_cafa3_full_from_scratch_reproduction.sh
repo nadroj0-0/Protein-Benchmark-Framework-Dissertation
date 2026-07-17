@@ -21,6 +21,7 @@ TEXT_CUTOFF_DATE="2016-02-17"
 EMBEDDING_STATE_ROOT=""
 EMBEDDING_MODE="initial"
 EMBEDDING_POLICY="$FRAMEWORK_ROOT/configs/cafa3_embedding_resume.json"
+PUBLISHED_EMBEDDING_ARCHIVE_DIR=""
 
 usage() {
   cat <<'EOF'
@@ -31,10 +32,11 @@ Usage: run_cafa3_full_from_scratch_reproduction.sh \
   --embedding-state-root PATH \
   [--embedding-mode initial|resume] \
   [--embedding-policy PATH] \
-  [--text-cutoff-date YYYY-MM-DD]
+  [--text-cutoff-date YYYY-MM-DD] \
+  [--published-embedding-archive-dir PATH] [--artifact-catalog PATH]
 
 The PFP root must be a disposable pinned clone. Published embeddings are
-downloaded only after all four modalities have been regenerated, compared,
+staged or downloaded only after all four modalities have been regenerated, compared,
 then deleted before training. They are never used as training inputs.
 
 The persistent embedding state must be outside job-owned scratch. In initial
@@ -79,6 +81,12 @@ while [[ $# -gt 0 ]]; do
     --text-cutoff-date)
       [[ $# -ge 2 ]] || die "--text-cutoff-date requires YYYY-MM-DD"
       TEXT_CUTOFF_DATE="$2"; shift 2 ;;
+    --published-embedding-archive-dir)
+      [[ $# -ge 2 ]] || die "--published-embedding-archive-dir requires a path"
+      PUBLISHED_EMBEDDING_ARCHIVE_DIR="$2"; shift 2 ;;
+    --artifact-catalog)
+      [[ $# -ge 2 ]] || die "--artifact-catalog requires a path"
+      ARTIFACT_CATALOG="$2"; export ARTIFACT_CATALOG; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
   esac
@@ -99,6 +107,7 @@ EMBEDDING_POLICY="$(cd "$(dirname "$EMBEDDING_POLICY")" && pwd)/$(basename "$EMB
 [[ ! -e "$WORK_DIR" ]] || die "Work directory already exists: $WORK_DIR"
 [[ ! -e "$OUTPUT_DIR" ]] || die "Output directory already exists: $OUTPUT_DIR"
 command -v "$PYTHON_BIN" >/dev/null 2>&1 || die "Python not found: $PYTHON_BIN"
+artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 
 PFP_ROOT="$(cd "$PFP_ROOT" && pwd)"
 [[ -z "$(git_in_dir "$PFP_ROOT" status --porcelain --untracked-files=no)" ]] || \
@@ -509,14 +518,24 @@ for name in \
   mmfp_embeddings_struct_ppi.tar.gz \
   mmfp_embeddings_text_temporal.tar.gz; do
   destination="$ARCHIVE_STAGE/$name"
-  download_file "$MMFP_BASE_URL/$name?download=1" "$destination"
+  explicit_archive=""
+  if [[ -n "$PUBLISHED_EMBEDDING_ARCHIVE_DIR" ]]; then
+    explicit_archive="$PUBLISHED_EMBEDDING_ARCHIVE_DIR/$name"
+  fi
+  archive_source="$(resolve_artifact_path "$(zijian_embedding_artifact_id "$name")" "$explicit_archive" || true)"
+  if [[ -n "$archive_source" ]]; then
+    echo "Staging published embedding archive: $archive_source"
+    cp -p "$archive_source" "$destination"
+  else
+    download_file "$MMFP_BASE_URL/$name?download=1" "$destination"
+  fi
   observed="$(sha256_file "$destination")"
   wanted="$(archive_sha256 "$name")"
   [[ "$observed" == "$wanted" ]] || die "Published archive checksum mismatch: $name"
   tar -tzf "$destination" >/dev/null
   tar -xzf "$destination" -C "$PUBLISHED_ROOT"
   printf 'published-embedding-archive\t%s\t%s\t%s\t%s\n' \
-    "$name" "$MMFP_BASE_URL/$name" "$destination" "$observed" >> "$ACQUISITION_LOG"
+    "$name" "${archive_source:-$MMFP_BASE_URL/$name}" "$destination" "$observed" >> "$ACQUISITION_LOG"
 done
 PUBLISHED_CACHE="$PUBLISHED_ROOT/data/embedding_cache"
 [[ "$(file_count "$PUBLISHED_CACHE/prott5")" == "69811" ]] || die "Published ProtT5 count mismatch"

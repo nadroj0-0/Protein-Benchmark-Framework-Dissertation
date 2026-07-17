@@ -7,6 +7,8 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 FRAMEWORK_ROOT="$(cd "${HERE}/../.." && pwd)"
+# shellcheck disable=SC1091
+source "$FRAMEWORK_ROOT/scripts/artifact_catalog.sh"
 
 REQUIRED_CSVS=(
   bp-training.csv bp-validation.csv bp-test.csv
@@ -29,10 +31,11 @@ Usage:
     --work-dir PATH \
     --output-dir PATH \
     [--embedded-benchmark NAME=PATH ...] \
-    [--python-bin PATH]
+    [--python-bin PATH] [--artifact-catalog PATH]
 
 If no --embedded-benchmark is supplied, the canonical CAFA3 CSVs represented
-by Zijian's published embedding run are downloaded from Zenodo record 7409660,
+by Zijian's published embedding run are resolved from the catalogue or
+downloaded from Zenodo record 7409660,
 authenticated, and used under the name cafa3_zijian.
 
 This workflow compares benchmark CSVs only. It does not inspect, download, or
@@ -197,6 +200,12 @@ while [[ $# -gt 0 ]]; do
       PYTHON_BIN="$2"
       shift 2
       ;;
+    --artifact-catalog)
+      [[ $# -ge 2 ]] || die "--artifact-catalog requires a path"
+      ARTIFACT_CATALOG="$2"
+      export ARTIFACT_CATALOG
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -206,6 +215,7 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 
 [[ -n "$TARGET_SPEC" ]] || die "--target-benchmark is required"
 [[ -n "$WORK_DIR" ]] || die "--work-dir is required"
@@ -228,7 +238,12 @@ if [[ "${#EMBEDDED_SPECS[@]}" -eq 0 ]]; then
   DEFAULT_STAGE="${WORK_DIR}/embedded_cafa3_zijian"
   mkdir -p "$DEFAULT_STAGE"
   for name in "${REQUIRED_CSVS[@]}"; do
-    download_file "${CAFA3_BASE_URL}/${name}?download=1" "${DEFAULT_STAGE}/${name}"
+    source_path="$(resolve_artifact_path "$(canonical_cafa3_artifact_id "$name")" "" || true)"
+    if [[ -n "$source_path" ]]; then
+      cp -p "$source_path" "${DEFAULT_STAGE}/${name}"
+    else
+      download_file "${CAFA3_BASE_URL}/${name}?download=1" "${DEFAULT_STAGE}/${name}"
+    fi
   done
   authenticate_canonical_cafa3 "$DEFAULT_STAGE"
   EMBEDDED_SPECS+=("cafa3_zijian=${DEFAULT_STAGE}")

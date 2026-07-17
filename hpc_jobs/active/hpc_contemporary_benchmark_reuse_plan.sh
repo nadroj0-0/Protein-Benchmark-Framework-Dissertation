@@ -12,6 +12,14 @@
 
 set -euo pipefail
 
+CLI_ARTIFACT_CATALOG="${ARTIFACT_CATALOG:-}"
+if [[ "${1:-}" == "--artifact-catalog" ]]; then
+  [[ $# -ge 2 ]] || { echo "--artifact-catalog requires a path" >&2; exit 2; }
+  CLI_ARTIFACT_CATALOG="$2"
+  shift 2
+fi
+[[ $# -eq 0 ]] || { echo "Unknown argument: $1" >&2; exit 2; }
+
 JOB_TOKEN="${JOB_ID:-manual_$$}"
 RUN_TAG="${JOB_TOKEN}_$(date +%Y%m%d_%H%M%S)"
 WORK="/scratch0/contemporary_benchmark_reuse_${JOB_TOKEN}"
@@ -143,6 +151,7 @@ git_in_dir "$FRAMEWORK_DIR" checkout --detach "$FRAMEWORK_COMMIT"
 cd "$FRAMEWORK_DIR"
 
 source scripts/reproduction_common.sh
+export ARTIFACT_CATALOG="$CLI_ARTIFACT_CATALOG"
 load_framework_paths "$FRAMEWORK_DIR"
 activate_or_create_mmfp_env
 PYTHON_BIN="$(command -v python)"
@@ -154,6 +163,9 @@ COMMAND=(
   --output-dir "$SCRATCH_RESULT_ROOT"
   --python-bin "$PYTHON_BIN"
 )
+if [[ -n "${ARTIFACT_CATALOG:-}" ]]; then
+  COMMAND+=(--artifact-catalog "$ARTIFACT_CATALOG")
+fi
 if [[ -n "${EMBEDDED_BENCHMARK_DIR:-}" ]]; then
   COMMAND+=(
     --embedded-benchmark

@@ -6,6 +6,13 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/../.." && pwd)"
+CLI_ARTIFACT_CATALOG="${ARTIFACT_CATALOG:-}"
+if [[ "${1:-}" == "--artifact-catalog" ]]; then
+  [[ $# -ge 2 ]] || { echo "--artifact-catalog requires a path" >&2; exit 2; }
+  CLI_ARTIFACT_CATALOG="$2"
+  shift 2
+fi
+[[ $# -eq 0 ]] || { echo "Unknown argument: $1" >&2; exit 2; }
 if [ -f "${REPO_ROOT}/configs/paths.local.sh" ]; then
   # Machine-specific paths are intentionally not committed.
   # shellcheck disable=SC1091
@@ -24,6 +31,8 @@ micromamba activate "${MMFP_ENV}"
 python --version   # sanity: should print the mmfp env's Python, not pyenv
 # shellcheck source=../reproduction_common.sh
 source "${REPO_ROOT}/scripts/reproduction_common.sh"
+export ARTIFACT_CATALOG="$CLI_ARTIFACT_CATALOG"
+artifact_catalog_configure "$REPO_ROOT" "$CLI_ARTIFACT_CATALOG"
 validate_mmfp_env "$(command -v python)"
 
 mkdir -p "${RAW}" "${GEN}"
@@ -48,7 +57,16 @@ EOF
 for aspect in bp cc mf; do
   for split in training validation test; do
     f="${aspect}-${split}.csv"
-    [ -f "$f" ] || { echo "==> Downloading $f"; wget -c "${BASE}/${f}?download=1" -O "$f"; }
+    if [[ ! -f "$f" ]]; then
+      source_path="$(resolve_artifact_path "$(canonical_cafa3_artifact_id "$f")" "" || true)"
+      if [[ -n "$source_path" ]]; then
+        echo "==> Staging $f from existing artifact: $source_path"
+        cp -p "$source_path" "$f"
+      else
+        echo "==> Downloading $f"
+        wget -c "${BASE}/${f}?download=1" -O "$f"
+      fi
+    fi
   done
 done
 echo "==> Verifying downloaded CSV md5s against Zenodo..."

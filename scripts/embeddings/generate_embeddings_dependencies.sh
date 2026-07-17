@@ -12,6 +12,9 @@ if [ -f "${REPO_ROOT}/configs/paths.local.sh" ]; then
   # shellcheck disable=SC1091
   source "${REPO_ROOT}/configs/paths.local.sh"
 fi
+# shellcheck source=../reproduction_common.sh
+source "${REPO_ROOT}/scripts/reproduction_common.sh"
+artifact_catalog_configure "${REPO_ROOT}" "${ARTIFACT_CATALOG:-}"
 
 PFP_ROOT="${PFP_ROOT:-$(pwd)}"
 EXT="${PFP_EXTERNAL_DIR:-${PFP_ROOT}/external}"
@@ -24,9 +27,7 @@ PFP_CAFA3_RAW_DIR="${PFP_CAFA3_RAW_DIR:-${EXT}/cafa3_raw}"
 PFP_STRING_DIR="${PFP_STRING_DIR:-${EXT}/string}"
 CAFA3_BASE="${CAFA3_BASE:-https://zenodo.org/records/7409660/files}"
 STRING_DOWNLOAD_BASE="${STRING_DOWNLOAD_BASE:-https://stringdb-downloads.org/download}"
-SAN_INPUT_ROOT="${SAN_INPUT_ROOT:-/SAN/bioinf/bmpfp}"
-SAN_CAFA3_RAW_DIR="${SAN_CAFA3_RAW_DIR:-${SAN_INPUT_ROOT}/reference_artifacts/canonical_cafa3}"
-SAN_STRING_DIR="${SAN_STRING_DIR:-${SAN_INPUT_ROOT}/frozen_inputs/string/v12.0}"
+CAFA3_SOURCE_DIR="${CAFA3_SOURCE_DIR:-${SAN_CAFA3_RAW_DIR:-}}"
 EMBEDDING_DEPENDENCY_PROFILE="${EMBEDDING_DEPENDENCY_PROFILE:-all}"
 case "${EMBEDDING_DEPENDENCY_PROFILE}" in
   all|sequence|text|structure|ppi) ;;
@@ -77,8 +78,14 @@ fi
 # do NOT substitute a current .obo or you contaminate the benchmark).
 mkdir -p "${DATA_DIR}"
 if [ ! -f "${DATA_DIR}/go.obo" ]; then
-  cp "${CAFA_ASSESSMENT_DIR}/precrec/go_cafa3.obo" "${DATA_DIR}/go.obo"
-  echo "==> Staged data/go.obo from CAFA_assessment_tool (go_cafa3.obo, 2016-05-31)"
+  cafa3_go_source="$(resolve_artifact_path cafa3_go_obo "${CAFA3_GO_OBO:-}" || true)"
+  if [[ -n "$cafa3_go_source" ]]; then
+    cp -p "$cafa3_go_source" "${DATA_DIR}/go.obo"
+    echo "==> Staged data/go.obo from existing CAFA3 artifact: $cafa3_go_source"
+  else
+    cp "${CAFA_ASSESSMENT_DIR}/precrec/go_cafa3.obo" "${DATA_DIR}/go.obo"
+    echo "==> Staged data/go.obo from CAFA_assessment_tool (go_cafa3.obo, 2016-05-31)"
+  fi
 fi
 
 # --- 2. Raw CAFA3 CSVs — Zenodo 7409660 (verified bit-for-bit vs Zijan's splits).
@@ -104,10 +111,15 @@ EOF
     for split in training validation test; do
       f="${RAW}/${aspect}-${split}.csv"
       if [ ! -f "$f" ]; then
-        san_source="${SAN_CAFA3_RAW_DIR}/${aspect}-${split}.csv"
-        if [ -f "$san_source" ]; then
-          echo "==> Staging ${aspect}-${split}.csv from frozen SAN input"
-          cp -p "$san_source" "$f"
+        role="cafa3_${aspect}_${split}"
+        explicit_source=""
+        if [[ -n "$CAFA3_SOURCE_DIR" ]]; then
+          explicit_source="${CAFA3_SOURCE_DIR}/${aspect}-${split}.csv"
+        fi
+        artifact_source="$(resolve_artifact_path "$role" "$explicit_source" || true)"
+        if [ -n "$artifact_source" ]; then
+          echo "==> Staging ${aspect}-${split}.csv from existing artifact: $artifact_source"
+          cp -p "$artifact_source" "$f"
         else
           echo "==> Downloading ${aspect}-${split}.csv"
           wget -c "${CAFA3_BASE}/${aspect}-${split}.csv?download=1" -O "$f"
@@ -152,15 +164,14 @@ fi
 # --- 3. STRING files (PPI): alias (confirmed URL) + network embeddings .h5 (manual)
 STRING_ALIAS="${STRING_ALIAS_FILE:-${PFP_STRING_DIR}/protein.aliases.v12.0.txt}"
 STRING_ALIAS_GZ="${STRING_ALIAS}.gz"
-SAN_STRING_H5="${SAN_STRING_H5:-${SAN_STRING_DIR}/protein.network.embeddings.v12.0.h5}"
 if [ "${EMBEDDING_DEPENDENCY_PROFILE}" = "all" ] || \
    [ "${EMBEDDING_DEPENDENCY_PROFILE}" = "ppi" ]; then
   mkdir -p "${PFP_STRING_DIR}"
   if [ ! -f "${STRING_ALIAS}" ]; then
-    SAN_STRING_ALIAS_GZ="${SAN_STRING_ALIAS_GZ:-${SAN_STRING_DIR}/protein.aliases.v12.0.txt.gz}"
-    if [ -f "${SAN_STRING_ALIAS_GZ}" ]; then
-      echo "==> Expanding STRING aliases v12.0 from frozen SAN input"
-      gzip -dc "${SAN_STRING_ALIAS_GZ}" > "${STRING_ALIAS}.partial"
+    alias_source="$(resolve_artifact_path string_aliases "${STRING_ALIAS_GZ_FILE:-${SAN_STRING_ALIAS_GZ:-}}" || true)"
+    if [ -n "$alias_source" ]; then
+      echo "==> Expanding STRING aliases v12.0 from existing artifact: $alias_source"
+      gzip -dc "$alias_source" > "${STRING_ALIAS}.partial"
       mv "${STRING_ALIAS}.partial" "${STRING_ALIAS}"
     else
       echo "==> Downloading STRING aliases v12.0 (~3.2 GB)"
@@ -171,11 +182,9 @@ if [ "${EMBEDDING_DEPENDENCY_PROFILE}" = "all" ] || \
     echo "==> STRING aliases already present, skipping"
   fi
 
-  if [ -n "${STRING_H5_FILE:-}" ]; then
-    STRING_H5="${STRING_H5_FILE}"
-  elif [ -f "${SAN_STRING_H5}" ]; then
-    STRING_H5="${SAN_STRING_H5}"
-    echo "==> Using STRING network embeddings from frozen SAN input"
+  STRING_H5="$(resolve_artifact_path string_embeddings "${STRING_H5_FILE:-${SAN_STRING_H5:-}}" || true)"
+  if [ -n "$STRING_H5" ]; then
+    echo "==> Using existing STRING network embeddings: $STRING_H5"
   else
     STRING_H5="${PFP_STRING_DIR}/protein.network.embeddings.v12.0.h5"
   fi
@@ -185,6 +194,7 @@ if [ "${EMBEDDING_DEPENDENCY_PROFILE}" = "all" ] || \
   else
     echo "==> STRING network embeddings already present, skipping"
   fi
+  add_mmfp_singularity_bind "$(dirname "$STRING_H5")"
 else
   STRING_H5="${PFP_STRING_DIR}/protein.network.embeddings.v12.0.h5"
   echo "==> Skipping STRING staging for ${EMBEDDING_DEPENDENCY_PROFILE} dependency profile"
@@ -202,6 +212,7 @@ export CAFA_ASSESSMENT_DIR="${CAFA_ASSESSMENT_DIR}"
 export CAFA3_RAW_DIR="${RAW}"
 export STRING_H5_FILE="${STRING_H5}"
 export STRING_ALIAS_FILE="${STRING_ALIAS}"
+export SINGULARITY_BINDPATH="${SINGULARITY_BINDPATH:-}"
 EOF
 
 echo ""

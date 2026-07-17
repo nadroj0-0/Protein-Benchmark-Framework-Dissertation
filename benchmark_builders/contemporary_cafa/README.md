@@ -146,11 +146,12 @@ Paths are never hard-coded in Python. `--uniprot-t0` and `--uniprot-t1` are
 repeatable, allowing Swiss-Prot and TrEMBL inputs to be combined.
 
 The repository-level runner resolves the dissertation database layout and calls
-the same CLI. Existing inputs are reused; missing inputs are downloaded into
-`DB_ROOT`:
+the same CLI. It prefers valid explicit/local inputs, then `ARTIFACT_CATALOG`,
+and downloads only what remains missing into `DB_ROOT`:
 
 ```bash
 DB_ROOT="$HOME/protein_databases" \
+ARTIFACT_CATALOG="/absolute/path/to/artifact_paths.tsv" \
 PROFILE=contemporary-cafa3-style \
 bash scripts/benchmark_generation/run_contemporary_temporal_benchmark.sh
 ```
@@ -182,9 +183,10 @@ Choose the supervisor profile at submission time:
 qsub -v PROFILE=supervisor hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh
 ```
 
-The wrapper requests 64 GB RAM and 200 GB scratch. It copies any available
-frozen inputs from `${PROTEIN_DATABASE_ROOT:-$HOME/protein_databases}`, downloads
-anything missing directly into scratch, activates and uses `mmfp`, invokes the
+The wrapper requests 64 GB RAM and 200 GB scratch. It copies any explicitly
+selected inputs, resolves any remaining files through the optional artifact
+catalogue, downloads anything still missing directly into scratch, activates
+and uses `mmfp`, invokes the
 normal runner, and copies outputs/reports/logs to
 `$HOME/contemporary_cafa_benchmark_results`, and removes its scratch directory
 on success, error, interruption or `qdel` termination.
@@ -194,6 +196,14 @@ To use a different persistent database root:
 ```bash
 qsub -v PROTEIN_DATABASE_ROOT=/path/to/databases,PROFILE=supervisor \
   hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh
+```
+
+To use the portable frozen-input catalogue instead:
+
+```bash
+qsub -v PROFILE=supervisor \
+  hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh \
+  --artifact-catalog /absolute/path/to/artifact_paths.tsv
 ```
 
 Advanced callers may supply colon-separated `UNIPROT_T0_INPUTS` and

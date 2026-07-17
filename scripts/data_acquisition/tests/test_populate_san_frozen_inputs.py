@@ -79,6 +79,12 @@ class SanAcquisitionTest(unittest.TestCase):
                 self.assertTrue(Path(f"{destination}.sha256").is_file())
                 self.assertTrue(Path(f"{destination}.provenance.tsv").is_file())
                 self.assertTrue((root / "manifests" / "frozen_input_catalog.tsv").is_file())
+                path_catalog = root / "manifests" / "artifact_paths.tsv"
+                self.assertTrue(path_catalog.is_file())
+                self.assertEqual(
+                    path_catalog.read_text(encoding="ascii"),
+                    f"artifact_id\tpath\nmmseqs2\t{destination}\n",
+                )
                 self.assertEqual(QuietHandler.requests, 1)
 
                 server.shutdown()

@@ -13,6 +13,7 @@ micromamba/
 
 # Machine-local configuration
 configs/paths.local.sh
+configs/artifact_paths.local.tsv
 
 # Logs
 logs/
