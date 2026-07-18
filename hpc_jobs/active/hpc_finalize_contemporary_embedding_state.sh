@@ -166,7 +166,7 @@ load_framework_paths "$FRAMEWORK_DIR"
 add_mmfp_singularity_bind "$WORK"
 add_mmfp_singularity_bind "$STATE_ROOT"
 add_mmfp_singularity_bind "$BENCHMARK_DIR"
-add_mmfp_singularity_bind "$OBO_FILE"
+add_mmfp_singularity_bind "$(dirname "$OBO_FILE")"
 add_mmfp_singularity_bind "$(dirname "$FINAL_ROOT")"
 activate_or_create_mmfp_env
 PYTHON_BIN="$(command -v python)"
