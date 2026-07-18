@@ -29,6 +29,11 @@ EOF
 
 die() { echo "ERROR: $*" >&2; exit 2; }
 require_value() { [[ $# -ge 2 && -n "$2" ]] || die "$1 requires a value"; }
+git_in_dir() {
+  local directory="$1"
+  shift
+  (cd "$directory" && git "$@")
+}
 
 STATE_ROOT=""
 BENCHMARK_DIR=""
@@ -130,8 +135,8 @@ export TMPDIR="$WORK/tmp" TMP="$WORK/tmp" TEMP="$WORK/tmp"
 
 if [[ -z "$FRAMEWORK_COMMIT" ]]; then
   [[ -d "$SUBMISSION_DIR/.git" ]] || die "Submit from the framework checkout or pass FRAMEWORK_COMMIT"
-  [[ -z "$(git -C "$SUBMISSION_DIR" status --porcelain)" ]] || die "Submission checkout is dirty"
-  FRAMEWORK_COMMIT="$(git -C "$SUBMISSION_DIR" rev-parse HEAD)"
+  [[ -z "$(git_in_dir "$SUBMISSION_DIR" status --porcelain)" ]] || die "Submission checkout is dirty"
+  FRAMEWORK_COMMIT="$(git_in_dir "$SUBMISSION_DIR" rev-parse HEAD)"
 fi
 [[ "$FRAMEWORK_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]] || die "Invalid FRAMEWORK_COMMIT"
 [[ "$PFP_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]] || die "Invalid PFP_COMMIT"
@@ -143,9 +148,9 @@ echo "Final archive : $FINAL_ROOT/contemporary_embedding_cache.tar.gz"
 echo "Scratch       : $WORK"
 
 git clone --no-checkout "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"
-git -C "$FRAMEWORK_DIR" checkout --detach "$FRAMEWORK_COMMIT"
+git_in_dir "$FRAMEWORK_DIR" checkout --detach "$FRAMEWORK_COMMIT"
 git clone --no-checkout "$PFP_REPO_URL" "$PFP_DIR"
-git -C "$PFP_DIR" checkout --detach "$PFP_COMMIT"
+git_in_dir "$PFP_DIR" checkout --detach "$PFP_COMMIT"
 
 if [[ -n "$CLI_CONFIG" ]]; then
   [[ -f "$CLI_CONFIG" ]] || die "Config is missing: $CLI_CONFIG"
