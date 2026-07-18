@@ -46,7 +46,19 @@ echo "Cache work  : $HOMOLOGY_CACHE_WORK_DIR"
 mkdir -p "$WORK"
 git clone "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"
 cd "$FRAMEWORK_DIR"
-echo "Framework revision: $(git rev-parse HEAD)"
+FRAMEWORK_REVISION="$(git rev-parse HEAD)"
+echo "Framework revision: $FRAMEWORK_REVISION"
+
+source scripts/reproduction_common.sh
+load_framework_paths "$FRAMEWORK_DIR"
+add_mmfp_singularity_bind "$SAN_ROOT"
+activate_or_create_mmfp_env
+PYTHON_BIN="$(command -v python)"
+[[ -n "$PYTHON_BIN" ]] || {
+    echo "Activated mmfp environment has no Python executable" >&2
+    exit 1
+}
+echo "Python      : $PYTHON_BIN ($("$PYTHON_BIN" --version 2>&1))"
 
 PROFILE_ARGUMENTS=()
 IFS=',' read -r -a profile_values <<< "$SAN_INPUT_PROFILES"
@@ -58,6 +70,8 @@ for profile in "${profile_values[@]}"; do
     PROFILE_ARGUMENTS+=(--profile "$profile")
 done
 
+PYTHON_BIN="$PYTHON_BIN" \
+FRAMEWORK_REVISION="$FRAMEWORK_REVISION" \
 HOMOLOGY_CACHE_WORK_DIR="$HOMOLOGY_CACHE_WORK_DIR" \
 bash scripts/data_acquisition/populate_san_frozen_inputs.sh \
     --root "$SAN_ROOT" \
