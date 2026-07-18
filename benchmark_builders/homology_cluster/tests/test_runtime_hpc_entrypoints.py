@@ -197,6 +197,21 @@ class RuntimeHPCEntrypointTests(unittest.TestCase):
         self.assertIn("    goa_t1 \\", driver)
         self.assertNotIn("SAN_INPUT_ROOT=", driver)
 
+    def test_runtime_driver_prefers_portable_common_cache_and_keeps_raw_fallback(self):
+        driver = DRIVER.read_text()
+        self.assertIn("homology_common_preprocessing_2026_02", driver)
+        self.assertIn("HOMOLOGY_COMMON_PREPROCESSING_CACHE", driver)
+        self.assertIn("Staging common preprocessing cache into job-owned scratch", driver)
+        self.assertIn(
+            'if [[ -z "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then', driver
+        )
+        self.assertIn("stage_or_download idmapping", driver)
+        self.assertIn("homology_cluster_benchmark.runtime_contract policy", driver)
+        self.assertIn(
+            'HOMOLOGY_COMMON_PREPROCESSING_CACHE="$STAGED_COMMON_CACHE"', driver
+        )
+        self.assertNotIn("/SAN/bioinf/bmpfp", driver)
+
 
 if __name__ == "__main__":
     unittest.main()

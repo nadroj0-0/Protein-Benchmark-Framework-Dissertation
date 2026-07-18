@@ -31,6 +31,12 @@ from .clustering import (
     mapping_counters_by_source,
     retained_cluster_info,
 )
+from .common_cache import (
+    CACHE_MARKER,
+    common_cache_root,
+    inspect_common_preprocessing_cache,
+    load_common_preprocessing_cache,
+)
 from .config import PREFIX_TO_NAMESPACE, SPLITS, SUPPORTED_IDENTITIES, BuildConfig
 from .export import export_all
 from .frozen_inputs import (
@@ -228,8 +234,49 @@ def _validate_frozen_metadata(config: BuildConfig, ontology: Ontology, headers: 
             )
 
 
-def _resolved_inputs(config: BuildConfig, work: Path) -> dict[str, ResolvedInput]:
+def _resolved_inputs(
+    config: BuildConfig,
+    work: Path,
+    frozen_manifest: FrozenInputManifest | None,
+) -> dict[str, ResolvedInput]:
     specs = _input_specs(config)
+    if config.common_preprocessing_cache is not None:
+        if frozen_manifest is None:
+            raise ValueError(
+                "A common preprocessing cache requires a frozen-input manifest"
+            )
+        expected_hashes = {
+            name: str(entry["sha256"])
+            for name, entry in frozen_manifest.entries.items()
+        }
+        cache_root = common_cache_root(config.common_preprocessing_cache)
+        inspect_common_preprocessing_cache(
+            cache_root,
+            expected_source_scope=config.uniprot_source_scope,
+            expected_input_sha256=expected_hashes,
+            verify_file_hashes=False,
+        )
+        resolved = {
+            name: resolve_input(specs[name], work / "downloads", config.allow_downloads)
+            for name in ("uniref90_fasta", "go_obo")
+        }
+        marker = cache_root / CACHE_MARKER
+        for name, spec in specs.items():
+            if name in resolved:
+                continue
+            entry = frozen_manifest.entries[name]
+            resolved[name] = ResolvedInput(
+                name=name,
+                resolved_path=marker,
+                source_url=str(entry["url"]),
+                release=str(entry["release"]),
+                size_bytes=int(entry["size_bytes"]),
+                sha256=str(entry["sha256"]),
+                expected_sha256=spec.expected_sha256,
+                acquisition="authenticated-common-preprocessing-cache",
+                source_population=str(entry["source_population"]),
+            )
+        return resolved
     return {
         name: resolve_input(spec, work / "downloads", config.allow_downloads)
         for name, spec in specs.items()
@@ -277,25 +324,46 @@ def _disk_preflight(
     publication_root = config.output_dir.expanduser().resolve()
     publication_root.mkdir(parents=True, exist_ok=True)
     publication_usage = shutil.disk_usage(publication_root)
-    input_bytes = sum(item.size_bytes for item in inputs.values())
+    logical_input_bytes = sum(item.size_bytes for item in inputs.values())
     uniref_bytes = inputs["uniref90_fasta"].size_bytes
-    goa_bytes = inputs["goa"].size_bytes
+    common_cache_bytes = 0
+    if config.common_preprocessing_cache is not None:
+        cache_root = common_cache_root(config.common_preprocessing_cache)
+        common_cache_bytes = sum(
+            path.stat().st_size for path in cache_root.rglob("*") if path.is_file()
+        )
+        staged_input_bytes = (
+            uniref_bytes + inputs["go_obo"].size_bytes + common_cache_bytes
+        )
+        goa_bytes = 0
+    else:
+        staged_input_bytes = logical_input_bytes
+        goa_bytes = inputs["goa"].size_bytes
     mmseqs_work_estimate = int(uniref_bytes * config.mmseqs_work_multiplier)
-    parser_index_estimate = int(
-        (goa_bytes + inputs["idmapping"].size_bytes) * config.scratch_safety_multiplier
+    parser_index_estimate = (
+        0 if config.common_preprocessing_cache is not None else int(
+            (goa_bytes + inputs["idmapping"].size_bytes)
+            * config.scratch_safety_multiplier
+        )
     )
     estimated_scratch = (
-        input_bytes
+        staged_input_bytes
         + mmseqs_work_estimate
         + parser_index_estimate
         + config.minimum_free_disk_bytes
     )
-    estimated_publication = int(
-        (
+    if config.common_preprocessing_cache is not None:
+        # The cache is an input, not a publication. Cluster/member reports dominate the
+        # threshold output, so use the UniRef scaffold as the conservative output basis.
+        publication_basis = uniref_bytes
+    else:
+        publication_basis = (
             uniref_bytes
             + goa_bytes
             + sum(inputs[name].size_bytes for name in config.selected_uniprot_input_names)
-        ) * config.publication_safety_multiplier
+        )
+    estimated_publication = int(
+        publication_basis * config.publication_safety_multiplier
         + config.minimum_free_disk_bytes
     )
     same_filesystem = os.stat(work).st_dev == os.stat(publication_root).st_dev
@@ -331,7 +399,10 @@ def _disk_preflight(
         "scratch_free_bytes_at_preflight": scratch_usage.free,
         "publication_free_bytes_at_preflight": publication_usage.free,
         "same_filesystem": same_filesystem,
-        "input_bytes": input_bytes,
+        "logical_input_bytes": logical_input_bytes,
+        "staged_input_bytes": staged_input_bytes,
+        "common_preprocessing_cache_bytes": common_cache_bytes,
+        "common_preprocessing_cache_used": config.common_preprocessing_cache is not None,
         "uniref90_bytes": uniref_bytes,
         "goa_bytes": goa_bytes,
         "persistent_results_root": str(persistent_path),
@@ -359,6 +430,8 @@ def _disk_preflight(
 
 def _verify_inputs_unchanged(inputs: dict[str, ResolvedInput]) -> None:
     for name, item in sorted(inputs.items()):
+        if item.acquisition == "authenticated-common-preprocessing-cache":
+            continue
         path = item.resolved_path
         if not path.is_file():
             raise ValueError(f"Input changed during the run: {name} disappeared from {path}")
@@ -1409,7 +1482,7 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
 
         stage_started = time.monotonic()
         LOGGER.info("Stage started: resolve and hash frozen inputs")
-        inputs = _resolved_inputs(config, work)
+        inputs = _resolved_inputs(config, work, frozen_manifest)
         if frozen_manifest is None:
             frozen_manifest = write_synthetic_fixture_manifest(
                 work / "synthetic_frozen_input_manifest.json",
@@ -1436,6 +1509,7 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
             raise RuntimeError("Attrition policy contract was not initialized")
         eligibility = bind_frozen_inputs(frozen_manifest, _input_specs(config), inputs)
         disk_preflight = _disk_preflight(config, work, inputs)
+        loaded_common_cache = None
         LOGGER.info(
             "Stage completed: resolve and hash frozen inputs elapsed_seconds=%.1f",
             time.monotonic() - stage_started,
@@ -1446,31 +1520,7 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
             _json(stage / "disk_preflight.json", disk_preflight)
             shutil.copyfile(frozen_manifest.path, stage / "frozen_input_manifest.json")
 
-            stage_started = time.monotonic()
-            LOGGER.info("Stage started: ontology and GOA parsing")
             ontology = Ontology(inputs["go_obo"].resolved_path, config.include_relationships)
-            goa = load_goa(
-                inputs["goa"].resolved_path,
-                ontology,
-                config.evidence_codes,
-                strict_malformed=config.strict_qc,
-                spool_dir=work / "goa_spool",
-                excluded_sample_per_reason=config.excluded_sample_per_reason,
-            )
-            _validate_frozen_metadata(config, ontology, goa.headers)
-            _validate_manifest_embedded_metadata(frozen_manifest, ontology, goa.headers)
-            LOGGER.info(
-                "Stage completed: ontology and GOA parsing qualifying_accessions=%d "
-                "elapsed_seconds=%.1f",
-                len(goa.qualifying_accessions), time.monotonic() - stage_started,
-            )
-
-            stage_started = time.monotonic()
-            LOGGER.info("Stage started: UniRef90, UniProt, and accession mapping indexes")
-            uniref = UniRefIndex.build(
-                inputs["uniref90_fasta"].resolved_path, work / "uniref90.sqlite"
-            )
-            requested_raw = set(goa.qualifying_accessions or goa.annotations)
             selected_sources = {
                 {
                     "uniprot_sprot_sequences": "sprot",
@@ -1478,21 +1528,79 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 }[name]: inputs[name].resolved_path
                 for name in config.selected_uniprot_input_names
             }
-            catalog = load_requested_proteins_from_sources(
-                selected_sources,
-                requested_raw,
-                strict_collisions=not config.fixture_mode,
-                collision_database=work / "uniprot_accessions.sqlite",
-            )
-            goa = canonicalize_goa_accessions(goa, catalog)
-            decisions = load_uniref90_mappings(
-                inputs["idmapping"].resolved_path, requested_raw, catalog, uniref
-            )
-            LOGGER.info(
-                "Stage completed: UniRef90, UniProt, and accession mapping indexes "
-                "uniref_entries=%d mapping_decisions=%d elapsed_seconds=%.1f",
-                uniref.count(), len(decisions), time.monotonic() - stage_started,
-            )
+            if config.common_preprocessing_cache is None:
+                stage_started = time.monotonic()
+                LOGGER.info("Stage started: ontology and GOA parsing")
+                goa = load_goa(
+                    inputs["goa"].resolved_path,
+                    ontology,
+                    config.evidence_codes,
+                    strict_malformed=config.strict_qc,
+                    spool_dir=work / "goa_spool",
+                    excluded_sample_per_reason=config.excluded_sample_per_reason,
+                )
+                _validate_frozen_metadata(config, ontology, goa.headers)
+                _validate_manifest_embedded_metadata(frozen_manifest, ontology, goa.headers)
+                LOGGER.info(
+                    "Stage completed: ontology and GOA parsing qualifying_accessions=%d "
+                    "elapsed_seconds=%.1f",
+                    len(goa.qualifying_accessions), time.monotonic() - stage_started,
+                )
+
+                stage_started = time.monotonic()
+                LOGGER.info(
+                    "Stage started: UniRef90, UniProt, and accession mapping indexes"
+                )
+                uniref = UniRefIndex.build(
+                    inputs["uniref90_fasta"].resolved_path, work / "uniref90.sqlite"
+                )
+                requested_raw = set(goa.qualifying_accessions or goa.annotations)
+                catalog = load_requested_proteins_from_sources(
+                    selected_sources,
+                    requested_raw,
+                    strict_collisions=not config.fixture_mode,
+                    collision_database=work / "uniprot_accessions.sqlite",
+                )
+                goa = canonicalize_goa_accessions(goa, catalog)
+                decisions = load_uniref90_mappings(
+                    inputs["idmapping"].resolved_path, requested_raw, catalog, uniref
+                )
+                LOGGER.info(
+                    "Stage completed: UniRef90, UniProt, and accession mapping indexes "
+                    "uniref_entries=%d mapping_decisions=%d elapsed_seconds=%.1f",
+                    uniref.count(), len(decisions), time.monotonic() - stage_started,
+                )
+            else:
+                stage_started = time.monotonic()
+                LOGGER.info("Stage started: load common preprocessing cache")
+                loaded_common_cache = load_common_preprocessing_cache(
+                    config.common_preprocessing_cache,
+                    source_scope=config.uniprot_source_scope,
+                    expected_input_sha256={
+                        name: str(entry["sha256"])
+                        for name, entry in frozen_manifest.entries.items()
+                    },
+                    include_relationships=config.include_relationships,
+                    strict_qc=config.strict_qc,
+                    excluded_sample_per_reason=config.excluded_sample_per_reason,
+                    frozen_input_manifest_sha256=frozen_manifest.sha256,
+                )
+                goa = loaded_common_cache.goa
+                catalog = loaded_common_cache.catalog
+                decisions = loaded_common_cache.decisions
+                requested_raw = loaded_common_cache.requested_raw
+                uniref = loaded_common_cache.uniref
+                _validate_frozen_metadata(config, ontology, goa.headers)
+                _validate_manifest_embedded_metadata(frozen_manifest, ontology, goa.headers)
+                shutil.copyfile(
+                    loaded_common_cache.root / CACHE_MARKER,
+                    stage / "common_preprocessing_cache_manifest.json",
+                )
+                LOGGER.info(
+                    "Stage completed: load common preprocessing cache "
+                    "uniref_entries=%d mapping_decisions=%d elapsed_seconds=%.1f",
+                    uniref.count(), len(decisions), time.monotonic() - stage_started,
+                )
 
             stage_started = time.monotonic()
             LOGGER.info("Stage started: MMseqs2 execution or fixture assignment validation")
@@ -1639,6 +1747,23 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                     "ontology_release": config.release_ontology,
                 },
                 "inputs": {name: item.as_dict() for name, item in sorted(inputs.items())},
+                "common_preprocessing_cache": (
+                    {
+                        "used": True,
+                        "published_manifest": "common_preprocessing_cache_manifest.json",
+                        "marker_sha256": loaded_common_cache.marker_sha256,
+                        "source_scope": config.uniprot_source_scope,
+                        "cached_stages": [
+                            "GOA parsing",
+                            "UniRef90 sequence index",
+                            "selected UniProt catalogue",
+                            "GOA accession canonicalization",
+                            "UniProt-to-UniRef90 mapping",
+                        ],
+                        "threshold_specific_data_cached": False,
+                    }
+                    if loaded_common_cache is not None else {"used": False}
+                ),
                 "selected_uniprot_population": {
                     "scope": config.uniprot_source_scope,
                     "required_roles": list(config.selected_uniprot_input_names),
@@ -1866,6 +1991,26 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
             stage_started = time.monotonic()
             LOGGER.info("Stage started: final input recheck and atomic publication")
             _verify_inputs_unchanged(inputs)
+            if loaded_common_cache is not None:
+                refreshed_cache = inspect_common_preprocessing_cache(
+                    loaded_common_cache.root,
+                    expected_source_scope=config.uniprot_source_scope,
+                    expected_input_sha256={
+                        name: str(entry["sha256"])
+                        for name, entry in frozen_manifest.entries.items()
+                    },
+                    verify_file_hashes=True,
+                )
+                if sha256_file(loaded_common_cache.root / CACHE_MARKER) != (
+                    loaded_common_cache.marker_sha256
+                ):
+                    raise ValueError(
+                        "Common preprocessing cache marker changed while the run was in progress"
+                    )
+                if refreshed_cache != loaded_common_cache.payload:
+                    raise ValueError(
+                        "Common preprocessing cache contract changed while the run was in progress"
+                    )
             verify_frozen_manifest_unchanged(frozen_manifest)
             if sha256_file(policy_source) != attrition_policy_sha256:
                 raise ValueError("Attrition policy changed while the run was in progress")

@@ -344,6 +344,19 @@ class SanAcquisitionTest(unittest.TestCase):
         self.assertNotIn("goa/current_release_numbers.txt", specification)
         self.assertNotIn("goa_t1_md5", specification)
 
+    def test_homology_profile_defines_idempotent_common_preprocessing_cache(self) -> None:
+        script = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn(
+            'HOMOLOGY_CACHE_ROLE="homology_common_preprocessing_2026_02"', script
+        )
+        self.assertIn("process_homology_derived_inputs()", script)
+        self.assertIn("homology_cluster_benchmark.common_cache", script)
+        self.assertIn('verify "${verify_args[@]}"', script)
+        self.assertIn('common_cache build "${build_args[@]}"', script)
+        self.assertIn("--replace-existing", script)
+        self.assertIn("process_homology_derived_inputs", script)
+        self.assertIn("$HOMOLOGY_CACHE_RELATIVE/$CACHE_MARKER", script)
+
 
 if __name__ == "__main__":
     unittest.main()

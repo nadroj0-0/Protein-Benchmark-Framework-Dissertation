@@ -77,6 +77,7 @@ class BuildConfig:
     mmseqs_bin: str = "mmseqs"
     expected_mmseqs_version: str | None = None
     cluster_assignments: Path | None = None
+    common_preprocessing_cache: Path | None = None
     frozen_input_manifest: Path | None = None
     attrition_policy: Path | None = None
     attrition_override: Path | None = None
@@ -190,6 +191,17 @@ class BuildConfig:
                 "Precomputed --cluster-assignments are fixture-only because their generating "
                 "MMseqs2 identity, coverage, command, and version cannot be proven by this run"
             )
+        if self.common_preprocessing_cache is not None:
+            cache = self.common_preprocessing_cache.expanduser()
+            if not cache.exists():
+                raise ValueError(
+                    f"Common preprocessing cache does not exist: {cache}"
+                )
+            if cache.is_file() and cache.name != "CACHE_COMPLETE.json":
+                raise ValueError(
+                    "--common-preprocessing-cache must be a cache directory or its "
+                    "CACHE_COMPLETE.json marker"
+                )
         if self.allow_empty_fixture_outputs and not self.fixture_mode:
             raise ValueError("Empty ontology/split outputs may be allowed only in fixture mode")
         if require_pinned_inputs and not self.fixture_mode:

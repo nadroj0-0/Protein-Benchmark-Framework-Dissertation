@@ -79,6 +79,14 @@ def _parser() -> argparse.ArgumentParser:
     build.add_argument("--mmseqs-bin", default=os.environ.get("MMSEQS_BIN", "mmseqs"))
     build.add_argument("--expected-mmseqs-version")
     build.add_argument("--frozen-input-manifest", type=Path)
+    build.add_argument(
+        "--common-preprocessing-cache",
+        type=Path,
+        help=(
+            "Validated threshold-independent GOA/UniRef/UniProt/idmapping cache; "
+            "raw-input preprocessing remains the fallback when omitted"
+        ),
+    )
     build.add_argument("--attrition-policy", type=Path)
     build.add_argument("--attrition-override", type=Path)
     build.add_argument("--framework-revision")
@@ -219,6 +227,7 @@ def _config(args: argparse.Namespace, identity: float) -> BuildConfig:
         expected_mmseqs_version=args.expected_mmseqs_version,
         cluster_assignments=args.cluster_assignments,
         frozen_input_manifest=args.frozen_input_manifest,
+        common_preprocessing_cache=args.common_preprocessing_cache,
         attrition_policy=args.attrition_policy,
         attrition_override=args.attrition_override,
         framework_revision=args.framework_revision,
@@ -263,6 +272,10 @@ def _preview(config: BuildConfig) -> dict[str, object]:
         "uniprot_source_scope": config.uniprot_source_scope,
         "framework_revision": config.framework_revision,
         "attrition_policy": str(config.attrition_policy) if config.attrition_policy else None,
+        "common_preprocessing_cache": (
+            str(config.common_preprocessing_cache)
+            if config.common_preprocessing_cache else None
+        ),
         "requested_slots": config.requested_slots,
         "allocated_slots": config.allocated_slots,
         "mmseqs_threads": config.threads,
@@ -744,15 +757,20 @@ def main(argv: list[str] | None = None) -> int:
         for config in configs:
             config.validate()
         if len(configs) > 1:
-            missing_local = [
-                spec.name
-                for spec in (
+            multi_run_specs = (
+                (configs[0].uniref90_fasta, configs[0].go_obo)
+                if configs[0].common_preprocessing_cache is not None else
+                (
                     configs[0].uniref90_fasta,
                     configs[0].idmapping,
                     *(getattr(configs[0], name) for name in configs[0].selected_uniprot_input_names),
                     configs[0].goa,
                     configs[0].go_obo,
                 )
+            )
+            missing_local = [
+                spec.name
+                for spec in multi_run_specs
                 if spec is not None
                 if spec.path is None
             ]

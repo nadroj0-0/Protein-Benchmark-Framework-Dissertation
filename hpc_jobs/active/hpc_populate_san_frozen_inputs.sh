@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # UCL Grid Engine wrapper for persistent SAN frozen-input acquisition.
 
-#$ -l tmem=2G
-#$ -l tscratch=2G
-#$ -l scratch0free=2G
+#$ -l tmem=8G
+#$ -l tscratch=120G
+#$ -l scratch0free=120G
 #$ -l h_rt=72:0:0
 #$ -j y
 #$ -N san_frozen_inputs
@@ -17,6 +17,7 @@ FRAMEWORK_DIR="$WORK/Protein-Benchmark-Framework-Dissertation"
 SAN_ROOT="${SAN_ROOT:-/SAN/bioinf/bmpfp}"
 SAN_INPUT_PROFILES="${SAN_INPUT_PROFILES:-all}"
 SAN_INPUT_RESERVE_GB="${SAN_INPUT_RESERVE_GB:-40}"
+HOMOLOGY_CACHE_WORK_DIR="${HOMOLOGY_CACHE_WORK_DIR:-$WORK/homology-common-cache}"
 
 cleanup() {
     local status=$?
@@ -35,6 +36,7 @@ echo "SAN root    : $SAN_ROOT"
 echo "Profiles    : $SAN_INPUT_PROFILES"
 echo "Reserve GiB : $SAN_INPUT_RESERVE_GB"
 echo "Scratch     : $WORK"
+echo "Cache work  : $HOMOLOGY_CACHE_WORK_DIR"
 
 [[ -d "$SAN_ROOT" && -w "$SAN_ROOT" ]] || {
     echo "SAN root is unavailable or not writable: $SAN_ROOT" >&2
@@ -56,6 +58,7 @@ for profile in "${profile_values[@]}"; do
     PROFILE_ARGUMENTS+=(--profile "$profile")
 done
 
+HOMOLOGY_CACHE_WORK_DIR="$HOMOLOGY_CACHE_WORK_DIR" \
 bash scripts/data_acquisition/populate_san_frozen_inputs.sh \
     --root "$SAN_ROOT" \
     --reserve-gb "$SAN_INPUT_RESERVE_GB" \

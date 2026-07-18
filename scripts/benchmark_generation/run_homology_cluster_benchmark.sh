@@ -51,13 +51,46 @@ SIGNAL_WATCHDOG_PID=""
 SIGNAL_GRACE_SECONDS=10
 
 UNIREF90_FASTA="$(resolve_artifact_path uniref90_t1 "${UNIREF90_FASTA:-}" || true)"
-IDMAPPING="$(resolve_artifact_path idmapping_t1 "${IDMAPPING:-}" || true)"
-UNIPROT_SPROT_SEQUENCES="$(resolve_artifact_path uniprot_sprot_t1 "${UNIPROT_SPROT_SEQUENCES:-}" || true)"
-UNIPROT_TREMBL_SEQUENCES="$(resolve_artifact_path uniprot_trembl_t1 "${UNIPROT_TREMBL_SEQUENCES:-}" || true)"
-GOA="$(resolve_artifact_path goa_t1 "${GOA:-}" || true)"
 GO_OBO="$(resolve_artifact_path go_basic_t1 "${GO_OBO:-}" || true)"
+resolve_common_preprocessing_cache() {
+    local explicit="${1:-}"
+    local candidate=""
+    if [[ -n "$explicit" ]]; then
+        if [[ -d "$explicit" && -s "$explicit/CACHE_COMPLETE.json" ]]; then
+            (cd "$explicit" && pwd -P)
+            return 0
+        fi
+        if [[ -s "$explicit" && "$(basename "$explicit")" == "CACHE_COMPLETE.json" ]]; then
+            (cd "$(dirname "$explicit")" && pwd -P)
+            return 0
+        fi
+        artifact_catalog_warn \
+            "explicit homology common cache is incomplete; trying catalogue/raw fallback: $explicit"
+    fi
+    candidate="$(artifact_catalog_lookup homology_common_preprocessing_2026_02 2>/dev/null || true)"
+    if [[ -s "$candidate" && "$(basename "$candidate")" == "CACHE_COMPLETE.json" ]]; then
+        (cd "$(dirname "$candidate")" && pwd -P)
+        return 0
+    fi
+    return 1
+}
+HOMOLOGY_COMMON_PREPROCESSING_CACHE="$(
+    resolve_common_preprocessing_cache "${HOMOLOGY_COMMON_PREPROCESSING_CACHE:-}" || true
+)"
+if [[ -n "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then
+    IDMAPPING="${IDMAPPING:-}"
+    UNIPROT_SPROT_SEQUENCES="${UNIPROT_SPROT_SEQUENCES:-}"
+    UNIPROT_TREMBL_SEQUENCES="${UNIPROT_TREMBL_SEQUENCES:-}"
+    GOA="${GOA:-}"
+else
+    IDMAPPING="$(resolve_artifact_path idmapping_t1 "${IDMAPPING:-}" || true)"
+    UNIPROT_SPROT_SEQUENCES="$(resolve_artifact_path uniprot_sprot_t1 "${UNIPROT_SPROT_SEQUENCES:-}" || true)"
+    UNIPROT_TREMBL_SEQUENCES="$(resolve_artifact_path uniprot_trembl_t1 "${UNIPROT_TREMBL_SEQUENCES:-}" || true)"
+    GOA="$(resolve_artifact_path goa_t1 "${GOA:-}" || true)"
+fi
 for catalog_input in "$UNIREF90_FASTA" "$IDMAPPING" "$UNIPROT_SPROT_SEQUENCES" \
-    "$UNIPROT_TREMBL_SEQUENCES" "$GOA" "$GO_OBO"; do
+    "$UNIPROT_TREMBL_SEQUENCES" "$GOA" "$GO_OBO" \
+    "$HOMOLOGY_COMMON_PREPROCESSING_CACHE"; do
     [[ -z "$catalog_input" ]] || add_mmfp_singularity_bind "$(dirname "$catalog_input")"
 done
 
@@ -132,14 +165,16 @@ esac
 
 if [[ "$DRY_RUN" != "1" ]]; then
     require_local_or_url UniRef90 "${UNIREF90_FASTA:-}" "${UNIREF90_FASTA_URL:-}"
-    require_local_or_url idmapping_selected "${IDMAPPING:-}" "${IDMAPPING_URL:-}"
-    if [[ "$UNIPROT_SOURCE_SCOPE" != "trembl-only" ]]; then
-        require_local_or_url Swiss-Prot-DAT "${UNIPROT_SPROT_SEQUENCES:-}" "${UNIPROT_SPROT_SEQUENCES_URL:-}"
+    if [[ -z "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then
+        require_local_or_url idmapping_selected "${IDMAPPING:-}" "${IDMAPPING_URL:-}"
+        if [[ "$UNIPROT_SOURCE_SCOPE" != "trembl-only" ]]; then
+            require_local_or_url Swiss-Prot-DAT "${UNIPROT_SPROT_SEQUENCES:-}" "${UNIPROT_SPROT_SEQUENCES_URL:-}"
+        fi
+        if [[ "$UNIPROT_SOURCE_SCOPE" != "sprot-only" ]]; then
+            require_local_or_url TrEMBL-DAT "${UNIPROT_TREMBL_SEQUENCES:-}" "${UNIPROT_TREMBL_SEQUENCES_URL:-}"
+        fi
+        require_local_or_url GOA "${GOA:-}" "${GOA_URL:-}"
     fi
-    if [[ "$UNIPROT_SOURCE_SCOPE" != "sprot-only" ]]; then
-        require_local_or_url TrEMBL-DAT "${UNIPROT_TREMBL_SEQUENCES:-}" "${UNIPROT_TREMBL_SEQUENCES_URL:-}"
-    fi
-    require_local_or_url GOA "${GOA:-}" "${GOA_URL:-}"
     require_local_or_url GO-OBO "${GO_OBO:-}" "$GO_OBO_URL"
     if [[ "$FIXTURE_MODE" != "1" && -n "${CLUSTER_ASSIGNMENTS:-}" ]]; then
         echo "CLUSTER_ASSIGNMENTS is fixture-only; set FIXTURE_MODE=1 explicitly" >&2
@@ -215,6 +250,9 @@ if [[ -n "$EXPECTED_MMSEQS_VERSION" ]]; then
 fi
 if [[ -n "$FROZEN_INPUT_MANIFEST" ]]; then
     COMMAND+=(--frozen-input-manifest "$FROZEN_INPUT_MANIFEST")
+fi
+if [[ -n "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then
+    COMMAND+=(--common-preprocessing-cache "$HOMOLOGY_COMMON_PREPROCESSING_CACHE")
 fi
 if [[ -n "$ATTRITION_POLICY" ]]; then
     COMMAND+=(--attrition-policy "$ATTRITION_POLICY")

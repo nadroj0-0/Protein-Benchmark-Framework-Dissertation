@@ -410,21 +410,55 @@ use_catalog_input_if_available() {
 use_catalog_input_if_available UNIREF90_FASTA UNIREF90_FASTA_SHA256 \
     uniref90_t1 \
     ed80f79bbf1f054b3ea444ce0db0819586731e4dc3a3fb0c75a60ff273eedefb
-use_catalog_input_if_available IDMAPPING IDMAPPING_SHA256 \
-    idmapping_t1 \
-    96707b0430f76e78f708eaa70d6cae7ccb4bb8e4b6b981c7d169215d650cc605
-use_catalog_input_if_available UNIPROT_SPROT_SEQUENCES UNIPROT_SPROT_SEQUENCES_SHA256 \
-    uniprot_sprot_t1 \
-    741bcb144f98b8d10f0369b145d562b6751bfd17c285e936553aeb9cb54ab592
-use_catalog_input_if_available UNIPROT_TREMBL_SEQUENCES UNIPROT_TREMBL_SEQUENCES_SHA256 \
-    uniprot_trembl_t1 \
-    ae40f0dc517e92a9f3b9b2cf8000c977c4d08458aefb7667692133298842fe69
-use_catalog_input_if_available GOA GOA_SHA256 \
-    goa_t1 \
-    "$PINNED_GOA_SHA256"
 use_catalog_input_if_available GO_OBO GO_OBO_SHA256 \
     go_basic_t1 \
     c72fc198a86983d55e43aac585d1ffdbeb6e3601475b3f18b6045acdc0a0734c
+
+resolve_runtime_common_cache() {
+    local explicit="${1:-}"
+    local marker=""
+    if [[ -n "$explicit" ]]; then
+        if [[ -d "$explicit" && -s "$explicit/CACHE_COMPLETE.json" ]]; then
+            printf '%s\n' "$explicit/CACHE_COMPLETE.json"
+            return 0
+        fi
+        if [[ -s "$explicit" && "$(basename "$explicit")" == "CACHE_COMPLETE.json" ]]; then
+            printf '%s\n' "$explicit"
+            return 0
+        fi
+        artifact_catalog_warn \
+            "explicit homology common cache is incomplete; trying catalogue/raw fallback: $explicit"
+    fi
+    marker="$(resolve_artifact_path homology_common_preprocessing_2026_02 "" || true)"
+    if [[ -s "$marker" && "$(basename "$marker")" == "CACHE_COMPLETE.json" ]]; then
+        printf '%s\n' "$marker"
+        return 0
+    fi
+    return 1
+}
+HOMOLOGY_COMMON_CACHE_MARKER="$(
+    resolve_runtime_common_cache "${HOMOLOGY_COMMON_PREPROCESSING_CACHE:-}" || true
+)"
+HOMOLOGY_COMMON_PREPROCESSING_CACHE=""
+if [[ -n "$HOMOLOGY_COMMON_CACHE_MARKER" ]]; then
+    HOMOLOGY_COMMON_PREPROCESSING_CACHE="$(
+        cd "$(dirname "$HOMOLOGY_COMMON_CACHE_MARKER")" && pwd -P
+    )"
+    echo "Using common homology preprocessing cache: $HOMOLOGY_COMMON_PREPROCESSING_CACHE"
+else
+    use_catalog_input_if_available IDMAPPING IDMAPPING_SHA256 \
+        idmapping_t1 \
+        96707b0430f76e78f708eaa70d6cae7ccb4bb8e4b6b981c7d169215d650cc605
+    use_catalog_input_if_available UNIPROT_SPROT_SEQUENCES UNIPROT_SPROT_SEQUENCES_SHA256 \
+        uniprot_sprot_t1 \
+        741bcb144f98b8d10f0369b145d562b6751bfd17c285e936553aeb9cb54ab592
+    use_catalog_input_if_available UNIPROT_TREMBL_SEQUENCES UNIPROT_TREMBL_SEQUENCES_SHA256 \
+        uniprot_trembl_t1 \
+        ae40f0dc517e92a9f3b9b2cf8000c977c4d08458aefb7667692133298842fe69
+    use_catalog_input_if_available GOA GOA_SHA256 \
+        goa_t1 \
+        "$PINNED_GOA_SHA256"
+fi
 
 download_file() {
     local url="$1"
@@ -473,14 +507,15 @@ printf 'role\tpath\tofficial_url\tacquisition\tsize_bytes\tsha256\n' \
     > "$ARTIFACTS/logs/runtime_input_staging.tsv"
 
 needs_uniprot_download=0
-for name in UNIREF90_FASTA IDMAPPING; do
-    [[ -n "${!name:-}" ]] || needs_uniprot_download=1
-done
-if [[ "$UNIPROT_SOURCE_SCOPE" != "trembl-only" && -z "${UNIPROT_SPROT_SEQUENCES:-}" ]]; then
-    needs_uniprot_download=1
-fi
-if [[ "$UNIPROT_SOURCE_SCOPE" != "sprot-only" && -z "${UNIPROT_TREMBL_SEQUENCES:-}" ]]; then
-    needs_uniprot_download=1
+[[ -n "${UNIREF90_FASTA:-}" ]] || needs_uniprot_download=1
+if [[ -z "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then
+    [[ -n "${IDMAPPING:-}" ]] || needs_uniprot_download=1
+    if [[ "$UNIPROT_SOURCE_SCOPE" != "trembl-only" && -z "${UNIPROT_SPROT_SEQUENCES:-}" ]]; then
+        needs_uniprot_download=1
+    fi
+    if [[ "$UNIPROT_SOURCE_SCOPE" != "sprot-only" && -z "${UNIPROT_TREMBL_SEQUENCES:-}" ]]; then
+        needs_uniprot_download=1
+    fi
 fi
 if [[ "$needs_uniprot_download" == "1" ]]; then
     download_file "$UNIPROT_RELNOTES_URL" "$ARTIFACTS/logs/uniprot_relnotes.txt"
@@ -491,18 +526,35 @@ if [[ "$needs_uniprot_download" == "1" ]]; then
 fi
 stage_or_download uniref90_fasta "${UNIREF90_FASTA:-}" "$UNIREF90_URL" \
     "$INPUT_ROOT/uniref90.fasta.gz" "${UNIREF90_FASTA_SHA256:-}"
-stage_or_download idmapping "${IDMAPPING:-}" "$IDMAPPING_URL" \
-    "$INPUT_ROOT/idmapping_selected.tab.gz" "${IDMAPPING_SHA256:-}"
-if [[ "$UNIPROT_SOURCE_SCOPE" != "trembl-only" ]]; then
-    stage_or_download uniprot_sprot_sequences "${UNIPROT_SPROT_SEQUENCES:-}" "$SPROT_URL" \
-        "$INPUT_ROOT/uniprot_sprot.dat.gz" "${UNIPROT_SPROT_SEQUENCES_SHA256:-}"
+if [[ -n "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then
+    STAGED_COMMON_CACHE="$INPUT_ROOT/common_preprocessing_cache"
+    echo "Staging common preprocessing cache into job-owned scratch"
+    cp -a "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" "$STAGED_COMMON_CACHE"
+    [[ -s "$STAGED_COMMON_CACHE/CACHE_COMPLETE.json" ]] || {
+        echo "Staged common preprocessing cache is incomplete" >&2
+        exit 1
+    }
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+        common_preprocessing_cache "$STAGED_COMMON_CACHE" "cache://homology-common" \
+        provided-path-staged-to-scratch \
+        "$(du -sk "$STAGED_COMMON_CACHE" | awk '{print $1 * 1024}')" \
+        "$(sha256sum "$STAGED_COMMON_CACHE/CACHE_COMPLETE.json" | awk '{print $1}')" \
+        >> "$ARTIFACTS/logs/runtime_input_staging.tsv"
+    checkpoint_disk_usage common-preprocessing-cache-staged
+else
+    stage_or_download idmapping "${IDMAPPING:-}" "$IDMAPPING_URL" \
+        "$INPUT_ROOT/idmapping_selected.tab.gz" "${IDMAPPING_SHA256:-}"
+    if [[ "$UNIPROT_SOURCE_SCOPE" != "trembl-only" ]]; then
+        stage_or_download uniprot_sprot_sequences "${UNIPROT_SPROT_SEQUENCES:-}" "$SPROT_URL" \
+            "$INPUT_ROOT/uniprot_sprot.dat.gz" "${UNIPROT_SPROT_SEQUENCES_SHA256:-}"
+    fi
+    if [[ "$UNIPROT_SOURCE_SCOPE" != "sprot-only" ]]; then
+        stage_or_download uniprot_trembl_sequences "${UNIPROT_TREMBL_SEQUENCES:-}" "$TREMBL_URL" \
+            "$INPUT_ROOT/uniprot_trembl.dat.gz" "${UNIPROT_TREMBL_SEQUENCES_SHA256:-}"
+    fi
+    stage_or_download goa "${GOA:-}" "$GOA_URL" \
+        "$INPUT_ROOT/goa_uniprot_all.gaf.234.gz" "${GOA_SHA256:-$PINNED_GOA_SHA256}"
 fi
-if [[ "$UNIPROT_SOURCE_SCOPE" != "sprot-only" ]]; then
-    stage_or_download uniprot_trembl_sequences "${UNIPROT_TREMBL_SEQUENCES:-}" "$TREMBL_URL" \
-        "$INPUT_ROOT/uniprot_trembl.dat.gz" "${UNIPROT_TREMBL_SEQUENCES_SHA256:-}"
-fi
-stage_or_download goa "${GOA:-}" "$GOA_URL" \
-    "$INPUT_ROOT/goa_uniprot_all.gaf.234.gz" "${GOA_SHA256:-$PINNED_GOA_SHA256}"
 stage_or_download go_obo "${GO_OBO:-}" "$GO_OBO_URL" \
     "$INPUT_ROOT/go-basic.obo" "${GO_OBO_SHA256:-}"
 
@@ -514,16 +566,18 @@ if [[ "$needs_uniprot_download" == "1" ]]; then
         exit 1
     }
 fi
-zgrep -m 1 '^!date-generated:.*2026-06-17' \
-    "$INPUT_ROOT/goa_uniprot_all.gaf.234.gz" >/dev/null || {
-    echo "GOA input is not release 234 from 2026-06-17" >&2
-    exit 1
-}
-zgrep -m 1 '^!go-version:.*2026-06-15' \
-    "$INPUT_ROOT/goa_uniprot_all.gaf.234.gz" >/dev/null || {
-    echo "GOA 234 input does not declare GO 2026-06-15" >&2
-    exit 1
-}
+if [[ -z "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then
+    zgrep -m 1 '^!date-generated:.*2026-06-17' \
+        "$INPUT_ROOT/goa_uniprot_all.gaf.234.gz" >/dev/null || {
+        echo "GOA input is not release 234 from 2026-06-17" >&2
+        exit 1
+    }
+    zgrep -m 1 '^!go-version:.*2026-06-15' \
+        "$INPUT_ROOT/goa_uniprot_all.gaf.234.gz" >/dev/null || {
+        echo "GOA 234 input does not declare GO 2026-06-15" >&2
+        exit 1
+    }
+fi
 
 MMSEQS_RELEASE_TAG="${MMSEQS_RELEASE_TAG:-18-8cc5c}"
 EXPECTED_MMSEQS_VERSION="${EXPECTED_MMSEQS_VERSION:-$MMSEQS_RELEASE_TAG}"
@@ -575,45 +629,63 @@ checkpoint_disk_usage mmseqs-installed
 MANIFEST="$ARTIFACTS/contracts/frozen_input_manifest.json"
 ATTRITION_POLICY="$ARTIFACTS/contracts/runtime_attrition_policy.json"
 mkdir -p "$(dirname "$MANIFEST")"
-contract_command=(
-    "$PYTHON_BIN" -m homology_cluster_benchmark.runtime_contract prepare
-    --manifest-out "$MANIFEST"
-    --policy-out "$ATTRITION_POLICY"
-    --source-scope "$UNIPROT_SOURCE_SCOPE"
-    --framework-revision "$FRAMEWORK_REVISION"
-    --uniref90-fasta "$INPUT_ROOT/uniref90.fasta.gz"
-    --uniref90-fasta-url "$UNIREF90_URL"
-    --uniref90-fasta-acquisition "$(awk -F '\t' '$1=="uniref90_fasta" {print $4}' "$ARTIFACTS/logs/runtime_input_staging.tsv")"
-    --idmapping "$INPUT_ROOT/idmapping_selected.tab.gz"
-    --idmapping-url "$IDMAPPING_URL"
-    --idmapping-acquisition "$(awk -F '\t' '$1=="idmapping" {print $4}' "$ARTIFACTS/logs/runtime_input_staging.tsv")"
-    --goa "$INPUT_ROOT/goa_uniprot_all.gaf.234.gz"
-    --goa-url "$GOA_URL"
-    --goa-acquisition "$(awk -F '\t' '$1=="goa" {print $4}' "$ARTIFACTS/logs/runtime_input_staging.tsv")"
-    --go-obo "$INPUT_ROOT/go-basic.obo"
-    --go-obo-url "$GO_OBO_URL"
-    --go-obo-acquisition "$(awk -F '\t' '$1=="go_obo" {print $4}' "$ARTIFACTS/logs/runtime_input_staging.tsv")"
-)
-if [[ "$UNIPROT_SOURCE_SCOPE" != "trembl-only" ]]; then
-    contract_command+=(
-        --uniprot-sprot-sequences "$INPUT_ROOT/uniprot_sprot.dat.gz"
-        --uniprot-sprot-sequences-url "$SPROT_URL"
-        --uniprot-sprot-sequences-acquisition "$(awk -F '\t' '$1=="uniprot_sprot_sequences" {print $4}' "$ARTIFACTS/logs/runtime_input_staging.tsv")"
-    )
-fi
-if [[ "$UNIPROT_SOURCE_SCOPE" != "sprot-only" ]]; then
-    contract_command+=(
-        --uniprot-trembl-sequences "$INPUT_ROOT/uniprot_trembl.dat.gz"
-        --uniprot-trembl-sequences-url "$TREMBL_URL"
-        --uniprot-trembl-sequences-acquisition "$(awk -F '\t' '$1=="uniprot_trembl_sequences" {print $4}' "$ARTIFACTS/logs/runtime_input_staging.tsv")"
-    )
-fi
 export PYTHONPATH="$FRAMEWORK_DIR/benchmark_builders/homology_cluster/src${PYTHONPATH:+:$PYTHONPATH}"
-"${contract_command[@]}" | tee "$ARTIFACTS/logs/runtime_contract.json"
+if [[ -n "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then
+    cp -p "$STAGED_COMMON_CACHE/frozen_input_manifest.json" "$MANIFEST"
+    "$PYTHON_BIN" -m homology_cluster_benchmark.runtime_contract policy \
+        --manifest "$MANIFEST" \
+        --policy-out "$ATTRITION_POLICY" \
+        --source-scope "$UNIPROT_SOURCE_SCOPE" \
+        --framework-revision "$FRAMEWORK_REVISION" \
+        | tee "$ARTIFACTS/logs/runtime_contract.json"
+else
+    contract_command=(
+        "$PYTHON_BIN" -m homology_cluster_benchmark.runtime_contract prepare
+        --manifest-out "$MANIFEST"
+        --policy-out "$ATTRITION_POLICY"
+        --source-scope "$UNIPROT_SOURCE_SCOPE"
+        --framework-revision "$FRAMEWORK_REVISION"
+        --uniref90-fasta "$INPUT_ROOT/uniref90.fasta.gz"
+        --uniref90-fasta-url "$UNIREF90_URL"
+        --uniref90-fasta-acquisition "$(awk -F '\t' '$1=="uniref90_fasta" {print $4}' "$ARTIFACTS/logs/runtime_input_staging.tsv")"
+        --idmapping "$INPUT_ROOT/idmapping_selected.tab.gz"
+        --idmapping-url "$IDMAPPING_URL"
+        --idmapping-acquisition "$(awk -F '\t' '$1=="idmapping" {print $4}' "$ARTIFACTS/logs/runtime_input_staging.tsv")"
+        --goa "$INPUT_ROOT/goa_uniprot_all.gaf.234.gz"
+        --goa-url "$GOA_URL"
+        --goa-acquisition "$(awk -F '\t' '$1=="goa" {print $4}' "$ARTIFACTS/logs/runtime_input_staging.tsv")"
+        --go-obo "$INPUT_ROOT/go-basic.obo"
+        --go-obo-url "$GO_OBO_URL"
+        --go-obo-acquisition "$(awk -F '\t' '$1=="go_obo" {print $4}' "$ARTIFACTS/logs/runtime_input_staging.tsv")"
+    )
+    if [[ "$UNIPROT_SOURCE_SCOPE" != "trembl-only" ]]; then
+        contract_command+=(
+            --uniprot-sprot-sequences "$INPUT_ROOT/uniprot_sprot.dat.gz"
+            --uniprot-sprot-sequences-url "$SPROT_URL"
+            --uniprot-sprot-sequences-acquisition "$(awk -F '\t' '$1=="uniprot_sprot_sequences" {print $4}' "$ARTIFACTS/logs/runtime_input_staging.tsv")"
+        )
+    fi
+    if [[ "$UNIPROT_SOURCE_SCOPE" != "sprot-only" ]]; then
+        contract_command+=(
+            --uniprot-trembl-sequences "$INPUT_ROOT/uniprot_trembl.dat.gz"
+            --uniprot-trembl-sequences-url "$TREMBL_URL"
+            --uniprot-trembl-sequences-acquisition "$(awk -F '\t' '$1=="uniprot_trembl_sequences" {print $4}' "$ARTIFACTS/logs/runtime_input_staging.tsv")"
+        )
+    fi
+    "${contract_command[@]}" | tee "$ARTIFACTS/logs/runtime_contract.json"
+fi
 checkpoint_disk_usage runtime-contract-created
 
 input_sha() {
     awk -F '\t' -v role="$1" '$1==role {print $6}' "$ARTIFACTS/logs/runtime_input_staging.tsv"
+}
+
+manifest_input_value() {
+    local role="$1"
+    local field="$2"
+    "$PYTHON_BIN" -c \
+        'import json,sys; data=json.load(open(sys.argv[1])); item=next(x for x in data["inputs"] if x["name"]==sys.argv[2]); print(item[sys.argv[3]])' \
+        "$MANIFEST" "$role" "$field"
 }
 
 echo "Running the existing homology benchmark builder"
@@ -650,30 +722,54 @@ builder_environment=(
     UNIREF90_FASTA="$INPUT_ROOT/uniref90.fasta.gz"
     UNIREF90_FASTA_URL="$UNIREF90_URL"
     UNIREF90_FASTA_SHA256="$(input_sha uniref90_fasta)"
-    IDMAPPING="$INPUT_ROOT/idmapping_selected.tab.gz"
-    IDMAPPING_URL="$IDMAPPING_URL"
-    IDMAPPING_SHA256="$(input_sha idmapping)"
-    GOA="$INPUT_ROOT/goa_uniprot_all.gaf.234.gz"
-    GOA_URL="$GOA_URL"
-    GOA_SHA256="$(input_sha goa)"
     GO_OBO="$INPUT_ROOT/go-basic.obo"
     GO_OBO_URL="$GO_OBO_URL"
     GO_OBO_SHA256="$(input_sha go_obo)"
     LOG_FILE="$ARTIFACTS/logs/builder.log"
 )
-if [[ "$UNIPROT_SOURCE_SCOPE" != "trembl-only" ]]; then
+if [[ -n "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then
     builder_environment+=(
-        UNIPROT_SPROT_SEQUENCES="$INPUT_ROOT/uniprot_sprot.dat.gz"
-        UNIPROT_SPROT_SEQUENCES_URL="$SPROT_URL"
-        UNIPROT_SPROT_SEQUENCES_SHA256="$(input_sha uniprot_sprot_sequences)"
+        HOMOLOGY_COMMON_PREPROCESSING_CACHE="$STAGED_COMMON_CACHE"
+        IDMAPPING_URL="$IDMAPPING_URL"
+        IDMAPPING_SHA256="$(manifest_input_value idmapping sha256)"
+        GOA_URL="$GOA_URL"
+        GOA_SHA256="$(manifest_input_value goa sha256)"
     )
-fi
-if [[ "$UNIPROT_SOURCE_SCOPE" != "sprot-only" ]]; then
+    if [[ "$UNIPROT_SOURCE_SCOPE" != "trembl-only" ]]; then
+        builder_environment+=(
+            UNIPROT_SPROT_SEQUENCES_URL="$SPROT_URL"
+            UNIPROT_SPROT_SEQUENCES_SHA256="$(manifest_input_value uniprot_sprot_sequences sha256)"
+        )
+    fi
+    if [[ "$UNIPROT_SOURCE_SCOPE" != "sprot-only" ]]; then
+        builder_environment+=(
+            UNIPROT_TREMBL_SEQUENCES_URL="$TREMBL_URL"
+            UNIPROT_TREMBL_SEQUENCES_SHA256="$(manifest_input_value uniprot_trembl_sequences sha256)"
+        )
+    fi
+else
     builder_environment+=(
-        UNIPROT_TREMBL_SEQUENCES="$INPUT_ROOT/uniprot_trembl.dat.gz"
-        UNIPROT_TREMBL_SEQUENCES_URL="$TREMBL_URL"
-        UNIPROT_TREMBL_SEQUENCES_SHA256="$(input_sha uniprot_trembl_sequences)"
+        IDMAPPING="$INPUT_ROOT/idmapping_selected.tab.gz"
+        IDMAPPING_URL="$IDMAPPING_URL"
+        IDMAPPING_SHA256="$(input_sha idmapping)"
+        GOA="$INPUT_ROOT/goa_uniprot_all.gaf.234.gz"
+        GOA_URL="$GOA_URL"
+        GOA_SHA256="$(input_sha goa)"
     )
+    if [[ "$UNIPROT_SOURCE_SCOPE" != "trembl-only" ]]; then
+        builder_environment+=(
+            UNIPROT_SPROT_SEQUENCES="$INPUT_ROOT/uniprot_sprot.dat.gz"
+            UNIPROT_SPROT_SEQUENCES_URL="$SPROT_URL"
+            UNIPROT_SPROT_SEQUENCES_SHA256="$(input_sha uniprot_sprot_sequences)"
+        )
+    fi
+    if [[ "$UNIPROT_SOURCE_SCOPE" != "sprot-only" ]]; then
+        builder_environment+=(
+            UNIPROT_TREMBL_SEQUENCES="$INPUT_ROOT/uniprot_trembl.dat.gz"
+            UNIPROT_TREMBL_SEQUENCES_URL="$TREMBL_URL"
+            UNIPROT_TREMBL_SEQUENCES_SHA256="$(input_sha uniprot_trembl_sequences)"
+        )
+    fi
 fi
 checkpoint_disk_usage builder-starting
 env -u PERSISTENT_RESULTS_ROOT "${builder_environment[@]}" \

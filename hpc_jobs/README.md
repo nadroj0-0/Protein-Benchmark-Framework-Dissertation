@@ -28,9 +28,13 @@ authenticates both.
 
 `active/hpc_populate_san_frozen_inputs.sh` is the Grid Engine wrapper for the
 idempotent persistent-input loader. It clones the committed framework into a
-small job-owned scratch directory, writes large inputs directly to
+job-owned scratch directory, writes large inputs directly to
 `/SAN/bioinf/bmpfp`, and always removes the scratch checkout. Interrupted SAN
 downloads remain as resumable `.partial` files.
+
+The `homology` profile also creates the shared pre-MMseqs preprocessing cache in
+SAN. That one-time build uses job scratch for its SQLite/spool intermediates;
+subsequent invocations validate its derivation contract and skip it.
 
 Submit the full catalogue with:
 
@@ -406,13 +410,15 @@ Submit all six identities without a pilot prerequisite with:
 qsub hpc_jobs/active/hpc_homology_cluster_runtime_array.sh
 ```
 
-The array maps tasks `1-6` to `30, 25, 20, 15, 10, 5%` and uses `-tc 2` to avoid six
-simultaneous copies of the roughly 170 GB compressed source collection. Node-local scratch is not
-shared between array tasks, so every task with missing path overrides downloads its own inputs.
+The array maps tasks `1-6` to `30, 25, 20, 15, 10, 5%` and uses `-tc 2`. Node-local scratch is not
+shared between array tasks. When the portable artifact catalogue contains
+`homology_common_preprocessing_2026_02`, each task stages that cache and skips the repeated
+pre-MMseqs scans; otherwise every task retains the original raw-input/download fallback.
 The 30% diagnostic pilot requests approximately `300G` scratch in total. UCL Grid Engine accounts
-the consumable `tmem` and `tscratch` requests per SMP slot, so both wrappers request `tmem=8G` and
-`tscratch=38G` across eight slots: 64 GB memory and 304 GB scratch per task. The non-consumable
-`scratch0free=300G` remains a host-free-space threshold. The unsupported parser/MMseqs/publication
+the consumable `tmem` and `tscratch` requests per SMP slot. The pilot uses four slots at
+`tmem=16G` and `tscratch=75G` per slot (64 GB memory and 300 GB scratch total); each full-array
+task uses two slots at `tmem=32G` and `tscratch=150G` per slot (the same totals).
+The non-consumable `scratch0free=300G` remains a host-free-space threshold. The unsupported parser/MMseqs/publication
 defaults are reduced globally to neutral `1x` bookkeeping; the pilot records rather than enforces
 the resulting estimate. The six-task wrapper uses the same provisional per-task request, but do
 not submit that array before
@@ -426,7 +432,8 @@ Both wrappers delegate to
   minimal Singularity runtime, avoiding a redundant in-container Git dependency;
 - defaults to `sprot-and-trembl`, while accepting `sprot-only` and `trembl-only` explicitly;
 - resolves supplied source paths first, then the portable artifact catalogue,
-  stages the selected inputs into task-owned scratch, and downloads only sources still missing;
+  stages a valid common preprocessing cache when available, and otherwise stages/downloads
+  the original raw sources;
 - checks that mutable UniProt endpoints still mean release `2026_02`, while downloading GOA `234`
   from EBI's immutable historical URL and validating its pinned SHA-256 and embedded release
   metadata;

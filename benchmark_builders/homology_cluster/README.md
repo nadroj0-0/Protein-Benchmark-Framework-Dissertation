@@ -265,18 +265,25 @@ qsub hpc_jobs/active/hpc_homology_cluster_runtime_array.sh
 ```
 
 Both are thin Grid Engine wrappers around
-`scripts/benchmark_generation/run_homology_cluster_runtime_hpc.sh`. Inputs supplied through
+`scripts/benchmark_generation/run_homology_cluster_runtime_hpc.sh`. A supplied
+`HOMOLOGY_COMMON_PREPROCESSING_CACHE` directory (or the
+`homology_common_preprocessing_2026_02` entry in `ARTIFACT_CATALOG`) is copied to
+node-local scratch and validated before use. It skips the threshold-independent
+GOA scan, UniRef index build, selected-UniProt scan, accession canonicalisation,
+and idmapping scan. Inputs supplied through
 `UNIREF90_FASTA`, `IDMAPPING`, `UNIPROT_SPROT_SEQUENCES`, `UNIPROT_TREMBL_SEQUENCES`, `GOA`, and
 `GO_OBO` are copied to node-local scratch. Any omitted input is downloaded from its reviewed
-official source at runtime. The driver checks that the moving UniProt/GOA endpoints still identify
+official source at runtime when no valid common cache was selected. The driver checks that the moving UniProt/GOA endpoints still identify
 UniProt `2026_02` and GOA `234` before accepting their bytes, validates GOA and GO metadata,
 computes complete SHA-256 manifests, and installs pinned MMseqs2 release `18-8cc5c` into scratch
 when no executable path is supplied. The release tag and the full Git commit printed by
 `mmseqs version` are validated and recorded as separate identities.
 
-The default source scope is `sprot-and-trembl`; set `UNIPROT_SOURCE_SCOPE=sprot-only` or
+The default source scope is `sprot-and-trembl`; the persisted common cache uses that
+scope. Set `UNIPROT_SOURCE_SCOPE=sprot-only` or
 `trembl-only` to run another declared population. Every array task has independent node-local
-scratch, so missing inputs are downloaded once per active task. The 30% pilot requests approximately
+scratch. With the common cache, only the cache, UniRef FASTA, ontology and MMseqs2 archive are staged;
+without it the original raw-input behavior remains unchanged. The 30% pilot requests approximately
 300 GB total: UCL Grid Engine treats consumable resources as per-slot requests, so four SMP slots
 use `tscratch=75G` (300 GB total) and `tmem=16G` (64 GB total), while `scratch0free=300G` is only a
 host free-space threshold. The streaming and indexing stages remain largely single-threaded; the
@@ -284,6 +291,10 @@ four slots primarily accelerate MMseqs2. It runs as a measurement job: the old s
 multiplier defaults are reduced globally to neutral `1x` values, and the pilot records rather than
 enforces the resulting estimate. The full wrapper's resource request must be recalibrated from the
 pilot before submission; it is not evidence that the old 1200 GB estimate was necessary.
+
+The cache is only a performance optimization. Fixture tests require cached and uncached
+construction to emit byte-identical nine CSVs, five pickles, mappings, and split assignments.
+Every publication records the cache marker hash and cached-stage list in `input_manifest.json`.
 
 The runtime driver records job-owned allocated bytes every 120 seconds and at explicit checkpoints
 covering input staging, MMseqs2 installation, builder execution, and validation. Copied results

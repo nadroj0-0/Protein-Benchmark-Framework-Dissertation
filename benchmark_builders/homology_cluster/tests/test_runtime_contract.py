@@ -12,6 +12,7 @@ from homology_cluster_benchmark.runtime_contract import (
     main,
     write_runtime_contract,
 )
+from homology_cluster_benchmark.inputs import sha256_file
 
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -110,6 +111,34 @@ class RuntimeContractTests(unittest.TestCase):
                 ])
             self.assertEqual(main(arguments), 0)
             self.assertTrue((root / "manifest.json").is_file())
+
+    def test_policy_cli_reuses_an_authenticated_cache_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = _runtime_files(root)
+            manifest = root / "manifest.json"
+            original_policy = root / "original-policy.json"
+            write_runtime_contract(
+                manifest,
+                original_policy,
+                "sprot-only",
+                COMMIT,
+                [
+                    RuntimeInput(
+                        name, paths[name], URLS[name], "provided-persistent-store"
+                    )
+                    for name in paths
+                ],
+            )
+            regenerated = root / "regenerated-policy.json"
+            self.assertEqual(main([
+                "policy",
+                "--manifest", str(manifest),
+                "--policy-out", str(regenerated),
+                "--source-scope", "sprot-only",
+                "--framework-revision", COMMIT,
+            ]), 0)
+            self.assertEqual(sha256_file(regenerated), sha256_file(original_policy))
 
     def test_wrong_embedded_goa_release_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

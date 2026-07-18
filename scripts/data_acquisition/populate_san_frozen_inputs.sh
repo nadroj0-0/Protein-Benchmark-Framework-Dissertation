@@ -36,6 +36,11 @@ DERIVED_T0_RELATIVE="derived_inputs/uniprot/cafa3_target_taxa/2025_01/uniprot_tr
 DERIVED_T1_ROLE="uniprot_trembl_cafa3_targets_t1"
 DERIVED_T1_RELEASE="2026_02"
 DERIVED_T1_RELATIVE="derived_inputs/uniprot/cafa3_target_taxa/2026_02/uniprot_trembl_cafa3_targets.dat.gz"
+HOMOLOGY_CACHE_ROLE="homology_common_preprocessing_2026_02"
+HOMOLOGY_CACHE_SCOPE="sprot-and-trembl"
+HOMOLOGY_CACHE_RELATIVE="derived_inputs/homology/2026_02/goa_234/sprot-and-trembl/common_preprocessing"
+HOMOLOGY_CACHE_ALLOWANCE_GB="${HOMOLOGY_CACHE_ALLOWANCE_GB:-50}"
+CACHE_MARKER="CACHE_COMPLETE.json"
 
 usage() {
     cat <<'EOF'
@@ -125,6 +130,8 @@ done
 
 [[ -f "$SPEC_FILE" ]] || die "Input specification not found: $SPEC_FILE"
 [[ "$RESERVE_GB" =~ ^[0-9]+$ ]] || die "--reserve-gb must be a non-negative integer"
+[[ "$HOMOLOGY_CACHE_ALLOWANCE_GB" =~ ^[1-9][0-9]*$ ]] || \
+    die "HOMOLOGY_CACHE_ALLOWANCE_GB must be a positive integer"
 [[ "$ROOT" = /* ]] || die "--root must be an absolute path"
 [[ "$ROOT" != "/" ]] || die "Refusing to use / as the store root"
 if [[ ${#PROFILES[@]} -eq 0 ]]; then
@@ -427,7 +434,7 @@ resolve_python_bin() {
             return 0
         fi
     done
-    die "Python >=3.9 is required to derive filtered TrEMBL caches; activate mmfp or set PYTHON_BIN"
+    die "Python >=3.9 is required for derived inputs; activate mmfp or set PYTHON_BIN"
 }
 
 write_derived_metadata() {
@@ -587,6 +594,139 @@ process_temporal_derived_inputs() {
         "$DERIVED_T1_RELATIVE" uniprot_trembl_t1 -
 }
 
+homology_input_path() {
+    local role="$1"
+    local relative
+    relative="$(spec_value_for_role "$role" 4)" || \
+        die "Homology common cache requires missing specification role: $role"
+    printf '%s/%s\n' "$ROOT" "$relative"
+}
+
+homology_input_url() {
+    spec_value_for_role "$1" 5 || \
+        die "Homology common cache requires a URL for role: $1"
+}
+
+homology_expected_sha_arguments() {
+    local spec_role logical_role source_path
+    for binding in \
+        "uniref90_t1|uniref90_fasta" \
+        "idmapping_t1|idmapping" \
+        "uniprot_sprot_t1|uniprot_sprot_sequences" \
+        "uniprot_trembl_t1|uniprot_trembl_sequences" \
+        "goa_t1|goa" \
+        "go_basic_t1|go_obo"; do
+        IFS='|' read -r spec_role logical_role <<< "$binding"
+        source_path="$(homology_input_path "$spec_role")"
+        printf '%s=%s\n' "$logical_role" "$(recorded_sha256_value "$source_path")"
+    done
+}
+
+process_homology_derived_inputs() {
+    profile_selected homology || return 0
+    local destination="$ROOT/$HOMOLOGY_CACHE_RELATIVE"
+    local marker="$destination/CACHE_COMPLETE.json"
+    local work_root manifest policy revision binding
+    local verify_args=()
+    local build_args=()
+    local expected_bindings=()
+
+    echo
+    echo "[$HOMOLOGY_CACHE_ROLE] $HOMOLOGY_CACHE_RELATIVE"
+    resolve_python_bin
+    add_mmfp_singularity_bind "$ROOT"
+    export PYTHONPATH="$FRAMEWORK_ROOT/benchmark_builders/homology_cluster/src${PYTHONPATH:+:$PYTHONPATH}"
+    export MMFP_PYTHONPATH="$PYTHONPATH"
+    while IFS= read -r binding; do
+        expected_bindings+=("$binding")
+        verify_args+=(--expected-input-sha256 "$binding")
+    done < <(homology_expected_sha_arguments)
+    verify_args+=(
+        --cache-dir "$destination"
+        --source-scope "$HOMOLOGY_CACHE_SCOPE"
+    )
+    [[ "$FULL_VERIFY" == "1" ]] && verify_args+=(--full-hashes)
+
+    if [[ -s "$marker" ]] && "$PYTHON_BIN" -m homology_cluster_benchmark.common_cache \
+        verify "${verify_args[@]}"; then
+        echo "  present with matching input, policy, code, and file contracts; skipping generation"
+        DERIVED_SKIPPED=$((DERIVED_SKIPPED + 1))
+        [[ "$FULL_VERIFY" == "1" ]] && VERIFIED=$((VERIFIED + 1))
+        return 0
+    fi
+    if [[ "$VERIFY_ONLY" == "1" ]]; then
+        die "Selected homology common preprocessing cache is missing or invalid: $destination"
+    fi
+
+    revision="${FRAMEWORK_REVISION:-}"
+    if [[ -z "$revision" ]]; then
+        revision="$(cd "$FRAMEWORK_ROOT" && git rev-parse HEAD)" || \
+            die "FRAMEWORK_REVISION is unset and the framework is not a Git checkout"
+    fi
+    [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || \
+        die "Homology cache generation requires a 40-character FRAMEWORK_REVISION"
+    work_root="${HOMOLOGY_CACHE_WORK_DIR:-${TMPDIR:-/tmp}/homology-common-cache-${USER:-user}-$$}"
+    [[ "$work_root" = /* && "$work_root" != "/" ]] || \
+        die "HOMOLOGY_CACHE_WORK_DIR must be an absolute non-root path"
+    mkdir -p "$work_root/contracts" "$work_root/build"
+    manifest="$work_root/contracts/frozen_input_manifest.json"
+    policy="$work_root/contracts/unused_runtime_policy.json"
+
+    echo "  preparing authoritative frozen-input contract"
+    "$PYTHON_BIN" -m homology_cluster_benchmark.runtime_contract prepare \
+        --manifest-out "$manifest" \
+        --policy-out "$policy" \
+        --source-scope "$HOMOLOGY_CACHE_SCOPE" \
+        --framework-revision "$revision" \
+        --uniref90-fasta "$(homology_input_path uniref90_t1)" \
+        --uniref90-fasta-url "$(homology_input_url uniref90_t1)" \
+        --uniref90-fasta-acquisition provided-persistent-store \
+        --idmapping "$(homology_input_path idmapping_t1)" \
+        --idmapping-url "$(homology_input_url idmapping_t1)" \
+        --idmapping-acquisition provided-persistent-store \
+        --uniprot-sprot-sequences "$(homology_input_path uniprot_sprot_t1)" \
+        --uniprot-sprot-sequences-url "$(homology_input_url uniprot_sprot_t1)" \
+        --uniprot-sprot-sequences-acquisition provided-persistent-store \
+        --uniprot-trembl-sequences "$(homology_input_path uniprot_trembl_t1)" \
+        --uniprot-trembl-sequences-url "$(homology_input_url uniprot_trembl_t1)" \
+        --uniprot-trembl-sequences-acquisition provided-persistent-store \
+        --goa "$(homology_input_path goa_t1)" \
+        --goa-url "$(homology_input_url goa_t1)" \
+        --goa-acquisition provided-persistent-store \
+        --go-obo "$(homology_input_path go_basic_t1)" \
+        --go-obo-url "$(homology_input_url go_basic_t1)" \
+        --go-obo-acquisition provided-persistent-store
+
+    build_args=(
+        --output-dir "$destination"
+        --work-dir "$work_root/build"
+        --frozen-input-manifest "$manifest"
+        --source-scope "$HOMOLOGY_CACHE_SCOPE"
+        --uniref90-fasta "$(homology_input_path uniref90_t1)"
+        --idmapping "$(homology_input_path idmapping_t1)"
+        --uniprot-sprot-sequences "$(homology_input_path uniprot_sprot_t1)"
+        --uniprot-trembl-sequences "$(homology_input_path uniprot_trembl_t1)"
+        --goa "$(homology_input_path goa_t1)"
+        --go-obo "$(homology_input_path go_basic_t1)"
+        --replace-existing
+    )
+    echo "  building threshold-independent preprocessing state once"
+    "$PYTHON_BIN" -m homology_cluster_benchmark.common_cache build "${build_args[@]}"
+    local final_verify_args=(
+        --cache-dir "$destination"
+        --source-scope "$HOMOLOGY_CACHE_SCOPE"
+        --full-hashes
+    )
+    for binding in "${expected_bindings[@]}"; do
+        final_verify_args+=(--expected-input-sha256 "$binding")
+    done
+    "$PYTHON_BIN" -m homology_cluster_benchmark.common_cache \
+        verify "${final_verify_args[@]}"
+    echo "  derived and published atomically: $destination"
+    DERIVED_CREATED=$((DERIVED_CREATED + 1))
+    VERIFIED=$((VERIFIED + 1))
+}
+
 fetch_text() {
     local url="$1"
     if command -v curl >/dev/null 2>&1; then
@@ -665,6 +805,10 @@ write_artifact_path_catalog() {
            -s "${destination}.provenance.tsv" && -s "${destination}.derivation.tsv" ]] || continue
         printf '%s\t%s\n' "$role" "$destination" >> "$temporary"
     done
+    destination="$ROOT/$HOMOLOGY_CACHE_RELATIVE/$CACHE_MARKER"
+    if [[ -s "$destination" ]]; then
+        printf '%s\t%s\n' "$HOMOLOGY_CACHE_ROLE" "$destination" >> "$temporary"
+    fi
     if [[ -f "$catalog" ]] && cmp -s "$temporary" "$catalog"; then
         rm -f "$temporary"
     else
@@ -735,6 +879,21 @@ if profile_selected temporal; then
             printf '%-18s %-32s %-16s %s\n' temporal "$role" derived "$destination"
         fi
     done
+fi
+
+if profile_selected homology; then
+    selected_count=$((selected_count + 1))
+    destination="$ROOT/$HOMOLOGY_CACHE_RELATIVE/$CACHE_MARKER"
+    if [[ ! -s "$destination" ]]; then
+        missing_count=$((missing_count + 1))
+        missing_known_bytes=$((
+            missing_known_bytes + HOMOLOGY_CACHE_ALLOWANCE_GB * 1024 * 1024 * 1024
+        ))
+    fi
+    if [[ "$LIST_ONLY" == "1" || "$DRY_RUN" == "1" ]]; then
+        printf '%-18s %-32s %-16s %s\n' \
+            homology "$HOMOLOGY_CACHE_ROLE" derived "$destination"
+    fi
 fi
 
 (( selected_count > 0 )) || die "No catalogue entries selected"
@@ -871,6 +1030,7 @@ if [[ "$needs_goa_guard" == "1" ]]; then
 fi
 
 process_temporal_derived_inputs
+process_homology_derived_inputs
 
 catalog_metadata
 write_artifact_path_catalog

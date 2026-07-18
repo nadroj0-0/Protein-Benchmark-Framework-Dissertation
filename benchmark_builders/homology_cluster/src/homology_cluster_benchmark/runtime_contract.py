@@ -7,7 +7,11 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from .attrition import METRIC_DEFINITIONS
-from .frozen_inputs import SOURCE_POPULATIONS, expected_input_names
+from .frozen_inputs import (
+    SOURCE_POPULATIONS,
+    expected_input_names,
+    load_frozen_input_manifest,
+)
 from .inputs import open_text, sha256_file
 from .pipeline import validate_publication
 
@@ -112,8 +116,66 @@ def _validate_runtime_input(item: RuntimeInput) -> None:
             f"Runtime input {item.name} must retain its reviewed official HTTPS URL; "
             f"observed {item.url!r}"
         )
-    if item.acquisition not in {"downloaded-to-scratch", "provided-path-staged-to-scratch"}:
+    if item.acquisition not in {
+        "downloaded-to-scratch",
+        "provided-path-staged-to-scratch",
+        "provided-persistent-store",
+    }:
         raise ValueError(f"Unsupported acquisition record for {item.name}: {item.acquisition!r}")
+
+
+def write_runtime_policy(
+    policy_path: Path,
+    manifest_path: Path,
+    source_scope: str,
+    framework_revision: str,
+) -> str:
+    manifest = load_frozen_input_manifest(
+        manifest_path, uniprot_source_scope=source_scope, fixture_mode=False
+    )
+    if len(framework_revision) != 40 or any(
+        ch not in "0123456789abcdef" for ch in framework_revision
+    ):
+        raise ValueError("framework_revision must be exactly 40 lowercase hexadecimal characters")
+    metrics = {}
+    for name, definition in METRIC_DEFINITIONS.items():
+        bound_key = f"allowed_{definition.bound}_ratio"
+        metrics[name] = {
+            "numerator_definition": definition.numerator,
+            "denominator_definition": definition.denominator,
+            bound_key: 0.0 if definition.bound == "minimum" else 1.0,
+            "rationale": (
+                "Automatic non-blocking observation boundary for direct runtime submission. "
+                "The strict semantic validator remains authoritative."
+            ),
+            "evidence_source": (
+                "Runtime measurement; no pilot-derived biological attrition threshold asserted."
+            ),
+        }
+    policy = {
+        "schema_name": "homology-cluster-attrition-policy",
+        "schema_version": 1,
+        "uniprot_source_scope": source_scope,
+        "expected_releases": {
+            "uniprot_uniref": "2026_02",
+            "goa": "234",
+            "ontology": "releases/2026-06-15",
+        },
+        "metrics": metrics,
+        "rationale": (
+            "Permit direct six-task execution without making a prior pilot mandatory. All "
+            "attrition metrics are retained for review, but these permissive bounds are not "
+            "presented as biologically optimized thresholds."
+        ),
+        "evidence_source": "Automated runtime validation and complete attrition reporting.",
+        "author": "homology runtime wrapper",
+        "reviewer": "automated-runtime-contract",
+        "review_date": RUNTIME_REVIEW_DATE,
+        "framework_commit": framework_revision,
+        "frozen_input_manifest_sha256": manifest.sha256,
+    }
+    _json(policy_path, policy)
+    return sha256_file(policy_path)
 
 
 def write_runtime_contract(
@@ -154,6 +216,9 @@ def write_runtime_contract(
             "acquisition": item.acquisition,
             "embedded_metadata": embedded_metadata,
             "notes": (
+                "Read from an authenticated persistent project store to build the shared "
+                "threshold-independent preprocessing cache."
+                if item.acquisition == "provided-persistent-store" else
                 "Staged in job-owned scratch. Release markers and embedded metadata were "
                 "validated before benchmark construction; bytes are discarded after copy-back."
             ),
@@ -178,47 +243,12 @@ def write_runtime_contract(
     _json(manifest_path, manifest)
     manifest_sha256 = sha256_file(manifest_path)
 
-    metrics = {}
-    for name, definition in METRIC_DEFINITIONS.items():
-        bound_key = f"allowed_{definition.bound}_ratio"
-        metrics[name] = {
-            "numerator_definition": definition.numerator,
-            "denominator_definition": definition.denominator,
-            bound_key: 0.0 if definition.bound == "minimum" else 1.0,
-            "rationale": (
-                "Automatic non-blocking observation boundary for direct runtime submission. "
-                "The strict semantic validator remains authoritative."
-            ),
-            "evidence_source": (
-                "Runtime measurement; no pilot-derived biological attrition threshold asserted."
-            ),
-        }
-    policy = {
-        "schema_name": "homology-cluster-attrition-policy",
-        "schema_version": 1,
-        "uniprot_source_scope": source_scope,
-        "expected_releases": {
-            "uniprot_uniref": "2026_02",
-            "goa": "234",
-            "ontology": "releases/2026-06-15",
-        },
-        "metrics": metrics,
-        "rationale": (
-            "Permit direct six-task execution without making a prior pilot mandatory. All "
-            "attrition metrics are retained for review, but these permissive bounds are not "
-            "presented as biologically optimized thresholds."
-        ),
-        "evidence_source": "Automated runtime validation and complete attrition reporting.",
-        "author": "homology runtime wrapper",
-        "reviewer": "automated-runtime-contract",
-        "review_date": RUNTIME_REVIEW_DATE,
-        "framework_commit": framework_revision,
-        "frozen_input_manifest_sha256": manifest_sha256,
-    }
-    _json(policy_path, policy)
+    policy_sha256 = write_runtime_policy(
+        policy_path, manifest_path, source_scope, framework_revision
+    )
     return {
         "manifest_sha256": manifest_sha256,
-        "policy_sha256": sha256_file(policy_path),
+        "policy_sha256": policy_sha256,
     }
 
 
@@ -314,6 +344,15 @@ def _parser() -> argparse.ArgumentParser:
     prepare.add_argument("--framework-revision", required=True)
     for name in ROLE_FILENAMES:
         _input_argument(prepare, name)
+    policy = subparsers.add_parser("policy")
+    policy.add_argument("--manifest", type=Path, required=True)
+    policy.add_argument("--policy-out", type=Path, required=True)
+    policy.add_argument(
+        "--source-scope",
+        choices=("sprot-only", "trembl-only", "sprot-and-trembl"),
+        required=True,
+    )
+    policy.add_argument("--framework-revision", required=True)
     review = subparsers.add_parser("review")
     review.add_argument("--run-dir", type=Path, required=True)
     review.add_argument("--output-dir", type=Path, required=True)
@@ -325,6 +364,15 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "review":
         write_runtime_review(args.run_dir, args.output_dir, args.run_kind)
+        return 0
+    if args.command == "policy":
+        digest = write_runtime_policy(
+            args.policy_out,
+            args.manifest,
+            args.source_scope,
+            args.framework_revision,
+        )
+        print(json.dumps({"policy_sha256": digest}, sort_keys=True))
         return 0
     required = set(expected_input_names(args.source_scope))
     inputs = []

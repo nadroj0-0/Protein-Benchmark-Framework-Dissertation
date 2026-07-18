@@ -30,7 +30,7 @@ The profiles are:
 | Profile | Contents |
 |---|---|
 | `temporal` | UniProt 2025_01 and 2026_02 data required by the contemporary temporal builder; GOA 225 and 234; the frozen t0/t1 GO products. |
-| `homology` | UniProtKB 2026_02 Swiss-Prot and TrEMBL DAT files, UniRef90, `idmapping_selected`, GOA 234, and GO 2026-06-19. |
+| `homology` | UniProtKB 2026_02 Swiss-Prot and TrEMBL DAT files, UniRef90, `idmapping_selected`, GOA 234, GO 2026-06-19, and the shared threshold-independent preprocessing cache derived from them. |
 | `embedding-inputs` | STRING v12.0 network embeddings used by PFP PPI extraction. |
 | `references` | Canonical CAFA3 CSVs and GO OBO from Zenodo 7409660, DeepGOPlus CAFA intermediates, and Zijian's published MMFP embeddings/checkpoints/splits from Zenodo 19498341. |
 | `tools` | Pinned MMseqs2 `18-8cc5c` Linux AVX2 archive. |
@@ -48,6 +48,20 @@ These are deliberately recorded as derived inputs rather than downloaded raw
 files. Each has a SHA-256 sidecar, ordinary provenance row, and a derivation
 contract binding it to the raw source digest, target-taxa resource digest,
 filter-script digest, record count, and output digest.
+
+The `homology` profile likewise builds one cache at the exact point immediately
+before threshold-specific MMseqs2 work begins:
+
+```text
+derived_inputs/homology/2026_02/goa_234/sprot-and-trembl/common_preprocessing/
+```
+
+It contains the GOA spools, UniRef90 SQLite sequence index, selected-UniProt
+catalogue, accession-canonicalisation decisions, and UniProt-to-UniRef90 mapping
+decisions that are identical for all six identity thresholds. Its completion
+marker binds every file to all six frozen input hashes, the source scope,
+evidence/ontology policy, and the preprocessing implementation hashes. It never
+contains MMseqs clusters, splits, term universes, CSVs, or pickles.
 
 Inspect the plan before starting the large transfer:
 
@@ -86,6 +100,9 @@ a scheduled cluster job rather than as a long process on the login node.
 - Missing derived caches are streamed from the frozen raw inputs, validated,
   and atomically published. A clean SAN rebuild therefore recreates both raw
   files and these workflow-ready filtered caches in one invocation.
+- The homology common cache is also idempotent. A matching marker skips the
+  expensive GOA/UniProt/idmapping scans and 121-million-sequence UniRef index
+  build; changed inputs, policy, or preprocessing code force an atomic rebuild.
 - Interrupted transfers remain as `<filename>.partial` and are resumed.
 - Downloads are validated before an atomic rename publishes the final path.
 - Known file sizes and checksums are pinned in the committed catalogue.
@@ -94,7 +111,8 @@ a scheduled cluster job rather than as a long process on the login node.
   deterministically from the per-file provenance records.
 - `/SAN/bioinf/bmpfp/manifests/artifact_paths.tsv` is rebuilt atomically from
   every currently present row in `san_frozen_inputs.tsv` that has acquisition
-  provenance and SHA-256 sidecars, plus both complete derived-cache contracts.
+  provenance and SHA-256 sidecars, plus the complete temporal and homology
+  derived-cache contracts.
   This compact `artifact_id<TAB>absolute_path` map is the portable runtime
   lookup file.
 - Mutable UniProt endpoints are checked before and after transfer. GOA 234 is
