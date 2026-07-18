@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "name": "canonical-cafa3-published",
+  "benchmark_contract": {
+    "id_overlap": "global-disjoint",
+    "sequence_overlap": "allow",
+    "protein_id_pattern": "^[^\\s/\\\\]+$",
+    "sequence_pattern": "^[A-Za-z*.-]+$",
+    "allow_all_zero_rows": false,
+    "allow_duplicate_rows": false,
+    "allow_legacy_singular_protein_header": true,
+    "require_benchmark_evidence": false
+  },
+  "modalities": {
+    "sequence": {"directory": "prott5", "dimension": 1024},
+    "text": {"directory": "exp_text_embeddings_temporal", "dimension": 768},
+    "structure": {"directory": "IF1", "dimension": 512},
+    "ppi": {"directory": "ppi", "dimension": 512}
+  },
+  "training": {
+    "seq_model": "prott5",
+    "fusion_type": "gated_bilinear",
+    "use_late_fusion": true,
+    "late_output_mode": "hybrid",
+    "hidden_dim": 512,
+    "dropout": 0.4,
+    "modality_dropout": 0.1,
+    "aux_loss_weight": 0.8
+  },
+  "evaluation": {
+    "require_precomputed_ia": true
+  },
+  "reference_preparation": {
+    "name": "mmfp_data_splits.tar.gz",
+    "size_bytes": 55938707,
+    "checksum_algorithm": "md5",
+    "checksum": "b54cffdac2beb3ef3e89a1191b0affa1"
+  }
+}

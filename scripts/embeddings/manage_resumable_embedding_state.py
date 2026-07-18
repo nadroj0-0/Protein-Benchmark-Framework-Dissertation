@@ -373,6 +373,15 @@ def baseline_archive_path(contract: Mapping[str, object]) -> Optional[Path]:
     return Path(baseline["archive"]["path"])  # type: ignore[index]
 
 
+def baseline_assembly_report_path(
+    contract: Mapping[str, object],
+) -> Optional[Path]:
+    baseline = contract.get("baseline")
+    if not baseline:
+        return None
+    return Path(baseline["assembly_report"]["path"])  # type: ignore[index]
+
+
 def build_baseline_index(
     report_path: Path,
     targets: Mapping[str, str],
@@ -459,9 +468,12 @@ def build_baseline_index(
     return "\n".join(lines) + "\n", archive_members, summary
 
 
-def verify_baseline_archive_members(archive_path: Path, expected: Set[str]) -> dict:
+def verify_baseline_archive_members(
+    archive_path: Path, expected: Set[str]
+) -> Tuple[dict, Dict[str, str]]:
     missing = set(expected)
     observed_npy = 0
+    member_hashes: Dict[str, str] = {}
     with tarfile.open(archive_path, mode="r|gz") as archive:
         for member in archive:
             if not member.isfile() or not member.name.endswith(".npy"):
@@ -471,6 +483,14 @@ def verify_baseline_archive_members(archive_path: Path, expected: Set[str]) -> d
                 raise ValueError(
                     f"Baseline archive contains an unreported array: {member.name}"
                 )
+            source = archive.extractfile(member)
+            if source is None:
+                raise ValueError(f"Cannot read baseline archive member: {member.name}")
+            digest = hashlib.sha256()
+            with source:
+                for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            member_hashes[member.name] = digest.hexdigest()
             missing.discard(member.name)
     if missing:
         sample = sorted(missing)[:5]
@@ -482,7 +502,24 @@ def verify_baseline_archive_members(archive_path: Path, expected: Set[str]) -> d
             "Baseline archive contains repeated array members: "
             f"observed={observed_npy};expected={len(expected)}"
         )
-    return {"observed_arrays": observed_npy, "expected_arrays": len(expected)}
+    return (
+        {"observed_arrays": observed_npy, "expected_arrays": len(expected)},
+        member_hashes,
+    )
+
+
+def bind_baseline_index_hashes(index_text: str, member_hashes: Mapping[str, str]) -> str:
+    rows = list(csv.DictReader(index_text.splitlines(), delimiter="\t"))
+    lines = ["protein_id\tmodality\tarchive_member\tembedding_sha256"]
+    for row in rows:
+        member = row["archive_member"]
+        digest = member_hashes.get(member)
+        if digest is None:
+            raise ValueError(f"Baseline archive hash is missing for: {member}")
+        lines.append(
+            f"{row['protein_id']}\t{row['modality']}\t{member}\t{digest}"
+        )
+    return "\n".join(lines) + "\n"
 
 
 def load_baseline_accepted(state_root: Path) -> Dict[str, Set[str]]:
@@ -504,6 +541,31 @@ def load_baseline_members(state_root: Path) -> Dict[Tuple[str, str], str]:
     with path.open(encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle, delimiter="\t"):
             result[(row["protein_id"], row["modality"])] = row["archive_member"]
+    return result
+
+
+def load_baseline_hashes(state_root: Path) -> Dict[Tuple[str, str], str]:
+    result: Dict[Tuple[str, str], str] = {}
+    path = state_root / "baseline_accepted.tsv"
+    if not path.is_file():
+        return result
+    with path.open(encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        if reader.fieldnames is None or "embedding_sha256" not in reader.fieldnames:
+            raise ValueError(
+                "Baseline index lacks embedding hashes; run upgrade-evidence-hashes "
+                "after all retry jobs have finished"
+            )
+        for row in reader:
+            digest = row["embedding_sha256"]
+            if len(digest) != 64 or any(
+                character not in "0123456789abcdef" for character in digest
+            ):
+                raise ValueError(
+                    "Invalid baseline embedding SHA-256 for "
+                    f"{(row['protein_id'], row['modality'])}"
+                )
+            result[(row["protein_id"], row["modality"])] = digest
     return result
 
 
@@ -639,36 +701,43 @@ def accepted_ids(
 
 def acceptance_threshold(specification: Mapping[str, object], target_count: int) -> int:
     if "min_accepted_count" in specification:
-        value = int(specification["min_accepted_count"])
+        value = int(str(specification["min_accepted_count"]))
     else:
-        value = math.ceil(float(specification["min_accepted_fraction"]) * target_count)
+        value = math.ceil(
+            float(str(specification["min_accepted_fraction"])) * target_count
+        )
     if value < 0 or value > target_count:
         raise ValueError(f"Acceptance threshold {value} is outside 0..{target_count}")
     return value
 
 
 def refresh_reports(state_root: Path) -> dict:
+    evidence_marker = state_root / "EVIDENCE_HASHES_COMPLETE.json"
+    if evidence_marker.exists():
+        evidence_marker.unlink()
     contract = load_contract(state_root)
     targets = load_target_manifest(state_root)
     policies = modality_policy(contract)
     failures = load_failure_ledger(state_root)
     coverage: Dict[str, dict] = {}
     accepted_by_modality: Dict[str, Set[str]] = {}
+    baseline_hashes = load_baseline_hashes(state_root)
     for modality, specification in policies.items():
-        accepted = accepted_ids(state_root, targets, specification, modality)
-        accepted_by_modality[modality] = accepted
+        accepted_set = accepted_ids(state_root, targets, specification, modality)
+        accepted_by_modality[modality] = accepted_set
         threshold = acceptance_threshold(specification, len(targets))
         coverage[modality] = {
-            "accepted": len(accepted),
-            "needs_retry": len(targets) - len(accepted),
+            "accepted": len(accepted_set),
+            "needs_retry": len(targets) - len(accepted_set),
             "target_count": len(targets),
-            "fraction": len(accepted) / len(targets) if targets else 0.0,
+            "fraction": len(accepted_set) / len(targets) if targets else 0.0,
             "required_accepted": threshold,
-            "gate_passed": len(accepted) >= threshold,
+            "gate_passed": len(accepted_set) >= threshold,
         }
 
     status_lines = [
-        "protein_id\tmodality\tstate\tsequence_sha256\tattempts\tlatest_reason\tlatest_detail"
+        "protein_id\tmodality\tstate\tsequence_sha256\tembedding_sha256\t"
+        "attempts\tlatest_reason\tlatest_detail"
     ]
     retry_lines = [
         "protein_id\tmodality\tsequence_sha256\tattempts\tlatest_reason\tlatest_detail"
@@ -676,25 +745,34 @@ def refresh_reports(state_root: Path) -> dict:
     for protein_id, sequence_sha256 in targets.items():
         for modality in sorted(policies):
             key = (protein_id, modality)
-            accepted = protein_id in accepted_by_modality[modality]
+            pair_accepted = protein_id in accepted_by_modality[modality]
             failure = failures.get(key, {})
             attempts = failure.get("attempts", "0")
-            reason = failure.get("latest_reason", "") if not accepted else ""
-            detail = failure.get("latest_detail", "") if not accepted else ""
-            if not accepted and not reason:
+            reason = failure.get("latest_reason", "") if not pair_accepted else ""
+            detail = failure.get("latest_detail", "") if not pair_accepted else ""
+            if not pair_accepted and not reason:
                 reason = "not_attempted"
+            embedding_sha256 = ""
+            if pair_accepted:
+                embedding_sha256 = baseline_hashes.get(key, "")
+                if not embedding_sha256:
+                    destination = cache_path(state_root, policies[modality], protein_id)
+                    _, embedding_sha256 = validate_array(
+                        destination, int(policies[modality]["dimension"])
+                    )
             values = [
                 protein_id,
                 modality,
-                "accepted" if accepted else "needs_retry",
+                "accepted" if pair_accepted else "needs_retry",
                 sequence_sha256,
+                embedding_sha256,
                 str(attempts),
                 str(reason).replace("\t", " ").replace("\n", " "),
                 str(detail).replace("\t", " ").replace("\n", " "),
             ]
             status_lines.append("\t".join(values))
-            if not accepted:
-                retry_lines.append("\t".join(values[:2] + values[3:]))
+            if not pair_accepted:
+                retry_lines.append("\t".join(values[:2] + values[3:4] + values[5:]))
 
     overall_passed = all(item["gate_passed"] for item in coverage.values())
     summary = {
@@ -736,9 +814,10 @@ def command_initialize(args: argparse.Namespace) -> dict:
         baseline_index, archive_members, report_summary = build_baseline_index(
             Path(args.baseline_assembly_report), targets, policy["modalities"]
         )
-        archive_summary = verify_baseline_archive_members(
+        archive_summary, member_hashes = verify_baseline_archive_members(
             Path(args.baseline_archive), archive_members
         )
+        baseline_index = bind_baseline_index_hashes(baseline_index, member_hashes)
         baseline_validation = {
             "schema_version": 1,
             "assembly_report": report_summary,
@@ -768,8 +847,25 @@ def command_initialize(args: argparse.Namespace) -> dict:
         if baseline_index is not None:
             baseline_path = state_root / "baseline_accepted.tsv"
             if baseline_path.is_file():
-                if baseline_path.read_text(encoding="utf-8") != baseline_index:
-                    raise ValueError("Persistent baseline index changed")
+                existing_index = baseline_path.read_text(encoding="utf-8")
+                if existing_index != baseline_index:
+                    existing_rows = list(
+                        csv.DictReader(existing_index.splitlines(), delimiter="\t")
+                    )
+                    replacement_rows = list(
+                        csv.DictReader(baseline_index.splitlines(), delimiter="\t")
+                    )
+                    legacy_existing = [
+                        (row["protein_id"], row["modality"], row["archive_member"])
+                        for row in existing_rows
+                    ]
+                    legacy_replacement = [
+                        (row["protein_id"], row["modality"], row["archive_member"])
+                        for row in replacement_rows
+                    ]
+                    if legacy_existing != legacy_replacement:
+                        raise ValueError("Persistent baseline index changed")
+                    atomic_write_text(baseline_path, baseline_index)
             else:
                 atomic_write_text(baseline_path, baseline_index)
             atomic_write_json(
@@ -1151,12 +1247,14 @@ def materialize_pairs(
             raise ValueError(f"Baseline archive is unavailable: {archive_path}")
         missing_members = set(baseline_requested)
         with tarfile.open(archive_path, mode="r|gz") as archive:
-            for member in archive:
-                pair = baseline_requested.get(member.name)
+            for archive_member in archive:
+                pair = baseline_requested.get(archive_member.name)
                 if pair is None:
                     continue
-                if not member.isfile():
-                    raise ValueError(f"Baseline member is not a regular file: {member.name}")
+                if not archive_member.isfile():
+                    raise ValueError(
+                        f"Baseline member is not a regular file: {archive_member.name}"
+                    )
                 protein_id, modality = pair
                 specification = policies[modality]
                 destination = (
@@ -1168,15 +1266,17 @@ def materialize_pairs(
                     validate_array(destination, int(specification["dimension"]))
                     skipped += 1
                 else:
-                    source_handle = archive.extractfile(member)
+                    source_handle = archive.extractfile(archive_member)
                     if source_handle is None:
-                        raise ValueError(f"Cannot read baseline member: {member.name}")
+                        raise ValueError(
+                            f"Cannot read baseline member: {archive_member.name}"
+                        )
                     with source_handle:
                         atomic_copy_stream(source_handle, destination)
                     validate_array(destination, int(specification["dimension"]))
                     copied += 1
                     baseline_copied += 1
-                missing_members.discard(member.name)
+                missing_members.discard(archive_member.name)
         if missing_members:
             raise ValueError(
                 "Baseline archive is missing requested members: "
@@ -1270,6 +1370,143 @@ def command_summary(args: argparse.Namespace) -> dict:
         return summary
 
 
+def accepted_membership(
+    state_root: Path,
+    targets: Mapping[str, str],
+    policies: Mapping[str, dict],
+) -> Dict[str, Set[str]]:
+    return {
+        modality: accepted_ids(state_root, targets, specification, modality)
+        for modality, specification in policies.items()
+    }
+
+
+def command_upgrade_evidence_hashes(args: argparse.Namespace) -> dict:
+    """Add array hashes to an existing state without changing its contract."""
+    state_root = Path(args.state_root)
+    with state_lock(state_root):
+        contract = load_contract(state_root)
+        targets = load_target_manifest(state_root)
+        policies = modality_policy(contract)
+        membership_before = accepted_membership(state_root, targets, policies)
+        counts_before = {
+            modality: len(protein_ids)
+            for modality, protein_ids in membership_before.items()
+        }
+
+        baseline_path = state_root / "baseline_accepted.tsv"
+        baseline_archive = baseline_archive_path(contract)
+        assembly_report = baseline_assembly_report_path(contract)
+        baseline_pairs = 0
+        baseline_archive_summary = None
+        baseline_index_changed = False
+        if baseline_path.is_file():
+            if baseline_archive is None or assembly_report is None:
+                raise ValueError(
+                    "State has a baseline index but its contract has incomplete baseline provenance"
+                )
+            if not baseline_archive.is_file():
+                raise ValueError(f"Missing contracted baseline archive: {baseline_archive}")
+            if not assembly_report.is_file():
+                raise ValueError(
+                    f"Missing contracted baseline assembly report: {assembly_report}"
+                )
+
+            baseline_contract = contract["baseline"]
+            expected_archive = baseline_contract["archive"]
+            observed_size = baseline_archive.stat().st_size
+            expected_size = int(expected_archive["size_bytes"])
+            if observed_size != expected_size:
+                raise ValueError(
+                    "Contracted baseline archive size changed: "
+                    f"expected={expected_size};observed={observed_size}"
+                )
+            observed_archive_sha256 = sha256_file(baseline_archive)
+            if observed_archive_sha256 != expected_archive["sha256"]:
+                raise ValueError("Contracted baseline archive SHA-256 changed")
+
+            expected_report = baseline_contract["assembly_report"]
+            if assembly_report.stat().st_size != int(expected_report["size_bytes"]):
+                raise ValueError("Contracted baseline assembly report size changed")
+            if sha256_file(assembly_report) != expected_report["sha256"]:
+                raise ValueError("Contracted baseline assembly report SHA-256 changed")
+
+            expected_index, expected_members, report_summary = build_baseline_index(
+                assembly_report, targets, policies
+            )
+
+            current_index = baseline_path.read_text(encoding="utf-8")
+            rows = list(csv.DictReader(current_index.splitlines(), delimiter="\t"))
+            required = {"protein_id", "modality", "archive_member"}
+            fieldnames = set(rows[0]) if rows else set()
+            if not rows or not required.issubset(fieldnames):
+                raise ValueError(
+                    "Baseline index must contain protein_id, modality and archive_member"
+                )
+            current_mapping = [
+                (row["protein_id"], row["modality"], row["archive_member"])
+                for row in rows
+            ]
+            expected_rows = list(
+                csv.DictReader(expected_index.splitlines(), delimiter="\t")
+            )
+            expected_mapping = [
+                (row["protein_id"], row["modality"], row["archive_member"])
+                for row in expected_rows
+            ]
+            if current_mapping != expected_mapping:
+                raise ValueError(
+                    "Baseline index mapping differs from the contracted assembly report"
+                )
+            baseline_pairs = len(rows)
+            baseline_archive_summary, member_hashes = verify_baseline_archive_members(
+                baseline_archive, expected_members
+            )
+            baseline_archive_summary["assembly_report"] = report_summary
+            upgraded_index = bind_baseline_index_hashes(
+                expected_index, member_hashes
+            )
+            baseline_index_changed = upgraded_index != current_index
+            if baseline_index_changed:
+                atomic_write_text(baseline_path, upgraded_index)
+        elif baseline_archive is not None:
+            raise ValueError(
+                "State contract has a baseline archive but baseline_accepted.tsv is missing"
+            )
+
+        refresh_reports(state_root)
+        membership_after = accepted_membership(state_root, targets, policies)
+        counts_after = {
+            modality: len(protein_ids)
+            for modality, protein_ids in membership_after.items()
+        }
+        if membership_after != membership_before:
+            raise ValueError(
+                "Evidence upgrade changed accepted membership: "
+                f"before={counts_before};after={counts_after}"
+            )
+
+        pair_status_path = state_root / "pair_status.tsv"
+        result = {
+            "schema_version": 1,
+            "state_root": str(state_root.resolve()),
+            "contract_sha256": contract["contract_sha256"],
+            "upgraded_at": utc_now(),
+            "accepted_counts_before": counts_before,
+            "accepted_counts_after": counts_after,
+            "accepted_membership_unchanged": True,
+            "baseline_pairs_hashed": baseline_pairs,
+            "baseline_index_changed": baseline_index_changed,
+            "baseline_archive": baseline_archive_summary,
+            "pair_status_sha256": sha256_file(pair_status_path),
+            "coverage_sha256": sha256_file(state_root / "coverage.json"),
+        }
+        atomic_write_json(state_root / "EVIDENCE_HASHES_COMPLETE.json", result)
+        if args.report:
+            atomic_write_json(Path(args.report), result)
+        return result
+
+
 def add_state_root(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--state-root", type=Path, required=True)
 
@@ -1334,6 +1571,10 @@ def parse_args() -> argparse.Namespace:
     summary = subparsers.add_parser("summary")
     add_state_root(summary)
     summary.add_argument("--report-dir", type=Path)
+
+    upgrade_evidence = subparsers.add_parser("upgrade-evidence-hashes")
+    add_state_root(upgrade_evidence)
+    upgrade_evidence.add_argument("--report", type=Path)
     return parser.parse_args()
 
 
@@ -1347,6 +1588,7 @@ def main() -> int:
         "materialize": command_materialize,
         "hydrate": command_hydrate,
         "summary": command_summary,
+        "upgrade-evidence-hashes": command_upgrade_evidence_hashes,
     }
     try:
         result = commands[args.command](args)

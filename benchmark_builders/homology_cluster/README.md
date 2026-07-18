@@ -173,6 +173,11 @@ bound before any large input is hashed, before ontology parsing, and before MMse
 input bytes are then hashed and bound to that manifest, and the policy hash is rechecked before
 evaluation and publication.
 
+The 30% pilot is measurement-only and is deliberately not accepted by the PFP
+training boundary. The production sensitivity array therefore runs 30% again as
+task 1 alongside 25%, 20%, 15%, 10%, and 5%. This duplication is the expected
+cost of pilot-first resource validation, not an accidental rerun.
+
 ## Output contract and isolation
 
 Every threshold continues to publish:

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "name": "Zijian published CAFA3 full-model metrics",
+  "comparison_policy": {
+    "eval_only_tolerance": 0.0005,
+    "observed_retraining_variance": 0.003,
+    "primary_metric": "cafa_fmax",
+    "note": "Reference matching is report-only unless the runner is given --require-reference-match."
+  },
+  "metrics": {
+    "BPO": {"cafa_fmax": 0.601, "cafa_wfmax": 0.515},
+    "CCO": {"cafa_fmax": 0.706, "cafa_wfmax": 0.566},
+    "MFO": {"cafa_fmax": 0.702, "cafa_wfmax": 0.605}
+  }
+}

@@ -12,6 +12,13 @@ The framework currently supports three levels of reproduction:
 3.  **Regenerate embeddings, retrain, and evaluate** from the prepared
     benchmark pipeline.
 
+It also provides a benchmark-agnostic PFP execution layer under
+`scripts/model_execution/`. This keeps upstream PFP immutable while accepting
+completed CAFA3, contemporary temporal, or homology-cluster nine-CSV bundles,
+strictly validating their GO/overlap/cache contracts, and running either
+evaluation-only or fresh one-aspect-at-a-time training. See
+[`scripts/model_execution/README.md`](scripts/model_execution/README.md).
+
 The long-term design goal is to separate benchmark-specific values from
 reusable logic. Verification scripts enforce data and embedding
 contracts before expensive training is launched.
@@ -32,7 +39,8 @@ contracts before expensive training is launched.
 │   ├── data_acquisition/                  # HPC/raw database download and inspection helpers
 │   ├── diagnostics/                       # Environment probes and comparison diagnostics
 │   ├── benchmark_generation/              # Reusable contemporary benchmark runner
-│   └── validation/                        # Historical benchmark validation workflows
+│   ├── validation/                        # Historical benchmark validation workflows
+│   └── model_execution/                   # Generic validated PFP prepare/train/eval layer
 ├── hpc_jobs/
 │   ├── active/                            # qsub wrappers for current cluster workflows
 │   ├── examples/                          # Scheduler examples/templates

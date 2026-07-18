@@ -1,5 +1,29 @@
 # HPC Jobs
 
+## Generic PFP benchmark runner
+
+`active/hpc_pfp_benchmark.sh` is the one-GPU entrypoint for training or
+evaluating PFP on any completed nine-CSV benchmark and existing embedding
+cache. It stages explicit inputs into job-owned scratch by default, calls the
+scheduler-neutral `scripts/model_execution/run_pfp_benchmark.sh`, atomically
+publishes reports/checkpoints/prepared data, and always removes its own scratch
+directory. It never generates embeddings or edits PFP.
+The wrapper reserves 250 GB of consumable scratch for its single task and also
+requires 250 GB free on the selected host. If Grid Engine sends a termination
+warning, scratch deletion takes priority over attempting a large result copy.
+With the default one allocated slot, `--num-workers` must remain `0` so the
+main process is not oversubscribed.
+
+Use `configs/pfp_benchmark_run.cafa3.json`,
+`configs/pfp_benchmark_run.temporal.json`, or
+`configs/pfp_benchmark_run.homology.json` to select the scientific overlap and
+input contract. Complete commands and the v1/v1.5/v2 acceptance order are in
+[`scripts/model_execution/README.md`](../scripts/model_execution/README.md).
+The CAFA3 v1.5 control must pass both the directly extracted `data/` directory
+and its catalogued `mmfp_data_splits.tar.gz` through
+`--reference-data-dir` and `--reference-source-archive`; the wrapper stages and
+authenticates both.
+
 ## SAN frozen-input acquisition
 
 `active/hpc_populate_san_frozen_inputs.sh` is the Grid Engine wrapper for the

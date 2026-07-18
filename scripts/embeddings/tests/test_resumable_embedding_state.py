@@ -311,6 +311,13 @@ class ResumableEmbeddingStateTest(unittest.TestCase):
         self.assertEqual(
             len(list((self.state / "cache/prott5").glob("*.npy"))), 0
         )
+        with (self.state / "pair_status.tsv").open(
+            encoding="utf-8", newline=""
+        ) as handle:
+            rows = list(csv.DictReader(handle, delimiter="\t"))
+        accepted = [row for row in rows if row["state"] == "accepted"]
+        self.assertTrue(accepted)
+        self.assertTrue(all(len(row["embedding_sha256"]) == 64 for row in accepted))
 
         controls = self.root / "archive-controls.tsv"
         self.write_pairs(controls, [("P1", "sequence")])
@@ -345,6 +352,124 @@ class ResumableEmbeddingStateTest(unittest.TestCase):
             str(retry),
         )
         self.assertTrue((self.state / "cache/prott5/P3.npy").is_file())
+
+        contract_before = (self.state / "contract.json").read_bytes()
+        coverage_before = json.loads(
+            (self.state / "coverage.json").read_text(encoding="utf-8")
+        )["coverage"]
+        baseline_path = self.state / "baseline_accepted.tsv"
+        with baseline_path.open(encoding="utf-8", newline="") as handle:
+            baseline_rows = list(csv.DictReader(handle, delimiter="\t"))
+        legacy_lines = ["protein_id\tmodality\tarchive_member"]
+        legacy_lines.extend(
+            "\t".join(
+                (row["protein_id"], row["modality"], row["archive_member"])
+            )
+            for row in baseline_rows
+        )
+        legacy_index = "\n".join(legacy_lines) + "\n"
+        baseline_path.write_text(legacy_index, encoding="utf-8")
+
+        tampered_mapping = legacy_index.replace(
+            "P1\tsequence\t", "P2\tsequence\t", 1
+        )
+        baseline_path.write_text(tampered_mapping, encoding="utf-8")
+        rejected_mapping = self.run_state(
+            "upgrade-evidence-hashes",
+            "--state-root",
+            str(self.state),
+            check=False,
+        )
+        self.assertNotEqual(rejected_mapping.returncode, 0)
+        self.assertIn("mapping differs", rejected_mapping.stderr)
+        self.assertEqual(baseline_path.read_text(encoding="utf-8"), tampered_mapping)
+        baseline_path.write_text(legacy_index, encoding="utf-8")
+
+        upgrade_report = self.root / "evidence-upgrade.json"
+        result = self.run_state(
+            "upgrade-evidence-hashes",
+            "--state-root",
+            str(self.state),
+            "--report",
+            str(upgrade_report),
+        )
+        upgrade = json.loads(result.stdout)
+        self.assertTrue(upgrade["accepted_membership_unchanged"])
+        self.assertTrue(upgrade["baseline_index_changed"])
+        self.assertEqual(upgrade["baseline_pairs_hashed"], 5)
+        self.assertEqual(
+            upgrade["accepted_counts_before"],
+            {key: value["accepted"] for key, value in coverage_before.items()},
+        )
+        self.assertEqual(
+            upgrade["accepted_counts_after"], upgrade["accepted_counts_before"]
+        )
+        self.assertEqual(
+            (self.state / "contract.json").read_bytes(), contract_before
+        )
+        self.assertTrue((self.state / "cache/prott5/P3.npy").is_file())
+        self.assertTrue(
+            (self.state / "EVIDENCE_HASHES_COMPLETE.json").is_file()
+        )
+        with baseline_path.open(encoding="utf-8", newline="") as handle:
+            upgraded_rows = list(csv.DictReader(handle, delimiter="\t"))
+        self.assertTrue(
+            all(len(row["embedding_sha256"]) == 64 for row in upgraded_rows)
+        )
+        with (self.state / "pair_status.tsv").open(
+            encoding="utf-8", newline=""
+        ) as handle:
+            status_rows = list(csv.DictReader(handle, delimiter="\t"))
+        accepted_rows = [row for row in status_rows if row["state"] == "accepted"]
+        self.assertTrue(
+            all(len(row["embedding_sha256"]) == 64 for row in accepted_rows)
+        )
+
+        repeated = json.loads(
+            self.run_state(
+                "upgrade-evidence-hashes", "--state-root", str(self.state)
+            ).stdout
+        )
+        self.assertFalse(repeated["baseline_index_changed"])
+        self.assertEqual(
+            repeated["accepted_counts_after"], upgrade["accepted_counts_after"]
+        )
+
+        self.run_state("summary", "--state-root", str(self.state))
+        self.assertFalse(
+            (self.state / "EVIDENCE_HASHES_COMPLETE.json").exists()
+        )
+        self.run_state("upgrade-evidence-hashes", "--state-root", str(self.state))
+        self.assertTrue(
+            (self.state / "EVIDENCE_HASHES_COMPLETE.json").is_file()
+        )
+
+        baseline_before_tamper = baseline_path.read_bytes()
+        pair_status_before_tamper = (self.state / "pair_status.tsv").read_bytes()
+        marker_before_tamper = (
+            self.state / "EVIDENCE_HASHES_COMPLETE.json"
+        ).read_bytes()
+        archive_before_tamper = archive.read_bytes()
+        with archive.open("ab") as handle:
+            handle.write(b"tamper")
+        rejected = self.run_state(
+            "upgrade-evidence-hashes",
+            "--state-root",
+            str(self.state),
+            check=False,
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("archive size changed", rejected.stderr)
+        self.assertEqual(baseline_path.read_bytes(), baseline_before_tamper)
+        self.assertEqual(
+            (self.state / "pair_status.tsv").read_bytes(),
+            pair_status_before_tamper,
+        )
+        self.assertEqual(
+            (self.state / "EVIDENCE_HASHES_COMPLETE.json").read_bytes(),
+            marker_before_tamper,
+        )
+        archive.write_bytes(archive_before_tamper)
 
         hydrated = self.root / "hydrated"
         self.run_state(

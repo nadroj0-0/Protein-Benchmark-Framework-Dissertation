@@ -284,6 +284,17 @@ copies. `needs_retry.tsv`, `coverage.json`, and one of
 `GENERATION_INCOMPLETE.json` or `EMBEDDING_GATE_PASSED.json` are regenerated
 atomically after every merge.
 
+`pair_status.tsv` also records `embedding_sha256` for every accepted pair.
+Baseline hashes are taken while authenticating the published archive; retry
+hashes are taken from the cumulative state cache. Do not rerun initialization
+to upgrade an older state: its immutable contract correctly rejects a newer
+framework commit. After every retry job has finished, use
+`upgrade_embedding_state_evidence.sh --confirm-retries-finished` or its HPC
+wrapper. The dedicated operation re-authenticates the contracted archive and
+assembly report while preserving the contract and exact accepted-pair
+membership. This lets downstream model execution reject a correctly shaped but
+substituted array.
+
 The historical gate is tied to the published CAFA3 cache counts, not the older
 generic lower bounds:
 
