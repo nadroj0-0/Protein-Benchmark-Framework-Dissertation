@@ -78,9 +78,12 @@ declared role: Swiss-Prot records must say `Reviewed` on the `ID` line and TrEMB
 `Unreviewed`; renaming or misdeclaring one official product as the other fails.
 
 Combined mode scans sources in a fixed order and retains each record's source population. A
-disk-backed collision audit reports primary/secondary and collision counts per involved source. Conflicting sequences,
-unexpected duplicate primary accessions (including identical sequences), and ambiguous secondary
-aliases fail production. Results do not depend on caller dictionary or traversal order. GOA
+disk-backed collision audit reports primary/secondary and collision counts per involved source.
+Conflicting sequences and unexpected duplicate primary accessions (including identical sequences)
+fail production.
+Secondary aliases attached to multiple primaries with an identical sequence are recorded as
+ambiguous and excluded from supervision instead of being assigned arbitrarily. Results do not
+depend on caller dictionary or traversal order. GOA
 accessions outside the selected source may be visible in `idmapping_selected`, but cannot authorize
 cluster retention.
 
@@ -274,12 +277,13 @@ when no executable path is supplied. The release tag and the full Git commit pri
 The default source scope is `sprot-and-trembl`; set `UNIPROT_SOURCE_SCOPE=sprot-only` or
 `trembl-only` to run another declared population. Every array task has independent node-local
 scratch, so missing inputs are downloaded once per active task. The 30% pilot requests approximately
-300 GB total: UCL Grid Engine treats consumable resources as per-slot requests, so eight SMP slots
-use `tscratch=38G` (304 GB total) and `tmem=8G` (64 GB total), while `scratch0free=300G` is only a
-host free-space threshold. It runs as a measurement job: the old speculative multiplier defaults
-are reduced globally to neutral `1x` values, and the pilot records rather than enforces the
-resulting estimate. The full wrapper's resource request must be recalibrated from the pilot before
-submission; it is not evidence that the old 1200 GB estimate was necessary.
+300 GB total: UCL Grid Engine treats consumable resources as per-slot requests, so four SMP slots
+use `tscratch=75G` (300 GB total) and `tmem=16G` (64 GB total), while `scratch0free=300G` is only a
+host free-space threshold. The streaming and indexing stages remain largely single-threaded; the
+four slots primarily accelerate MMseqs2. It runs as a measurement job: the old speculative
+multiplier defaults are reduced globally to neutral `1x` values, and the pilot records rather than
+enforces the resulting estimate. The full wrapper's resource request must be recalibrated from the
+pilot before submission; it is not evidence that the old 1200 GB estimate was necessary.
 
 The runtime driver records job-owned allocated bytes every 120 seconds and at explicit checkpoints
 covering input staging, MMseqs2 installation, builder execution, and validation. Copied results

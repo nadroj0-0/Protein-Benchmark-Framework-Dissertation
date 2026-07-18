@@ -19,11 +19,13 @@ reported. DAT `ID` content is checked too: Swiss-Prot requires `Reviewed` and Tr
 `Unreviewed`, so a renamed or misdeclared product fails its source role.
 
 Combined-mode ingestion is fixed-order and source-tagged. A disk-backed collision audit fails
-duplicate primaries, conflicting sequences, and ambiguous secondary aliases in strict production
-mode. Source-specific reports separate primary/secondary selected-UniProt resolution, present
-UniRef90 mapping, and MMseqs2 assignment, with explicit zero rows for selected sources. Tests cover all three
-scopes, required/irrelevant sources, 5/5/6 manifests, role/scope/release/hash mismatches,
-determinism, primary/secondary mappings, collisions, and out-of-scope retention denial.
+duplicate primaries and conflicting sequences in strict production mode. Identical-sequence
+secondary aliases attached to multiple primaries are counted and excluded if qualifying, avoiding
+both arbitrary canonicalization and whole-run failure. Source-specific reports separate
+primary/secondary selected-UniProt resolution, present UniRef90 mapping, and MMseqs2 assignment,
+with explicit zero rows for selected sources. Tests cover all three scopes, required/irrelevant
+sources, 5/5/6 manifests, role/scope/release/hash mismatches, determinism, primary/secondary
+mappings, collisions, and out-of-scope retention denial.
 
 Remaining boundary: no full official Swiss-Prot/TrEMBL bytes were processed. Daniel still needs to
 choose the production scope.

@@ -32,10 +32,13 @@ declare `Unreviewed` on their `ID` lines. Missing-ID records and source-role swa
 
 Combined-source traversal is fixed-order and source-tagged. A disk-backed accession audit detects
 duplicate primary accessions, conflicting sequences, and ambiguous secondary aliases without
-depending on caller order. Reports measure primary and secondary identifiers and collision counts
-for every involved source. Mapping reports separately count selected-UniProt primary/secondary
-resolution, present-UniRef90 mappings, and MMseqs2 assignments, including explicit zero rows for a
-selected source. An out-of-scope idmapping hit cannot authorize cluster retention.
+depending on caller order. Conflicting sequences and duplicate primaries remain fatal; an
+identical-sequence secondary alias shared by multiple primaries is counted and excluded from
+supervision rather than arbitrarily canonicalized. Reports measure primary and secondary
+identifiers and collision counts for every involved source. Mapping reports separately count
+selected-UniProt primary/secondary resolution, present-UniRef90 mappings, and MMseqs2 assignments,
+including explicit zero rows for a selected source. An out-of-scope idmapping hit cannot authorize
+cluster retention.
 
 ## Reviewed attrition gate
 
@@ -71,9 +74,10 @@ the pilot observations. The pilot cannot approve itself and no skip flag exists.
 
 ## Grid Engine and scratch safety
 
-The deterministic task map is `1→30`, `2→25`, `3→20`, `4→15`, `5→10`, `6→5`. The worker and both
-launchers request Grid Engine `smp 2`; production requires `NSLOTS=2`, and MMseqs2 threads equal
-`NSLOTS`. Array concurrency remains separate from within-task threading.
+The deterministic task map is `1→30`, `2→25`, `3→20`, `4→15`, `5→10`, `6→5`. The current runtime
+pilot requests Grid Engine `smp 4` while retaining 64 GB total memory and 300 GB total scratch;
+the production array remains `smp 2`. MMseqs2 threads equal scheduler-provided `NSLOTS`. Array
+concurrency remains separate from within-task threading.
 
 Production requires an exact 40-character lowercase commit, detached checkout, exact HEAD match,
 and a clean tree before input work. Shared frozen inputs are local and checksum-verified with

@@ -2,13 +2,14 @@
 # Direct qsub entrypoint for the recommended 30% homology pilot.
 
 # UCL Grid Engine charges consumable tmem/tscratch per SMP slot:
-# 2 slots x 32G = 64G memory; 2 slots x 150G = 300G scratch.
-# Keeping the slot request small makes the diagnostic pilot much easier to schedule.
-#$ -l tmem=32G
-#$ -l tscratch=150G
+# 4 slots x 16G = 64G memory; 4 slots x 75G = 300G scratch.
+# Four MMseqs2 threads improve clustering throughput without restoring the old 8-slot wait.
+# The earlier single-threaded streaming/indexing stages will not scale linearly with this change.
+#$ -l tmem=16G
+#$ -l tscratch=75G
 #$ -l scratch0free=300G
 #$ -l h_rt=96:0:0
-#$ -pe smp 2
+#$ -pe smp 4
 #$ -t 1
 #$ -j y
 #$ -N homology_2026_pilot

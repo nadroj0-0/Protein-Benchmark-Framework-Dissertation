@@ -212,7 +212,13 @@ def load_requested_proteins_from_sources(
                             source_collision_counts[involved_source][
                                 "duplicate-primary-accession"
                             ] += 1
-                    if strict_collisions:
+                    if collision_kind == "ambiguous-secondary-identical":
+                        # A retired secondary accession can legitimately remain attached to
+                        # multiple isolate-specific records with the same sequence. Choosing one
+                        # primary would invent provenance, so keep the alias explicitly ambiguous
+                        # and exclude it from supervision if GOA requests it.
+                        catalog.ambiguous_aliases.add(accession)
+                    elif strict_collisions:
                         raise ValueError(
                             f"UniProt accession collision ({collision_kind}) for {accession}: "
                             f"{previous_source}/{previous_primary} versus "
@@ -283,6 +289,16 @@ def load_requested_proteins_from_sources(
         connection.commit()
     finally:
         connection.close()
+    ambiguous_secondary_collisions = catalog.collision_counts[
+        "ambiguous-secondary-identical"
+    ]
+    if ambiguous_secondary_collisions:
+        LOGGER.warning(
+            "Observed %d identical-sequence ambiguous secondary-accession collisions; "
+            "qualifying ambiguous aliases are excluded rather than assigned to an arbitrary "
+            "primary accession",
+            ambiguous_secondary_collisions,
+        )
     LOGGER.info(
         "UniProt sequence scan completed: records=%d retained=%d ambiguous_aliases=%d "
         "elapsed_seconds=%.1f",

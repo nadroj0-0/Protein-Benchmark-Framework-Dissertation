@@ -180,14 +180,13 @@ class UniProtScopeTests(unittest.TestCase):
             self.assertEqual(first.source_counts["sprot"]["primary_accessions_read"], 1)
             self.assertEqual(first.source_counts["trembl"]["secondary_aliases_read"], 1)
 
-    def test_identical_conflicting_primary_and_ambiguous_alias_collisions_fail(self):
+    def test_identical_primary_and_conflicting_sequence_collisions_fail(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             base = _dat(root / "sprot.dat", [("P1", ("SHARED",), "MAAA")])
             cases = {
                 "duplicate-primary-identical": [("P1", (), "MAAA")],
                 "conflicting-sequence": [("P1", (), "MCCC")],
-                "ambiguous-secondary-identical": [("T1", ("SHARED",), "MAAA")],
             }
             for expected, records in cases.items():
                 with self.subTest(expected=expected):
@@ -199,6 +198,31 @@ class UniProtScopeTests(unittest.TestCase):
                             strict_collisions=True,
                             collision_database=root / f"{expected}.sqlite",
                         )
+
+    def test_identical_ambiguous_secondary_is_reported_and_excluded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sprot = _dat(root / "sprot.dat", [
+                ("P68744", ("P18556",), "MAAA"),
+                ("P68745", ("P18556",), "MAAA"),
+            ])
+
+            catalog = load_requested_proteins_from_sources(
+                {"sprot": sprot},
+                {"P18556"},
+                strict_collisions=True,
+                collision_database=root / "collisions.sqlite",
+            )
+
+            self.assertEqual(set(catalog.records), {"P68744", "P68745"})
+            self.assertIn("P18556", catalog.ambiguous_aliases)
+            self.assertNotIn("P18556", catalog.alias_to_primary)
+            self.assertEqual(
+                catalog.collision_counts["ambiguous-secondary-identical"], 1
+            )
+            self.assertEqual(
+                catalog.source_counts["sprot"]["ambiguous_secondary_aliases"], 1
+            )
 
     def test_dat_review_status_must_match_declared_source_role(self):
         with tempfile.TemporaryDirectory() as tmp:

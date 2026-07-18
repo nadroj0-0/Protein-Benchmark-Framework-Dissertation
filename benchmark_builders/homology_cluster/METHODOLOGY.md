@@ -65,9 +65,11 @@ Swiss-Prot DAT records must declare `Reviewed` and TrEMBL DAT records must decla
 their `ID` lines; this content check prevents a product from satisfying the other product's role by
 filename and manifest declaration alone.
 Combined DAT scanning is fixed-order and every record retains its source. A SQLite collision audit
-reports per-source primary/secondary counts. Conflicting sequences, duplicate primaries even with
-identical sequences, and ambiguous aliases fail production rather than depending on incidental
-input order. A GOA accession absent from the selected source cannot retain a cluster merely because
+reports per-source primary/secondary counts. Conflicting sequences and duplicate primaries even
+with identical sequences fail production rather than depending on incidental input order.
+Identical-sequence secondary aliases attached to multiple primaries remain explicitly ambiguous;
+they are counted and any qualifying occurrence is excluded rather than assigned arbitrarily. A GOA
+accession absent from the selected source cannot retain a cluster merely because
 idmapping links it to a UniRef90 entry.
 
 Per-source mapping counts preserve distinct stages: selected-UniProt resolution by primary or
