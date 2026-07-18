@@ -233,6 +233,31 @@ class ModelExecutionTests(unittest.TestCase):
                 csv.writer(handle).writerows(rows)
         self.prepare(expected=1, contains="exact sequences")
 
+    def test_temporal_policy_reports_cross_ontology_sequence_overlap(self) -> None:
+        (self.benchmark / "bp-training.csv").write_text(
+            "proteins,sequences,GO:0000001\nBPTRAIN,TTTT,1\n"
+        )
+        (self.benchmark / "cc-validation.csv").write_text(
+            "proteins,sequences,GO:0000002\nCCVALID,TTTT,1\n"
+        )
+
+        self.prepare()
+        report = json.loads(self.last_preparation_report.read_text())
+        diagnostics = report["global_cross_split_overlap_diagnostics"]
+        self.assertEqual(
+            diagnostics["global_training_validation_exact_sequences"], 1
+        )
+
+    def test_temporal_policy_rejects_global_development_test_id_overlap(self) -> None:
+        (self.benchmark / "bp-training.csv").write_text(
+            "proteins,sequences,GO:0000001\nSHARED,TTTT,1\n"
+        )
+        (self.benchmark / "mf-test.csv").write_text(
+            "proteins,sequences,GO:0000003\nSHARED,TTTT,1\n"
+        )
+
+        self.prepare(expected=1, contains="protein IDs")
+
     def test_cafa3_policy_normalizes_legacy_singular_header_without_editing_source(self) -> None:
         path = self.benchmark / "mf-test.csv"
         original = "protein,sequences,GO:0000003\nTEST,GGGG,1\n"

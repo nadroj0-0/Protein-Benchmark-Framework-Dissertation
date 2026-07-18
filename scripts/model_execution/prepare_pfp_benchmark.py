@@ -46,7 +46,7 @@ from pfp_embedding_inventory.benchmark import (  # noqa: E402
     parse_benchmark,
     required_csv_names,
 )
-from pfp_embedding_inventory.models import BenchmarkContract  # noqa: E402
+from pfp_embedding_inventory.models import BenchmarkContract, BenchmarkData  # noqa: E402
 
 
 def read_obo(path: Path) -> Tuple[Dict[str, str], set[str]]:
@@ -145,6 +145,35 @@ def csv_profile(
                 )
         ordered_terms[aspect] = training_terms
     return profiles, ordered_terms
+
+
+def global_cross_split_diagnostics(benchmark: BenchmarkData) -> Dict[str, int]:
+    """Count global split overlap without changing the configured fail policy."""
+    values: Dict[str, Tuple[set[str], set[str]]] = {}
+    for split in ("training", "validation", "test"):
+        protein_ids = set().union(
+            *(benchmark.file_members[(ontology, split)] for ontology in ("BP", "CC", "MF"))
+        )
+        sequence_hashes = {
+            benchmark.proteins[protein_id].sequence_sha256
+            for protein_id in protein_ids
+        }
+        values[split] = (protein_ids, sequence_hashes)
+
+    diagnostics: Dict[str, int] = {}
+    for left, right in (
+        ("training", "validation"),
+        ("training", "test"),
+        ("validation", "test"),
+    ):
+        key = f"{left}_{right}"
+        diagnostics[f"global_{key}_protein_ids"] = len(
+            values[left][0] & values[right][0]
+        )
+        diagnostics[f"global_{key}_exact_sequences"] = len(
+            values[left][1] & values[right][1]
+        )
+    return diagnostics
 
 
 def normalize_legacy_headers(
@@ -743,6 +772,9 @@ def main() -> int:
         "required_csvs": required_csv_names(),
         "duplicate_rows": benchmark.duplicate_rows,
         "contract": contract_value,
+        "global_cross_split_overlap_diagnostics": (
+            global_cross_split_diagnostics(benchmark)
+        ),
         "csvs": profiles,
         "source_csv_sha256": source_csv_hashes,
         "source_csv_bytes": {

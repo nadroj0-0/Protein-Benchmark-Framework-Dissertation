@@ -163,8 +163,9 @@ logs/
 Transient generated arrays, published embedding archives/cache, model caches,
 STRING inputs and checkpoints stay in scratch and are removed unconditionally
 after compact publication, including when publication fails. Arrays that pass
-the independent validator are the sole exception: one copy is atomically
-published into the provenance-bound SAN embedding state before scratch cleanup.
+the independent validator are consolidated in scratch and atomically published
+as one archive-backed SAN baseline plus its assembly report; they are not copied
+to SAN as hundreds of thousands of loose files.
 Optional CLI overrides are
 `--results-root`, `--embedding-state-root`, `--embedding-mode`, and
 `--text-cutoff-date`; the historical default cutoff is `2016-02-17`.

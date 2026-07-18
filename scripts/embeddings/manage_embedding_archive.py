@@ -67,12 +67,17 @@ def load_directories(config_path: Path) -> tuple[str, ...]:
     return directories
 
 
-def iter_cache_files(cache_root: Path, directories: Iterable[str]) -> list[tuple[str, Path]]:
+def iter_cache_files(
+    cache_root: Path,
+    directories: Iterable[str],
+    *,
+    allow_unexpected_top_level: bool = False,
+) -> list[tuple[str, Path]]:
     expected = set(directories)
     if not cache_root.is_dir() or cache_root.is_symlink():
         raise ValueError(f"Embedding cache root must be a real directory: {cache_root}")
     unexpected = sorted(path.name for path in cache_root.iterdir() if path.name not in expected)
-    if unexpected:
+    if unexpected and not allow_unexpected_top_level:
         raise ValueError(f"Embedding cache has unexpected top-level entries: {unexpected[:5]}")
     result: list[tuple[str, Path]] = []
     for directory in sorted(expected):
@@ -107,11 +112,38 @@ def create_archive(
     cache_root: Path,
     archive_path: Path,
     config_path: Path,
+    *,
+    allow_unexpected_top_level: bool = False,
+) -> dict:
+    directories = load_directories(config_path)
+    return create_archive_from_directories(
+        cache_root,
+        archive_path,
+        directories,
+        allow_unexpected_top_level=allow_unexpected_top_level,
+    )
+
+
+def create_archive_from_directories(
+    cache_root: Path,
+    archive_path: Path,
+    directories: Iterable[str],
+    *,
+    allow_unexpected_top_level: bool = False,
 ) -> dict:
     if archive_path.exists():
         raise ValueError(f"Archive output already exists: {archive_path}")
-    directories = load_directories(config_path)
-    files = iter_cache_files(cache_root, directories)
+    directories = tuple(directories)
+    if len(set(directories)) != len(directories):
+        raise ValueError("Embedding archive repeats a cache directory")
+    for directory in directories:
+        if Path(directory).name != directory or not SAFE_ID.fullmatch(directory):
+            raise ValueError(f"Unsafe embedding cache directory: {directory!r}")
+    files = iter_cache_files(
+        cache_root,
+        directories,
+        allow_unexpected_top_level=allow_unexpected_top_level,
+    )
     archive_path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=f".{archive_path.name}.", suffix=".tmp", dir=str(archive_path.parent)

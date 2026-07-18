@@ -19,6 +19,7 @@ from cafa_benchmark_builder.builder import (
 from cafa_benchmark_builder.config import BENCHMARK_PROFILES, BuildConfig, EVIDENCE_POLICIES
 from cafa_benchmark_builder.goa import load_annotation_map
 from cafa_benchmark_builder.parsers import iter_uniprot
+from cafa_benchmark_builder.snapshot import _validate_csv_outputs
 
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -243,6 +244,35 @@ class BenchmarkBuilderSmokeTest(unittest.TestCase):
         self.assertEqual(supervisor.training_taxon_policy, "cafa3-targets")
         self.assertEqual(supervisor.evidence_policy, "supervisor")
         self.assertEqual(supervisor.test_eligibility_policy, "global-no-knowledge")
+
+    def test_csv_qc_reports_cross_ontology_overlap_but_keeps_it_nonfatal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            written = {}
+            for prefix in ("bp", "cc", "mf"):
+                for split in ("training", "validation", "test"):
+                    path = root / f"{prefix}-{split}.csv"
+                    rows = []
+                    if (prefix, split) == ("bp", "training"):
+                        rows = [{"proteins": "P1", "sequences": "MAAA", "GO:1": 1}]
+                    elif (prefix, split) == ("cc", "validation"):
+                        rows = [{"proteins": "P2", "sequences": "MAAA", "GO:1": 1}]
+                    pd.DataFrame(
+                        rows, columns=["proteins", "sequences", "GO:1"]
+                    ).to_csv(path, index=False)
+                    written[f"{prefix}-{split}"] = path
+
+            _, diagnostics = _validate_csv_outputs(written, strict=False)
+            self.assertEqual(
+                diagnostics["global_training_validation_exact_sequences"], 1
+            )
+
+            pd.DataFrame(
+                [{"proteins": "P3", "sequences": "MAAA", "GO:1": 1}],
+                columns=["proteins", "sequences", "GO:1"],
+            ).to_csv(root / "bp-validation.csv", index=False)
+            with self.assertRaisesRegex(ValueError, "train and validation for bp"):
+                _validate_csv_outputs(written, strict=False)
 
     def test_snapshot_outputs_are_deterministic(self):
         with tempfile.TemporaryDirectory() as tmp:

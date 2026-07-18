@@ -221,14 +221,24 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn('rm -rf "$WORK"', source)
         self.assertIn('[[ -f "$staging/WORKFLOW_COMPLETE.json" ]]', source)
 
-    def test_partial_generation_is_persisted_before_training(self) -> None:
+    def test_partial_generation_is_archived_before_state_merge_and_training(self) -> None:
         path = REPO_ROOT / "scripts/reproduction/run_cafa3_full_from_scratch_reproduction.sh"
         source = path.read_text(encoding="utf-8")
+        self.assertIn("generate_embeddings_text_temporal_cls.sh", source)
+        archive_at = source.index("build_embedding_baseline_archive.py")
+        initialize_at = source.index(
+            "initialize_embedding_state", archive_at
+        )
         merge_at = source.index("merge_command=(")
         incomplete_at = source.index("publish_incomplete_generation", merge_at)
         train_at = source.index('"$PYTHON_BIN" train.py')
+        self.assertLess(archive_at, initialize_at)
+        self.assertLess(initialize_at, merge_at)
         self.assertLess(merge_at, incomplete_at)
         self.assertLess(incomplete_at, train_at)
+        self.assertIn("--baseline-archive", source)
+        self.assertIn("--baseline-assembly-report", source)
+        self.assertIn("Arrays already authenticated", source)
         self.assertIn("--embedding-mode initial|resume", source)
         self.assertIn("state_gate_passed", source)
 
@@ -252,6 +262,19 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn('ALPHAFOLD_ACQUISITION_MODE="${ALPHAFOLD_ACQUISITION_MODE:-pfp}"', source)
         self.assertIn("prefetch_alphafold_structures.py", source)
         self.assertIn("python scripts/check_alphafold_coverage.py", source)
+
+    def test_full_reproduction_keeps_loose_alphafold_files_in_scratch(self) -> None:
+        source = (
+            REPO_ROOT / "scripts/reproduction/run_cafa3_full_from_scratch_reproduction.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            'ALPHAFOLD_PERSISTENT_CACHE_DIR="$WORK_DIR/source_cache/alphafold_structures"',
+            source,
+        )
+        self.assertNotIn(
+            'ALPHAFOLD_PERSISTENT_CACHE_DIR="$EMBEDDING_STATE_ROOT/source_cache',
+            source,
+        )
 
 
 if __name__ == "__main__":

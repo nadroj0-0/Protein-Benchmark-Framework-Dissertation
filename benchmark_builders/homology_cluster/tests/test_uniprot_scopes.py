@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import csv
+import gzip
 import json
 from pathlib import Path
 import tempfile
@@ -223,6 +225,43 @@ class UniProtScopeTests(unittest.TestCase):
             self.assertEqual(
                 catalog.source_counts["sprot"]["ambiguous_secondary_aliases"], 1
             )
+
+    def test_conflicting_ambiguous_secondary_is_excluded_without_guessing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sprot = _dat(root / "sprot.dat", [
+                ("P68250", ("P29358",), "MAAA"),
+                ("P68251", ("P29358",), "MCCC"),
+            ])
+            report = root / "collisions.tsv.gz"
+
+            catalog = load_requested_proteins_from_sources(
+                {"sprot": sprot},
+                {"P29358"},
+                strict_collisions=True,
+                collision_database=root / "collisions.sqlite",
+                collision_report=report,
+            )
+
+            self.assertEqual(set(catalog.records), {"P68250", "P68251"})
+            self.assertIn("P29358", catalog.ambiguous_aliases)
+            self.assertNotIn("P29358", catalog.alias_to_primary)
+            self.assertEqual(
+                catalog.collision_counts["ambiguous-secondary-conflicting"], 1
+            )
+            self.assertEqual(
+                catalog.source_counts["sprot"]["ambiguous_secondary_aliases"], 1
+            )
+            with gzip.open(report, "rt", encoding="utf-8", newline="") as handle:
+                rows = list(csv.DictReader(handle, delimiter="\t"))
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(
+                rows[0]["collision_kind"], "ambiguous-secondary-conflicting"
+            )
+            self.assertEqual(
+                rows[0]["resolution"], "excluded_ambiguous_secondary"
+            )
+            self.assertEqual(rows[0]["requested_by_goa"], "true")
 
     def test_dat_review_status_must_match_declared_source_role(self):
         with tempfile.TemporaryDirectory() as tmp:

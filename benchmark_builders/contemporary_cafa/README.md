@@ -114,7 +114,12 @@ bp/cc/mf x training/validation/test CSVs for PFP
 
 The training-defined term universe uses propagated `t0` annotations and
 `min_count >= 50`. Snapshot rows and GO columns are sorted before the seeded
-split so Python hash randomisation cannot change the outputs.
+split so Python hash randomisation cannot change the outputs. Exact-sequence
+isolation is validated within each ontology, matching the CAFA3/TEMPROT export
+policy and PFP's separate BP, CC and MF model runs. Cross-ontology overlap is
+recorded as a diagnostic instead of being treated as same-model leakage. The
+supervisor profile separately enforces the requested global development/test
+protein-ID exclusion.
 
 ## Direct CLI use
 
@@ -265,9 +270,9 @@ A production build exits non-zero when it finds:
 - an unresolvable GO ID in its matching source ontology;
 - a test protein absent at `t0`;
 - a qualifying `t0` annotation on a selected test protein;
-- train/test protein overlap;
+- train/test protein overlap under the supervisor profile;
 - malformed CSV schemas, duplicate IDs or non-binary labels;
-- exact sequence overlap between exported splits;
+- protein or exact-sequence overlap between exported splits within an ontology;
 - an empty ontology/split under strict QC.
 
 Expected exclusions such as a valid post-`t0` GO term outside the frozen graph,

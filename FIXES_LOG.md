@@ -374,3 +374,61 @@ inputs or a different pooling recipe.
 No PFP source, model, pooling rule, input sequence, AlphaFold structure or
 accepted embedding was changed. The tolerance is an explicit compatibility
 boundary derived from measured numerical variation.
+
+## 2026-07-18 - `[fix]` Align temporal overlap validation with separate ontology models
+
+### Observed failure
+
+The contemporary finalizer found 138 exact sequences shared between training
+and validation after pooling BP, CC and MF. Row-level inspection showed that
+every collision involved different accessions and crossed ontology CSVs. No
+collision occurred within one ontology, and PFP trains the three ontologies as
+separate models.
+
+### Correctness change
+
+- The builder retains the seeded DeepGOPlus-style split and CAFA3/TEMPROT
+  per-ontology exact-sequence isolation; it does not add homology control to the
+  temporal experiment.
+- The supervisor profile still enforces Daniel's global development/test
+  protein-ID exclusion.
+- The PFP temporal contract enforces global development/test ID disjointness
+  and per-ontology exact-sequence disjointness.
+- Global cross-ontology split overlap is retained in build and preparation
+  reports as a diagnostic instead of causing a false-positive failure.
+
+No benchmark rows are moved or removed by this correction. The already-built
+contemporary CSVs remain valid inputs.
+
+## 2026-07-18 - `[fix]` Exclude ambiguous conflicting secondary accessions
+
+### Observed failure
+
+UniProt secondary accession `P29358` was attached to two current Swiss-Prot
+primaries with different sequences. The previous strict collision rule treated
+this as source corruption and discarded the entire common-cache run.
+
+### Correctness change
+
+- Secondary-to-secondary collisions are ambiguous and excluded, regardless of
+  whether their sequences are identical or conflicting.
+- Conflicting or duplicated primary records remain fatal integrity errors.
+- Every collision and resolution is published in a compressed TSV audit.
+
+## 2026-07-18 - `[compat]` Store initial CAFA3 embeddings as an archive baseline
+
+### Observed failure
+
+Four loose arrays for each of 69,811 proteins require up to 279,244 SAN files,
+before AlphaFold PDB intermediates are counted. The 250,000-file project quota
+therefore made the original persistent-state layout impossible to complete.
+
+### Compatibility change
+
+- Validate and archive the full generated cache in scratch.
+- Publish one archive and one complete assembly report as the initial baseline.
+- Initialize the existing retry state from that baseline and use loose files
+  only for small retry deltas.
+- Keep AlphaFold PDB acquisition intermediates in job-owned scratch.
+
+PFP source and all embedding-generation behavior remain unchanged.

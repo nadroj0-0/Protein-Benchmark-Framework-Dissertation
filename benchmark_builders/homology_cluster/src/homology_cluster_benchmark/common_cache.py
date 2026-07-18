@@ -30,13 +30,14 @@ from .uniref import UniRefIndex
 LOGGER = logging.getLogger(__name__)
 
 CACHE_SCHEMA_NAME = "homology-cluster-common-preprocessing"
-CACHE_SCHEMA_VERSION = 1
+CACHE_SCHEMA_VERSION = 2
 CACHE_MARKER = "CACHE_COMPLETE.json"
 STATE_FILE = "preprocessing_state.pkl.gz"
 UNIREF_INDEX_FILE = "uniref90.sqlite"
 FROZEN_MANIFEST_FILE = "frozen_input_manifest.json"
 GOA_RECORD_FILE = "goa/qualifying_annotations.raw.jsonl.gz"
 GOA_EXCLUDED_FILE = "goa/excluded_annotations.sample.jsonl.gz"
+COLLISION_REPORT_FILE = "uniprot_accession_collisions.tsv.gz"
 
 # A cache is invalidated if any source file that defines the shared scientific
 # preprocessing changes. Threshold-specific MMseqs/splitting code is deliberately absent.
@@ -348,6 +349,7 @@ def build_common_preprocessing_cache(
             requested_raw,
             strict_collisions=not fixture_mode,
             collision_database=run_work / "uniprot_accessions.sqlite",
+            collision_report=run_work / COLLISION_REPORT_FILE,
         )
         goa = canonicalize_goa_accessions(goa, catalog)
         decisions = load_uniref90_mappings(
@@ -357,6 +359,10 @@ def build_common_preprocessing_cache(
         stage.mkdir(parents=True)
         (stage / "goa").mkdir()
         shutil.copy2(run_work / UNIREF_INDEX_FILE, stage / UNIREF_INDEX_FILE)
+        shutil.copy2(
+            run_work / COLLISION_REPORT_FILE,
+            stage / COLLISION_REPORT_FILE,
+        )
         if goa.record_spool is not None:
             shutil.copy2(goa.record_spool, stage / GOA_RECORD_FILE)
             goa.record_spool = Path(GOA_RECORD_FILE)

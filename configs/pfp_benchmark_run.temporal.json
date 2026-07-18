@@ -2,8 +2,8 @@
   "schema_version": 1,
   "name": "temporal-cafa-style",
   "benchmark_contract": {
-    "id_overlap": "global-disjoint",
-    "sequence_overlap": "global-disjoint",
+    "id_overlap": "global-evaluation-disjoint",
+    "sequence_overlap": "per-ontology-disjoint",
     "protein_id_pattern": "^[^\\s/\\\\]+$",
     "sequence_pattern": "^[A-Za-z*.-]+$",
     "allow_all_zero_rows": false,

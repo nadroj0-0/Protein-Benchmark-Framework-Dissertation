@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import replace
+import csv
+import gzip
 import hashlib
 import logging
 from pathlib import Path
@@ -134,6 +136,7 @@ def load_requested_proteins_from_sources(
     *,
     strict_collisions: bool,
     collision_database: Path | None = None,
+    collision_report: Path | None = None,
 ) -> ProteinCatalog:
     """Stream selected UniProt populations in fixed order with a disk-backed accession audit."""
     started = time.monotonic()
@@ -152,6 +155,24 @@ def load_requested_proteins_from_sources(
         collision_database.parent.mkdir(parents=True, exist_ok=True)
         collision_database.unlink(missing_ok=True)
     connection = sqlite3.connect(str(database))
+    collision_handle = None
+    collision_writer = None
+    if collision_report is not None:
+        collision_report.parent.mkdir(parents=True, exist_ok=True)
+        opener = gzip.open if collision_report.suffix == ".gz" else open
+        collision_handle = opener(
+            collision_report, "wt", encoding="utf-8", newline=""
+        )
+        collision_fields = [
+            "accession", "collision_kind", "previous_primary",
+            "previous_sequence_sha256", "previous_source", "previous_kind",
+            "current_primary", "current_sequence_sha256", "current_source",
+            "current_kind", "requested_by_goa", "resolution",
+        ]
+        collision_writer = csv.DictWriter(
+            collision_handle, fieldnames=collision_fields, delimiter="\t"
+        )
+        collision_writer.writeheader()
     try:
         connection.execute("PRAGMA journal_mode=OFF")
         connection.execute("PRAGMA synchronous=OFF")
@@ -199,6 +220,12 @@ def load_requested_proteins_from_sources(
                         and previous_kind == kind
                     ):
                         collision_kind = "duplicate-record-identical"
+                    elif kind == "secondary" and previous_kind == "secondary":
+                        collision_kind = (
+                            "ambiguous-secondary-identical"
+                            if previous_digest == sequence_digest
+                            else "ambiguous-secondary-conflicting"
+                        )
                     elif previous_digest != sequence_digest:
                         collision_kind = "conflicting-sequence"
                     elif kind == "primary" or previous_kind == "primary":
@@ -212,13 +239,41 @@ def load_requested_proteins_from_sources(
                             source_collision_counts[involved_source][
                                 "duplicate-primary-accession"
                             ] += 1
-                    if collision_kind == "ambiguous-secondary-identical":
+                    ambiguous_secondary = collision_kind in {
+                        "ambiguous-secondary-identical",
+                        "ambiguous-secondary-conflicting",
+                    }
+                    if ambiguous_secondary:
                         # A retired secondary accession can legitimately remain attached to
-                        # multiple isolate-specific records with the same sequence. Choosing one
-                        # primary would invent provenance, so keep the alias explicitly ambiguous
-                        # and exclude it from supervision if GOA requests it.
+                        # multiple records. Agreement or disagreement between those sequences
+                        # does not identify the intended primary, so never guess.
                         catalog.ambiguous_aliases.add(accession)
-                    elif strict_collisions:
+                    if collision_writer is not None:
+                        collision_writer.writerow({
+                            "accession": accession,
+                            "collision_kind": collision_kind,
+                            "previous_primary": previous_primary,
+                            "previous_sequence_sha256": previous_digest,
+                            "previous_source": previous_source,
+                            "previous_kind": previous_kind,
+                            "current_primary": record.protein_id,
+                            "current_sequence_sha256": sequence_digest,
+                            "current_source": source_population,
+                            "current_kind": kind,
+                            "requested_by_goa": str(
+                                accession in requested_accessions
+                            ).lower(),
+                            "resolution": (
+                                "excluded_ambiguous_secondary"
+                                if ambiguous_secondary
+                                else (
+                                    "fatal_source_integrity_error"
+                                    if strict_collisions
+                                    else "retained_first_seen_nonstrict"
+                                )
+                            ),
+                        })
+                    if not ambiguous_secondary and strict_collisions:
                         raise ValueError(
                             f"UniProt accession collision ({collision_kind}) for {accession}: "
                             f"{previous_source}/{previous_primary} versus "
@@ -235,6 +290,10 @@ def load_requested_proteins_from_sources(
                 catalog.records.setdefault(record.protein_id, record)
                 catalog.primary_source.setdefault(record.protein_id, source_population)
                 for alias in sorted(aliases):
+                    if alias in catalog.ambiguous_aliases:
+                        catalog.alias_to_primary.pop(alias, None)
+                        catalog.alias_source.pop(alias, None)
+                        continue
                     previous = catalog.alias_to_primary.get(alias)
                     if previous is None or previous == record.protein_id:
                         catalog.alias_to_primary[alias] = record.protein_id
@@ -250,6 +309,9 @@ def load_requested_proteins_from_sources(
                         catalog.alias_to_primary.pop(alias, None)
                         catalog.alias_source.pop(alias, None)
                 for requested in matches:
+                    if requested in catalog.ambiguous_aliases:
+                        seen_requested.pop(requested, None)
+                        continue
                     previous = seen_requested.get(requested)
                     if previous is not None and previous != record.protein_id:
                         previous_record = catalog.records.get(previous)
@@ -281,6 +343,7 @@ def load_requested_proteins_from_sources(
                 ),
                 "ambiguous_secondary_aliases": int(
                     collisions["ambiguous-secondary-identical"]
+                    + collisions["ambiguous-secondary-conflicting"]
                 ),
                 "accession_collision_counts": {
                     key: int(value) for key, value in sorted(collisions.items())
@@ -289,12 +352,18 @@ def load_requested_proteins_from_sources(
         connection.commit()
     finally:
         connection.close()
-    ambiguous_secondary_collisions = catalog.collision_counts[
-        "ambiguous-secondary-identical"
-    ]
+        if collision_handle is not None:
+            collision_handle.close()
+    ambiguous_secondary_collisions = sum(
+        catalog.collision_counts[kind]
+        for kind in (
+            "ambiguous-secondary-identical",
+            "ambiguous-secondary-conflicting",
+        )
+    )
     if ambiguous_secondary_collisions:
         LOGGER.warning(
-            "Observed %d identical-sequence ambiguous secondary-accession collisions; "
+            "Observed %d ambiguous secondary-accession collisions; "
             "qualifying ambiguous aliases are excluded rather than assigned to an arbitrary "
             "primary accession",
             ambiguous_secondary_collisions,

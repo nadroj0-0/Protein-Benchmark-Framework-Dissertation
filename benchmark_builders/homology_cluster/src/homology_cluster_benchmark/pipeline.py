@@ -33,6 +33,7 @@ from .clustering import (
 )
 from .common_cache import (
     CACHE_MARKER,
+    COLLISION_REPORT_FILE,
     common_cache_root,
     inspect_common_preprocessing_cache,
     load_common_preprocessing_cache,
@@ -1560,6 +1561,7 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                     requested_raw,
                     strict_collisions=not config.fixture_mode,
                     collision_database=work / "uniprot_accessions.sqlite",
+                    collision_report=stage / COLLISION_REPORT_FILE,
                 )
                 goa = canonicalize_goa_accessions(goa, catalog)
                 decisions = load_uniref90_mappings(
@@ -1595,6 +1597,10 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 shutil.copyfile(
                     loaded_common_cache.root / CACHE_MARKER,
                     stage / "common_preprocessing_cache_manifest.json",
+                )
+                shutil.copyfile(
+                    loaded_common_cache.root / COLLISION_REPORT_FILE,
+                    stage / COLLISION_REPORT_FILE,
                 )
                 LOGGER.info(
                     "Stage completed: load common preprocessing cache "

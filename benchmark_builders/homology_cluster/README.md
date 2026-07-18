@@ -79,10 +79,12 @@ declared role: Swiss-Prot records must say `Reviewed` on the `ID` line and TrEMB
 
 Combined mode scans sources in a fixed order and retains each record's source population. A
 disk-backed collision audit reports primary/secondary and collision counts per involved source.
-Conflicting sequences and unexpected duplicate primary accessions (including identical sequences)
-fail production.
-Secondary aliases attached to multiple primaries with an identical sequence are recorded as
-ambiguous and excluded from supervision instead of being assigned arbitrarily. Results do not
+Conflicting primary records and unexpected duplicate primary accessions (including identical
+sequences) fail production.
+Secondary aliases attached to multiple primaries are recorded as ambiguous and excluded from
+supervision instead of being assigned arbitrarily, whether the associated sequences agree or
+conflict. The complete decision trail is published as
+`uniprot_accession_collisions.tsv.gz`. Results do not
 depend on caller dictionary or traversal order. GOA
 accessions outside the selected source may be visible in `idmapping_selected`, but cannot authorize
 cluster retention.

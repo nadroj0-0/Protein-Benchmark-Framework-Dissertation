@@ -40,7 +40,7 @@ staged or downloaded only after all four modalities have been regenerated, compa
 then deleted before training. They are never used as training inputs.
 
 The persistent embedding state must be outside job-owned scratch. In initial
-mode, validated arrays are merged into that state. If the historical coverage
+mode, validated arrays are consolidated into one archive-backed baseline. If the historical coverage
 gate is not met, the workflow exits successfully with GENERATION_INCOMPLETE.json
 and does not train. Resume mode hydrates a passing state and continues at the
 published-cache comparison stage.
@@ -134,6 +134,9 @@ PREFLIGHT_BACKUP="$WORK_DIR/preflight_full_split_backup"
 ACQUISITION_LOG="$OUTPUT_DIR/reports/input_acquisition.tsv"
 MODALITY_STATUS="$OUTPUT_DIR/reports/modality_status.tsv"
 STATE_REPORT_DIR="$OUTPUT_DIR/reports/embedding_state"
+BASELINE_DIR="$EMBEDDING_STATE_ROOT/baseline"
+BASELINE_ARCHIVE="$BASELINE_DIR/cafa3_embedding_cache.tar.gz"
+BASELINE_ASSEMBLY_REPORT="$BASELINE_DIR/embedding_assembly.tsv.gz"
 mkdir -p "$ARCHIVE_STAGE" "$PUBLISHED_ROOT" "$RUNTIME_COMPAT"
 printf 'role\tname\tsource\tstaged_path\tsha256\n' > "$ACQUISITION_LOG"
 printf 'phase\tmodality\texit_status\n' > "$MODALITY_STATUS"
@@ -144,6 +147,40 @@ sha256_file() {
   else
     shasum -a 256 "$1" | awk '{print $1}'
   fi
+}
+
+publish_baseline_pair() {
+  local source_archive="$1"
+  local source_report="$2"
+  local staging="$EMBEDDING_STATE_ROOT/.baseline.staging.${JOB_ID:-$$}"
+  if [[ -d "$BASELINE_DIR" ]]; then
+    [[ -f "$BASELINE_ARCHIVE" && -f "$BASELINE_ASSEMBLY_REPORT" ]] || \
+      die "Persistent baseline directory is incomplete: $BASELINE_DIR"
+    [[ "$(sha256_file "$source_archive")" == "$(sha256_file "$BASELINE_ARCHIVE")" ]] || \
+      die "Existing persistent archive differs from generated source"
+    [[ "$(sha256_file "$source_report")" == "$(sha256_file "$BASELINE_ASSEMBLY_REPORT")" ]] || \
+      die "Existing persistent assembly report differs from generated source"
+    return
+  fi
+  [[ ! -e "$BASELINE_DIR" ]] || die "Unsafe persistent baseline path: $BASELINE_DIR"
+  rm -rf "$staging"
+  mkdir -p "$staging"
+  if ! cp -p "$source_archive" "$staging/cafa3_embedding_cache.tar.gz" || \
+     ! cp -p "$source_report" "$staging/embedding_assembly.tsv.gz"; then
+    rm -rf "$staging"
+    die "Failed to stage archive-backed baseline"
+  fi
+  [[ "$(sha256_file "$source_archive")" == \
+      "$(sha256_file "$staging/cafa3_embedding_cache.tar.gz")" ]] || {
+    rm -rf "$staging"
+    die "Persistent baseline archive failed authentication"
+  }
+  [[ "$(sha256_file "$source_report")" == \
+      "$(sha256_file "$staging/embedding_assembly.tsv.gz")" ]] || {
+    rm -rf "$staging"
+    die "Persistent baseline assembly report failed authentication"
+  }
+  mv "$staging" "$BASELINE_DIR"
 }
 
 file_count() {
@@ -258,7 +295,8 @@ initialize_embedding_state() {
   local pfp_commit framework_commit
   pfp_commit="$(git_in_dir "$PFP_ROOT" rev-parse HEAD)"
   framework_commit="$(git_in_dir "$FRAMEWORK_ROOT" rev-parse HEAD)"
-  "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/manage_resumable_embedding_state.py" \
+  local command=(
+    "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/manage_resumable_embedding_state.py"
     initialize \
     --state-root "$EMBEDDING_STATE_ROOT" \
     --benchmark-id cafa3-zijian-canonical \
@@ -281,8 +319,15 @@ initialize_embedding_state() {
     --runtime-value "text_cutoff_date=$TEXT_CUTOFF_DATE" \
     --runtime-value "alphafold_acquisition=framework-bounded" \
     --runtime-value "alphafold_api_workers=${ALPHAFOLD_API_WORKERS:-8}" \
-    --runtime-value "alphafold_download_workers=${ALPHAFOLD_DOWNLOAD_WORKERS:-8}" \
-    > "$OUTPUT_DIR/reports/embedding_state_initialization.json"
+    --runtime-value "alphafold_download_workers=${ALPHAFOLD_DOWNLOAD_WORKERS:-8}"
+  )
+  if [[ -f "$BASELINE_ARCHIVE" && -f "$BASELINE_ASSEMBLY_REPORT" ]]; then
+    command+=(
+      --baseline-archive "$BASELINE_ARCHIVE"
+      --baseline-assembly-report "$BASELINE_ASSEMBLY_REPORT"
+    )
+  fi
+  "${command[@]}" > "$OUTPUT_DIR/reports/embedding_state_initialization.json"
 }
 
 state_gate_passed() {
@@ -290,15 +335,6 @@ state_gate_passed() {
 import json
 import sys
 raise SystemExit(0 if json.load(open(sys.argv[1]))["embedding_gate_passed"] else 1)
-PY
-}
-
-state_accepted_total() {
-  "$PYTHON_BIN" - "$EMBEDDING_STATE_ROOT/coverage.json" <<'PY'
-import json
-import sys
-coverage = json.load(open(sys.argv[1]))["coverage"]
-print(sum(int(item["accepted"]) for item in coverage.values()))
 PY
 }
 
@@ -402,15 +438,18 @@ export TEXT_REPORT_DIR="$PFP_ROOT/results/embedding_reports/text"
 export HF_HOME="$WORK_DIR/model_cache/huggingface"
 export TORCH_HOME="$WORK_DIR/model_cache/torch"
 export ALPHAFOLD_ACQUISITION_MODE=framework-bounded
-export ALPHAFOLD_PERSISTENT_CACHE_DIR="$EMBEDDING_STATE_ROOT/source_cache/alphafold_structures"
+# Structures are acquisition intermediates. Keeping tens of thousands of PDBs
+# as loose SAN files would consume the same inode quota this workflow protects.
+export ALPHAFOLD_PERSISTENT_CACHE_DIR="$WORK_DIR/source_cache/alphafold_structures"
 export ALPHAFOLD_API_WORKERS="${ALPHAFOLD_API_WORKERS:-8}"
 export ALPHAFOLD_DOWNLOAD_WORKERS="${ALPHAFOLD_DOWNLOAD_WORKERS:-8}"
 mkdir -p "$HF_HOME" "$TORCH_HOME"
 
-echo "==> Initialize and authenticate the cumulative embedding state"
-initialize_embedding_state
-
 if [[ "$EMBEDDING_MODE" == "resume" ]]; then
+  [[ -f "$BASELINE_ARCHIVE" && -f "$BASELINE_ASSEMBLY_REPORT" ]] || \
+    die "Resume mode requires the archive-backed baseline under $BASELINE_DIR"
+  echo "==> Initialize and authenticate the cumulative embedding state"
+  initialize_embedding_state
   echo "==> [5-8/13] Resume from the authenticated persistent embedding state"
   "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/manage_resumable_embedding_state.py" \
     summary --state-root "$EMBEDDING_STATE_ROOT" --report-dir "$STATE_REPORT_DIR" \
@@ -429,8 +468,9 @@ if [[ "$EMBEDDING_MODE" == "resume" ]]; then
     --output-cache-root "$PFP_ROOT/data/embedding_cache" \
     --report "$OUTPUT_DIR/reports/embedding_state_hydration.json"
 else
-  [[ "$(state_accepted_total)" == "0" ]] || \
-    die "Initial mode requires an empty state cache; use modality retry jobs and then resume"
+  if find "$EMBEDDING_STATE_ROOT" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
+    die "Initial mode requires an empty embedding state root; use retry/resume for existing state"
+  fi
 
   echo "==> [5/13] Create a reversible bounded preflight view"
   "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/prepare_cafa3_embedding_preflight.py" \
@@ -471,7 +511,24 @@ else
   echo "==> [8/13] Regenerate all four complete embedding modalities in parallel"
   generation_status=0
   run_parallel_modalities full || generation_status=$?
+  baseline_work="$WORK_DIR/initial_embedding_baseline"
+  mkdir -p "$baseline_work"
+  "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/build_embedding_baseline_archive.py" \
+    --generated-cache-root "$PFP_ROOT/data/embedding_cache" \
+    --data-dir "$PFP_ROOT/data" \
+    --policy "$EMBEDDING_POLICY" \
+    --archive "$baseline_work/cafa3_embedding_cache.tar.gz" \
+    --assembly-report "$baseline_work/embedding_assembly.tsv.gz" \
+    --report "$OUTPUT_DIR/reports/initial_embedding_baseline.json"
+  publish_baseline_pair \
+    "$baseline_work/cafa3_embedding_cache.tar.gz" \
+    "$baseline_work/embedding_assembly.tsv.gz"
+
+  echo "==> Authenticate the archive baseline and initialize retry state"
+  initialize_embedding_state
   attempt_id="${JOB_ID:-local}_$(date -u +%Y%m%dT%H%M%SZ)_initial"
+  # This merge records reasons for missing pairs. Arrays already authenticated
+  # in the baseline are recognized as accepted and are not copied into SAN.
   merge_command=(
     "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/manage_resumable_embedding_state.py"
     merge

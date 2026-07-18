@@ -184,7 +184,7 @@ class ParserTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Unterminated"):
                 load_requested_proteins(dat, {"PPRIMARY"})
 
-    def test_duplicate_requested_alias_with_conflicting_sequences_fails(self):
+    def test_duplicate_requested_secondary_with_conflicting_sequences_is_ambiguous(self):
         with tempfile.TemporaryDirectory() as tmp:
             dat = Path(tmp) / "conflict.dat"
             dat.write_text(
@@ -193,8 +193,13 @@ class ParserTests(unittest.TestCase):
                 "ID   SECOND Reviewed; 4 AA.\nAC   P22222; SSECOND;\n"
                 "SQ   SEQUENCE   4 AA;\n     MCCC\n//\n"
             )
-            with self.assertRaisesRegex(ValueError, "Conflicting sequences"):
-                load_requested_proteins(dat, {"SSECOND"})
+            catalog = load_requested_proteins(dat, {"SSECOND"})
+            self.assertEqual(set(catalog.records), {"P11111", "P22222"})
+            self.assertIn("SSECOND", catalog.ambiguous_aliases)
+            self.assertNotIn("SSECOND", catalog.alias_to_primary)
+            self.assertEqual(
+                catalog.collision_counts["ambiguous-secondary-conflicting"], 1
+            )
 
 
 if __name__ == "__main__":

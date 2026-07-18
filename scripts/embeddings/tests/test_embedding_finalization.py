@@ -27,6 +27,7 @@ from finalize_embedding_state import (  # noqa: E402
     source_snapshot,
 )
 from manage_embedding_archive import create_archive, extract_archive  # noqa: E402
+from build_embedding_baseline_archive import build_baseline  # noqa: E402
 
 
 CONFIG = FRAMEWORK_ROOT / "configs" / "pfp_benchmark_run.temporal.json"
@@ -99,6 +100,95 @@ class EmbeddingFinalizationTests(unittest.TestCase):
         for source in cache.glob("*/*.npy"):
             destination = extracted / source.parent.name / source.name
             self.assertEqual(source.read_bytes(), destination.read_bytes())
+
+    def test_generated_cache_becomes_one_archive_backed_baseline(self) -> None:
+        data = self.root / "data"
+        data.mkdir()
+        (data / "BPO_train_sequences.json").write_text(
+            json.dumps({"P1": "ACDE", "P2": "FGHI"}), encoding="utf-8"
+        )
+        policy = self.root / "policy.json"
+        policy.write_text(json.dumps({
+            "schema_version": 1,
+            "modalities": {
+                "sequence": {"cache_directory": "prott5", "dimension": 2,
+                             "min_accepted_count": 2},
+                "text": {"cache_directory": "exp_text_embeddings_temporal", "dimension": 2,
+                         "min_accepted_count": 1},
+                "structure": {"cache_directory": "IF1", "dimension": 2,
+                              "min_accepted_count": 1},
+                "ppi": {"cache_directory": "ppi", "dimension": 2,
+                        "min_accepted_count": 1},
+            },
+        }))
+        cache = self.root / "generated"
+        for directory in ("prott5", "exp_text_embeddings_temporal", "IF1", "ppi"):
+            (cache / directory).mkdir(parents=True)
+            np.save(cache / directory / "P1.npy", np.ones(2, dtype=np.float32))
+        np.save(cache / "prott5/P2.npy", np.full(2, 2, dtype=np.float32))
+        # Real text generation leaves auxiliary directories; they must not be
+        # persisted into the scientific embedding baseline.
+        (cache / "uniprot_text").mkdir()
+        (cache / "uniprot_text/descriptions.tsv").write_text("raw\n")
+
+        archive = self.root / "baseline/cache.tar.gz"
+        assembly = self.root / "baseline/embedding_assembly.tsv.gz"
+        summary = build_baseline(cache, data, policy, archive, assembly)
+
+        self.assertEqual(summary["archive_member_count"], 5)
+        self.assertEqual(summary["available_by_modality"]["sequence"], 2)
+        self.assertEqual(summary["missing_pairs"], 3)
+        with gzip.open(assembly, "rt", encoding="utf-8", newline="") as handle:
+            rows = list(csv.DictReader(handle, delimiter="\t"))
+        self.assertEqual(len(rows), 8)
+        self.assertEqual(
+            sum(row["status"] == "available" for row in rows), 5
+        )
+        with tarfile.open(archive, "r:gz") as handle:
+            names = {member.name for member in handle if member.isfile()}
+        self.assertNotIn(
+            "data/embedding_cache/uniprot_text/descriptions.tsv", names
+        )
+
+    def test_baseline_rejects_unreduced_text_hidden_state(self) -> None:
+        data = self.root / "data"
+        data.mkdir()
+        (data / "BPO_train_sequences.json").write_text(
+            json.dumps({"P1": "ACDE"}), encoding="utf-8"
+        )
+        policy = self.root / "policy.json"
+        policy.write_text(json.dumps({
+            "schema_version": 1,
+            "modalities": {
+                "sequence": {"cache_directory": "prott5", "dimension": 1024,
+                             "min_accepted_count": 1},
+                "text": {"cache_directory": "exp_text_embeddings_temporal",
+                         "dimension": 768, "min_accepted_count": 1},
+                "structure": {"cache_directory": "IF1", "dimension": 512,
+                              "min_accepted_count": 1},
+                "ppi": {"cache_directory": "ppi", "dimension": 512,
+                        "min_accepted_count": 1},
+            },
+        }))
+        cache = self.root / "generated"
+        specifications = {
+            "prott5": np.ones(1024, dtype=np.float32),
+            "exp_text_embeddings_temporal": np.ones(
+                (1, 512, 768), dtype=np.float32
+            ),
+            "IF1": np.ones(512, dtype=np.float32),
+            "ppi": np.ones(512, dtype=np.float32),
+        }
+        for directory, array in specifications.items():
+            (cache / directory).mkdir(parents=True)
+            np.save(cache / directory / "P1.npy", array)
+
+        archive = self.root / "baseline/cache.tar.gz"
+        assembly = self.root / "baseline/embedding_assembly.tsv.gz"
+        with self.assertRaisesRegex(ValueError, r"expected=\(768,\)"):
+            build_baseline(cache, data, policy, archive, assembly)
+        self.assertFalse(archive.exists())
+        self.assertFalse(assembly.exists())
 
     def test_extraction_rejects_path_traversal_and_removes_partial_output(self) -> None:
         archive = self.root / "unsafe.tar.gz"

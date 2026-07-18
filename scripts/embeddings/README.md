@@ -133,6 +133,16 @@ authenticated `contemporary_embedding_cache.tar.gz` as an immutable baseline
 and stores only newly recovered arrays under `retry_state/cache/`. Together the
 archive and retry delta form one logical cache.
 
+The CAFA3 full-from-scratch workflow uses the same storage model from its first
+full generation. It validates the generated arrays in scratch, creates one
+deterministic baseline archive plus a complete assembly report, publishes those
+two files atomically, and initializes the retry state from the archive. A
+diagnostic merge records missing-pair reasons without copying accepted arrays
+back into loose SAN files. AlphaFold PDB acquisition files remain in job-owned
+scratch; only the resulting IF1 arrays enter the baseline. This keeps the
+69,811-protein, four-modality run below the SAN inode quota while preserving the
+existing retry and hydration interfaces.
+
 `initialize_contemporary_embedding_state.sh` binds this state to:
 
 - all nine contemporary CSV hashes;

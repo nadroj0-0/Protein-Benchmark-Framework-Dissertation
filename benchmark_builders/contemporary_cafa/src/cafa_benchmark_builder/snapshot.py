@@ -482,7 +482,10 @@ def _write_checksum_file(path: Path, files: list[Path]) -> None:
             handle.write(f"{_sha256(file_path)}  {file_path}\n")
 
 
-def _validate_csv_outputs(written: dict[str, Path], strict: bool) -> dict[str, dict[str, int]]:
+def _validate_csv_outputs(
+    written: dict[str, Path],
+    strict: bool,
+) -> tuple[dict[str, dict[str, int]], dict[str, int]]:
     csv.field_size_limit(1_000_000_000)
     stats: dict[str, dict[str, int]] = {}
     split_data: dict[tuple[str, str], tuple[set[str], set[str]]] = {}
@@ -524,7 +527,34 @@ def _validate_csv_outputs(written: dict[str, Path], strict: bool) -> dict[str, d
             raise ValueError(f"Exact sequence overlap across train/validation and test for {prefix}")
         if train_sequences & valid_sequences:
             raise ValueError(f"Exact sequence overlap across train and validation for {prefix}")
-    return stats
+
+    global_data: dict[str, tuple[set[str], set[str]]] = {}
+    for split in ("training", "validation", "test"):
+        ids: set[str] = set()
+        sequences: set[str] = set()
+        for prefix in PREFIX_TO_NAMESPACE:
+            prefix_ids, prefix_sequences = split_data[(prefix, split)]
+            ids.update(prefix_ids)
+            sequences.update(prefix_sequences)
+        global_data[split] = (ids, sequences)
+
+    # PFP trains BP, CC and MF as separate models. Cross-ontology overlap is
+    # therefore useful provenance evidence, but it is not same-model leakage.
+    # The per-ontology checks above remain fatal.
+    overlap_diagnostics: dict[str, int] = {}
+    for left, right in (
+        ("training", "validation"),
+        ("training", "test"),
+        ("validation", "test"),
+    ):
+        key = f"{left}_{right}"
+        overlap_diagnostics[f"global_{key}_protein_ids"] = len(
+            global_data[left][0] & global_data[right][0]
+        )
+        overlap_diagnostics[f"global_{key}_exact_sequences"] = len(
+            global_data[left][1] & global_data[right][1]
+        )
+    return stats, overlap_diagnostics
 
 
 def _git_commit() -> str | None:
@@ -563,6 +593,7 @@ def _write_reports(
     t0_result: AnnotationLoadResult,
     t1_result: AnnotationLoadResult,
     csv_stats: dict[str, dict[str, int]],
+    cross_ontology_overlap_diagnostics: dict[str, int],
     training_annotation_result: AnnotationLoadResult | None = None,
     official_target_rows: list[dict[str, object]] | None = None,
 ) -> dict[str, Path]:
@@ -654,6 +685,10 @@ def _write_reports(
         "selected_target_flow_rows": len(selected_flow),
         "training_defined_terms": len(terms_df),
         "csv_outputs": csv_stats,
+        "csv_overlap_validation_policy": "per-ontology-disjoint",
+        "cross_ontology_split_overlap_diagnostics": (
+            cross_ontology_overlap_diagnostics
+        ),
         "t0_goa": _counter_dict(t0_result.counters),
         "t1_goa": _counter_dict(t1_result.counters),
         "excluded_target_proteins": _counter_dict(exclusions),
@@ -699,6 +734,14 @@ def _write_reports(
         "min_count": config.min_count,
         "split": config.split,
         "seed": config.seed,
+        "csv_overlap_validation_policy": {
+            "protein_ids": "per-ontology-disjoint",
+            "exact_sequences": "per-ontology-disjoint",
+            "cross_ontology_overlap": "diagnostic-only",
+            "global_development_test_id_disjoint": (
+                config.test_eligibility_policy == "global-no-knowledge"
+            ),
+        },
         "training_reviewed_only": config.reviewed_only,
         "target_reviewed_only": config.target_reviewed_only,
         "allow_frozen_source_fallback": config.allow_frozen_source_fallback,
@@ -773,6 +816,15 @@ def _write_reports(
         f"- t1 rows after the endpoint cutoff: {t1_result.counters['skipped_after_cutoff']}\n"
         f"- Test eligibility policy: `{config.test_eligibility_policy}`\n"
         f"- Target universe policy: `{config.target_universe_policy}`\n"
+        "- CSV overlap policy: per-ontology protein and exact-sequence isolation; "
+        "cross-ontology overlap is diagnostic because BP, CC and MF are trained "
+        "separately.\n"
+        f"- Cross-ontology training/validation exact-sequence overlap: "
+        f"{cross_ontology_overlap_diagnostics['global_training_validation_exact_sequences']}\n"
+        f"- Cross-ontology training/test exact-sequence overlap: "
+        f"{cross_ontology_overlap_diagnostics['global_training_test_exact_sequences']}\n"
+        f"- Cross-ontology validation/test exact-sequence overlap: "
+        f"{cross_ontology_overlap_diagnostics['global_validation_test_exact_sequences']}\n"
         f"- t0 terms outside the frozen benchmark ontology: {t0_result.counters['outside_frozen_ontology']}\n"
         f"- t1 terms outside the frozen t0 ontology: {t1_result.counters['outside_frozen_ontology']}\n"
         "- All nine PFP CSVs passed schema, duplicate, binary-label and overlap checks.\n\n"
@@ -997,7 +1049,9 @@ def build_snapshot_benchmark(config: BuildConfig) -> dict[str, Path]:
         benchmark_go, training_catalog.sequences, train_annots
     )
     terms_df = make_terms_dataframe(counts, config.min_count)
-    train_df, valid_df = split_train_valid(train_all_df, split=config.split, seed=config.seed)
+    train_df, valid_df = split_train_valid(
+        train_all_df, split=config.split, seed=config.seed
+    )
     LOGGER.info(
         "Training proteins=%d terms=%d split=%d/%d",
         len(train_all_df), len(terms_df), len(train_df), len(valid_df),
@@ -1059,7 +1113,9 @@ def build_snapshot_benchmark(config: BuildConfig) -> dict[str, Path]:
     written.update(export_pfp_csvs(
         benchmark_go, train_df, valid_df, test_df, terms_df, config.output_dir
     ))
-    csv_stats = _validate_csv_outputs(written, strict=config.strict_qc)
+    csv_stats, cross_ontology_overlap_diagnostics = _validate_csv_outputs(
+        written, strict=config.strict_qc
+    )
     reports = _write_reports(
         config,
         benchmark_go,
@@ -1073,6 +1129,7 @@ def build_snapshot_benchmark(config: BuildConfig) -> dict[str, Path]:
         t0_result,
         t1_result,
         csv_stats,
+        cross_ontology_overlap_diagnostics,
         training_annotation_result,
         official_target_rows,
     )

@@ -49,7 +49,7 @@ Before preparation, the wrapper requires:
 - safe unique protein IDs and nonempty valid sequences;
 - binary GO labels and configurable all-zero-row policy;
 - exact GO column identity and order across all three splits per ontology;
-- configurable global protein-ID and exact-sequence overlap policy;
+- configurable global or per-ontology protein-ID and exact-sequence overlap policy;
 - every GO term to exist in the supplied OBO and belong to the correct
   namespace; and
 - no duplicate rows unless a policy explicitly permits them.
@@ -111,8 +111,9 @@ always clones a pinned clean framework commit.
 - `configs/pfp_benchmark_run.cafa3.json`: published CAFA3 compatibility,
   including the legacy MF header alias.
 - `configs/pfp_benchmark_run.temporal.json`: contemporary temporal benchmark;
-  protein IDs and exact sequences are globally disjoint across training,
-  validation, and test, matching the builder's exported-split validation.
+  protein IDs are globally disjoint between development and test, while exact
+  sequences are disjoint within each ontology. Cross-ontology sequence overlap
+  is reported but allowed because PFP trains BP, CC and MF separately.
 - `configs/pfp_benchmark_run.homology.json`: protein IDs and exact sequences are
   globally disjoint across all three splits. Domain-owned homology validation
   evidence is mandatory.
