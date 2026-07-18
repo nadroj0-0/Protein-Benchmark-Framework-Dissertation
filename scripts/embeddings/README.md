@@ -185,6 +185,22 @@ framework compatibility scripts recorded by the state. Use
 `--strict-framework-commit` when a frozen release requires whole-repository
 revision equality.
 
+### Transactional final cache consolidation
+
+After every retry job has finished, the finalization wrapper turns the
+immutable baseline archive plus `retry_state/cache` into one self-contained PFP
+archive. It upgrades per-array evidence hashes, hydrates the logical cache in
+job-owned scratch, validates every accepted array, creates the consolidated
+archive, copies it to SAN staging, extracts those copied bytes into fresh
+scratch, and repeats the exhaustive validation.
+
+The final directory is published with an atomic same-filesystem rename. Only
+after publication, checksum verification and the SAN read-back validation does
+the job retire the old baseline archive and retry delta. Compact state evidence,
+reports, failure history and source caches remain. Any earlier failure leaves
+both source embedding copies untouched. Archive extraction rejects traversal,
+links, duplicate members, unknown modality directories and unsafe filenames.
+
 ### Same-node text and structure diagnostic
 
 `run_contemporary_embedding_reproducibility.sh` investigates a failed

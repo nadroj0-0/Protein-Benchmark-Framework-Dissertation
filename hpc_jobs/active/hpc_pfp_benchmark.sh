@@ -19,7 +19,8 @@ PYTHON_BIN="${PYTHON_BIN:-$(command -v python3 || command -v python || true)}"
 usage() {
   cat <<'EOF'
 Usage: qsub hpc_jobs/active/hpc_pfp_benchmark.sh \
-  --benchmark-id ID --benchmark-dir DIR --embedding-cache-root DIR \
+  --benchmark-id ID --benchmark-dir DIR \
+  (--embedding-cache-root DIR | --embedding-cache-archive FILE) \
   --obo-file FILE --results-root DIR \
   --execution-mode eval-only|train-eval \
   [--checkpoint-root DIR] [--config FILE] \
@@ -32,9 +33,10 @@ Usage: qsub hpc_jobs/active/hpc_pfp_benchmark.sh \
   [--reference-tolerance FLOAT] [--require-reference-match]
 
 The benchmark, ontology and cache are existing prerequisites. This wrapper
-does not download or generate embeddings. The default copies the cache into
-job-owned scratch for training I/O; --cache-staging direct reads the supplied
-path in place. Repeat --aspect to select multiple aspects.
+does not download or generate embeddings. A cache archive is safely extracted
+into job-owned scratch. A cache directory is copied by default, while
+--cache-staging direct reads that directory in place. Repeat --aspect to select
+multiple aspects.
 EOF
 }
 
@@ -44,6 +46,7 @@ require_value() { [[ $# -ge 2 && -n "$2" ]] || die "$1 requires a value"; }
 BENCHMARK_ID=""
 BENCHMARK_DIR=""
 CACHE_ROOT=""
+CACHE_ARCHIVE=""
 OBO_FILE=""
 RESULTS_ROOT=""
 EXECUTION_MODE=""
@@ -72,6 +75,7 @@ while [[ $# -gt 0 ]]; do
     --benchmark-id) require_value "$@"; BENCHMARK_ID="$2"; shift 2 ;;
     --benchmark-dir) require_value "$@"; BENCHMARK_DIR="$2"; shift 2 ;;
     --embedding-cache-root) require_value "$@"; CACHE_ROOT="$2"; shift 2 ;;
+    --embedding-cache-archive) require_value "$@"; CACHE_ARCHIVE="$2"; shift 2 ;;
     --obo-file) require_value "$@"; OBO_FILE="$2"; shift 2 ;;
     --results-root) require_value "$@"; RESULTS_ROOT="$2"; shift 2 ;;
     --execution-mode) require_value "$@"; EXECUTION_MODE="$2"; shift 2 ;;
@@ -110,6 +114,7 @@ resolve_submission_path() {
 
 BENCHMARK_DIR="$(resolve_submission_path "$BENCHMARK_DIR")"
 CACHE_ROOT="$(resolve_submission_path "$CACHE_ROOT")"
+CACHE_ARCHIVE="$(resolve_submission_path "$CACHE_ARCHIVE")"
 OBO_FILE="$(resolve_submission_path "$OBO_FILE")"
 RESULTS_ROOT="$(resolve_submission_path "$RESULTS_ROOT")"
 [[ -z "$CHECKPOINT_ROOT" ]] || CHECKPOINT_ROOT="$(resolve_submission_path "$CHECKPOINT_ROOT")"
@@ -125,9 +130,15 @@ for index in "${!EMBEDDING_EVIDENCE[@]}"; do
   EMBEDDING_EVIDENCE[$index]="$(resolve_submission_path "${EMBEDDING_EVIDENCE[$index]}")"
 done
 
-for value in BENCHMARK_ID BENCHMARK_DIR CACHE_ROOT OBO_FILE RESULTS_ROOT EXECUTION_MODE; do
+for value in BENCHMARK_ID BENCHMARK_DIR OBO_FILE RESULTS_ROOT EXECUTION_MODE; do
   [[ -n "${!value}" ]] || die "$value is required"
 done
+if [[ -n "$CACHE_ROOT" && -n "$CACHE_ARCHIVE" ]]; then
+  die "Use exactly one of --embedding-cache-root or --embedding-cache-archive"
+fi
+if [[ -z "$CACHE_ROOT" && -z "$CACHE_ARCHIVE" ]]; then
+  die "One of --embedding-cache-root or --embedding-cache-archive is required"
+fi
 [[ "$EXECUTION_MODE" =~ ^(eval-only|train-eval)$ ]] || die "Invalid --execution-mode"
 [[ "$MODALITY_MODE" =~ ^(full|sequence-only)$ ]] || die "Invalid --modality-mode"
 [[ "$CACHE_STAGING" =~ ^(copy|direct)$ ]] || die "Invalid --cache-staging"
@@ -139,7 +150,13 @@ MAX_WORKERS=$((ALLOCATED_SLOTS - 1))
 [[ "$NUM_WORKERS" -le "$MAX_WORKERS" ]] || \
   die "--num-workers=$NUM_WORKERS leaves no allocated CPU slot for the main process; max=$MAX_WORKERS"
 [[ -d "$BENCHMARK_DIR" ]] || die "Benchmark directory is missing: $BENCHMARK_DIR"
-[[ -d "$CACHE_ROOT" ]] || die "Embedding cache is missing: $CACHE_ROOT"
+if [[ -n "$CACHE_ROOT" ]]; then
+  [[ -d "$CACHE_ROOT" ]] || die "Embedding cache is missing: $CACHE_ROOT"
+else
+  [[ -f "$CACHE_ARCHIVE" ]] || die "Embedding cache archive is missing: $CACHE_ARCHIVE"
+  [[ "$CACHE_STAGING" == "copy" ]] || \
+    die "--embedding-cache-archive requires --cache-staging copy"
+fi
 [[ -f "$OBO_FILE" ]] || die "GO OBO is missing: $OBO_FILE"
 if [[ "$EXECUTION_MODE" == "eval-only" ]]; then
   [[ -d "$CHECKPOINT_ROOT" ]] || die "--checkpoint-root is required for eval-only"
@@ -338,6 +355,7 @@ echo "Benchmark       : $BENCHMARK_ID"
 echo "Execution       : $EXECUTION_MODE"
 echo "Modalities      : $MODALITY_MODE"
 echo "Cache staging   : $CACHE_STAGING"
+if [[ -n "$CACHE_ARCHIVE" ]]; then echo "Cache archive   : $CACHE_ARCHIVE"; fi
 echo "Scratch         : $WORK"
 echo "Final output    : $FINAL_OUTPUT"
 
@@ -356,7 +374,11 @@ add_input_kb "$FRAMEWORK_DIR"
 add_input_kb "$PFP_DIR"
 add_input_kb "$BENCHMARK_DIR"
 add_input_kb "$OBO_FILE"
-if [[ "$CACHE_STAGING" == "copy" ]]; then add_input_kb "$CACHE_ROOT"; fi
+if [[ -n "$CACHE_ARCHIVE" ]]; then
+  add_input_kb "$CACHE_ARCHIVE"
+elif [[ "$CACHE_STAGING" == "copy" ]]; then
+  add_input_kb "$CACHE_ROOT"
+fi
 if [[ "$EXECUTION_MODE" == "eval-only" ]]; then
   add_input_kb "$CHECKPOINT_ROOT"
   add_input_kb "$REFERENCE_DATA_DIR"
@@ -379,7 +401,16 @@ echo "Required with margin: ${required_kb} KiB"
 
 cp -a "$BENCHMARK_DIR" "$SCRATCH_INPUTS/benchmark"
 cp -p "$OBO_FILE" "$SCRATCH_INPUTS/go.obo"
-if [[ "$CACHE_STAGING" == "copy" ]]; then
+if [[ -n "$CACHE_ARCHIVE" ]]; then
+  cp -p "$CACHE_ARCHIVE" "$SCRATCH_INPUTS/embedding_cache.tar.gz"
+  "$PYTHON_BIN" "$FRAMEWORK_DIR/scripts/embeddings/manage_embedding_archive.py" \
+    extract \
+    --archive "$SCRATCH_INPUTS/embedding_cache.tar.gz" \
+    --output-cache-root "$SCRATCH_INPUTS/embedding_cache" \
+    --config "${CLI_CONFIG:-$FRAMEWORK_DIR/configs/pfp_benchmark_run.temporal.json}" \
+    --report "$SCRATCH_INPUTS/embedding_archive_extraction.json"
+  EFFECTIVE_CACHE="$SCRATCH_INPUTS/embedding_cache"
+elif [[ "$CACHE_STAGING" == "copy" ]]; then
   mkdir -p "$SCRATCH_INPUTS/embedding_cache"
   cp -a "$CACHE_ROOT/." "$SCRATCH_INPUTS/embedding_cache/"
   EFFECTIVE_CACHE="$SCRATCH_INPUTS/embedding_cache"

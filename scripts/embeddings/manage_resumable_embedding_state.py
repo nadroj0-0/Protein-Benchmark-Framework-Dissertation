@@ -1350,7 +1350,17 @@ def command_hydrate(args: argparse.Namespace) -> dict:
             )
         }
         result = materialize_pairs(state_root, output_root, pairs)
-        summary = refresh_reports(state_root)
+        if args.preserve_evidence:
+            coverage_path = state_root / "coverage.json"
+            if not coverage_path.is_file():
+                raise ValueError(
+                    "--preserve-evidence requires an existing coverage.json"
+                )
+            summary = json.loads(coverage_path.read_text(encoding="utf-8"))
+            if summary.get("contract_sha256") != contract.get("contract_sha256"):
+                raise ValueError("Existing coverage.json is not bound to the state contract")
+        else:
+            summary = refresh_reports(state_root)
         result["embedding_gate_passed"] = summary["embedding_gate_passed"]
         result["coverage"] = summary["coverage"]
         if args.report:
@@ -1567,6 +1577,11 @@ def parse_args() -> argparse.Namespace:
     add_state_root(hydrate)
     hydrate.add_argument("--output-cache-root", type=Path, required=True)
     hydrate.add_argument("--report", type=Path)
+    hydrate.add_argument(
+        "--preserve-evidence",
+        action="store_true",
+        help="materialize without refreshing or invalidating existing state evidence",
+    )
 
     summary = subparsers.add_parser("summary")
     add_state_root(summary)

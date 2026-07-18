@@ -4,7 +4,9 @@
 
 `active/hpc_pfp_benchmark.sh` is the one-GPU entrypoint for training or
 evaluating PFP on any completed nine-CSV benchmark and existing embedding
-cache. It stages explicit inputs into job-owned scratch by default, calls the
+cache. It accepts either a cache directory or one consolidated cache archive;
+archives are safely extracted into job-owned scratch. It stages explicit inputs
+into job-owned scratch by default, calls the
 scheduler-neutral `scripts/model_execution/run_pfp_benchmark.sh`, atomically
 publishes reports/checkpoints/prepared data, and always removes its own scratch
 directory. It never generates embeddings or edits PFP.
@@ -23,6 +25,13 @@ The CAFA3 v1.5 control must pass both the directly extracted `data/` directory
 and its catalogued `mmfp_data_splits.tar.gz` through
 `--reference-data-dir` and `--reference-source-archive`; the wrapper stages and
 authenticates both.
+
+`active/hpc_finalize_contemporary_embedding_state.sh` is the CPU-only,
+transactional bridge from the contemporary baseline-plus-delta retry state to
+one final PFP cache archive. It requires explicit confirmation that retry jobs
+are finished and explicit permission to retire source embedding bytes. The old
+baseline and delta cannot be removed until the new SAN archive has passed both
+scratch validation and an extract-and-revalidate round trip from SAN.
 
 ## SAN frozen-input acquisition
 

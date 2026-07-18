@@ -478,10 +478,14 @@ class ResumableEmbeddingStateTest(unittest.TestCase):
             str(self.state),
             "--output-cache-root",
             str(hydrated),
+            "--preserve-evidence",
         )
         self.assertTrue((hydrated / "prott5/P1.npy").is_file())
         self.assertTrue((hydrated / "prott5/P2.npy").is_file())
         self.assertTrue((hydrated / "prott5/P3.npy").is_file())
+        self.assertTrue(
+            (self.state / "EVIDENCE_HASHES_COMPLETE.json").is_file()
+        )
 
     def test_retry_workspace_and_equivalence_use_only_selected_ids(self) -> None:
         self.initialize()

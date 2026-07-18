@@ -234,21 +234,33 @@ merge step yet.
 
 ## Contemporary training
 
-Use the completed benchmark, frozen t1 ontology, assembled cache and its state
-reports. Paths below are examples, not defaults:
+First consolidate the archive-backed retry state after all retry jobs finish:
+
+```bash
+qsub hpc_jobs/active/hpc_finalize_contemporary_embedding_state.sh \
+  --state-root /SAN/.../embeddings/contemporary/.../retry_state \
+  --benchmark-dir /SAN/.../benchmarks/contemporary/... \
+  --obo-file /SAN/.../frozen_inputs/ontology/2026-06-19/go-basic.obo \
+  --final-root /SAN/.../embeddings/contemporary/.../finalized_pfp_cache \
+  --confirm-retries-finished \
+  --retire-source-embeddings
+```
+
+Then use the completed benchmark, frozen t1 ontology, consolidated archive and
+its self-contained evidence. Paths below are examples, not defaults:
 
 ```bash
 qsub hpc_jobs/active/hpc_pfp_benchmark.sh \
   --benchmark-id contemporary-2025-01-to-2026-02-supervisor \
   --benchmark-dir /SAN/.../benchmarks/contemporary/... \
   --benchmark-evidence /SAN/.../benchmarks/contemporary/.../build_manifest.json \
-  --embedding-cache-root /SAN/.../embeddings/contemporary/.../retry_state/cache \
-  --embedding-evidence /SAN/.../retry_state/coverage.json \
-  --embedding-evidence /SAN/.../retry_state/contract.json \
-  --embedding-evidence /SAN/.../retry_state/targets.tsv \
-  --embedding-evidence /SAN/.../retry_state/pair_status.tsv \
+  --embedding-cache-archive /SAN/.../finalized_pfp_cache/contemporary_embedding_cache.tar.gz \
+  --embedding-evidence /SAN/.../finalized_pfp_cache/evidence/coverage.json \
+  --embedding-evidence /SAN/.../finalized_pfp_cache/evidence/contract.json \
+  --embedding-evidence /SAN/.../finalized_pfp_cache/evidence/targets.tsv \
+  --embedding-evidence /SAN/.../finalized_pfp_cache/evidence/pair_status.tsv \
   --require-embedding-evidence \
-  --obo-file /SAN/.../frozen_inputs/go/2026_02/go-basic.obo \
+  --obo-file /SAN/.../frozen_inputs/ontology/2026-06-19/go-basic.obo \
   --results-root /SAN/bioinf/bmpfp/model_runs/contemporary/full \
   --config "$PWD/configs/pfp_benchmark_run.temporal.json" \
   --execution-mode train-eval \
@@ -257,6 +269,8 @@ qsub hpc_jobs/active/hpc_pfp_benchmark.sh \
 
 Repeat with a separate result root and `--modality-mode sequence-only` for the
 coverage-robust control. Never point two jobs at the same result directory.
+The archive is safely extracted into job-owned scratch before the same strict
+cache/evidence validator runs; directory-backed cache input remains supported.
 
 ## Homology integration
 
