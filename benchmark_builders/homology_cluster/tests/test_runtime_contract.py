@@ -112,6 +112,34 @@ class RuntimeContractTests(unittest.TestCase):
             self.assertEqual(main(arguments), 0)
             self.assertTrue((root / "manifest.json").is_file())
 
+    def test_prepare_cli_accepts_authenticated_persistent_store_inputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = _runtime_files(root)
+            arguments = [
+                "prepare",
+                "--manifest-out", str(root / "manifest.json"),
+                "--policy-out", str(root / "policy.json"),
+                "--source-scope", "sprot-only",
+                "--framework-revision", COMMIT,
+            ]
+            for name, path in paths.items():
+                option = name.replace("_", "-")
+                arguments.extend([
+                    f"--{option}", str(path),
+                    f"--{option}-url", URLS[name],
+                    f"--{option}-acquisition", "provided-persistent-store",
+                ])
+
+            self.assertEqual(main(arguments), 0)
+            manifest = load_frozen_input_manifest(
+                root / "manifest.json", uniprot_source_scope="sprot-only"
+            )
+            self.assertTrue(all(
+                item["acquisition"] == "provided-persistent-store"
+                for item in manifest.entries.values()
+            ))
+
     def test_policy_cli_reuses_an_authenticated_cache_manifest(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

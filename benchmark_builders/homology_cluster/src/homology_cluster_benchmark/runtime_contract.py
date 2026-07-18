@@ -326,7 +326,11 @@ def _input_argument(parser: argparse.ArgumentParser, name: str) -> None:
     parser.add_argument(f"--{option}-url")
     parser.add_argument(
         f"--{option}-acquisition",
-        choices=("downloaded-to-scratch", "provided-path-staged-to-scratch"),
+        choices=(
+            "downloaded-to-scratch",
+            "provided-path-staged-to-scratch",
+            "provided-persistent-store",
+        ),
     )
 
 
