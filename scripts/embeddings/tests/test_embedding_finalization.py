@@ -311,6 +311,14 @@ class EmbeddingFinalizationTests(unittest.TestCase):
         self.assertIn("manage_embedding_archive.py", content)
         self.assertIn("--embedding-cache-root", content)
 
+    def test_generic_hpc_runner_activates_mmfp_before_archive_extraction(self) -> None:
+        content = HPC_RUNNER.read_text(encoding="utf-8")
+        activation = content.index("activate_or_create_mmfp_env")
+        extraction = content.index(
+            '"$PYTHON_BIN" "$FRAMEWORK_DIR/scripts/embeddings/manage_embedding_archive.py"'
+        )
+        self.assertLess(activation, extraction)
+
     def test_incompatible_ontology_fails_before_embedding_state_is_touched(self) -> None:
         benchmark = self.root / "benchmark"
         benchmark.mkdir()

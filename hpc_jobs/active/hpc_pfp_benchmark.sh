@@ -369,6 +369,15 @@ git_in_dir "$FRAMEWORK_DIR" checkout --detach "$FRAMEWORK_COMMIT"
 git clone --no-checkout "$PFP_REPO_URL" "$PFP_DIR"
 git_in_dir "$PFP_DIR" checkout --detach "$PFP_COMMIT"
 
+cd "$FRAMEWORK_DIR"
+source scripts/reproduction_common.sh
+load_framework_paths "$FRAMEWORK_DIR"
+add_mmfp_singularity_bind "$WORK"
+if [[ "$CACHE_STAGING" == "direct" ]]; then add_mmfp_singularity_bind "$CACHE_ROOT"; fi
+activate_or_create_mmfp_env
+PYTHON_BIN="$(command -v python)"
+"$PYTHON_BIN" -c 'import torch,sys; assert torch.cuda.is_available(), "CUDA is unavailable"; assert torch.cuda.device_count() == 1, f"expected one visible GPU, found {torch.cuda.device_count()}"; value=torch.ones(1, device="cuda") * 2; assert value.item() == 2; print(f"CUDA preflight: {torch.cuda.get_device_name(0)}")'
+
 input_kb=0
 add_input_kb() {
   local value
@@ -456,15 +465,6 @@ if [[ -n "$IA_FILE_DIR" ]]; then
   cp -a "$IA_FILE_DIR" "$SCRATCH_INPUTS/ia"
   EFFECTIVE_IA="$SCRATCH_INPUTS/ia"
 fi
-
-cd "$FRAMEWORK_DIR"
-source scripts/reproduction_common.sh
-load_framework_paths "$FRAMEWORK_DIR"
-add_mmfp_singularity_bind "$WORK"
-if [[ "$CACHE_STAGING" == "direct" ]]; then add_mmfp_singularity_bind "$CACHE_ROOT"; fi
-activate_or_create_mmfp_env
-PYTHON_BIN="$(command -v python)"
-"$PYTHON_BIN" -c 'import torch,sys; assert torch.cuda.is_available(), "CUDA is unavailable"; assert torch.cuda.device_count() == 1, f"expected one visible GPU, found {torch.cuda.device_count()}"; value=torch.ones(1, device="cuda") * 2; assert value.item() == 2; print(f"CUDA preflight: {torch.cuda.get_device_name(0)}")'
 
 COMMAND=(
   bash "$FRAMEWORK_DIR/scripts/model_execution/run_pfp_benchmark.sh"
