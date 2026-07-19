@@ -118,7 +118,25 @@ fi
 [[ -f "$OBO_FILE" ]] || die "GO OBO file does not exist: $OBO_FILE"
 [[ -f "$PFP_ROOT/train.py" && -f "$PFP_ROOT/scripts/prepare_cafa3_data.py" ]] || \
   die "PFP root is not a compatible checkout: $PFP_ROOT"
-if git -C "$PFP_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+OBSERVED_PFP_COMMIT=""
+if [[ -n "${PFP_HOST_GIT_VERIFIED_COMMIT+x}${PFP_HOST_GIT_VERIFIED_CLEAN+x}${PFP_HOST_GIT_VERIFIED_REPOSITORY+x}" ]]; then
+  [[ -n "${PFP_HOST_GIT_VERIFIED_COMMIT:-}" && \
+     -n "${PFP_HOST_GIT_VERIFIED_CLEAN:-}" && \
+     -n "${PFP_HOST_GIT_VERIFIED_REPOSITORY:-}" ]] || \
+    die "Host PFP Git verification is incomplete"
+  [[ "$PFP_HOST_GIT_VERIFIED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || \
+    die "Host-verified PFP commit must be 40 lowercase hexadecimal characters"
+  [[ "$PFP_HOST_GIT_VERIFIED_CLEAN" == "1" ]] || \
+    die "Host-verified PFP checkout must be explicitly clean"
+  [[ -d "$PFP_HOST_GIT_VERIFIED_REPOSITORY" ]] || \
+    die "Host-verified PFP repository does not exist"
+  [[ "$(cd "$PFP_HOST_GIT_VERIFIED_REPOSITORY" && pwd -P)" == \
+     "$(cd "$PFP_ROOT" && pwd -P)" ]] || \
+    die "Host-verified PFP repository does not match --pfp-root"
+  OBSERVED_PFP_COMMIT="$PFP_HOST_GIT_VERIFIED_COMMIT"
+  [[ "$OBSERVED_PFP_COMMIT" == "$EXPECTED_PFP_COMMIT" ]] || \
+    die "PFP commit mismatch: expected $EXPECTED_PFP_COMMIT, found $OBSERVED_PFP_COMMIT"
+elif git -C "$PFP_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   OBSERVED_PFP_COMMIT="$(git -C "$PFP_ROOT" rev-parse HEAD)"
   [[ "$OBSERVED_PFP_COMMIT" == "$EXPECTED_PFP_COMMIT" ]] || \
     die "PFP commit mismatch: expected $EXPECTED_PFP_COMMIT, found $OBSERVED_PFP_COMMIT"
@@ -134,10 +152,28 @@ elif [[ "$ALLOW_UNVERSIONED_PFP" != "1" ]]; then
   die "PFP root is not a Git checkout; use --allow-unversioned-pfp only for fixtures"
 fi
 [[ -f "$CONFIG" ]] || die "Run config does not exist: $CONFIG"
-if git -C "$FRAMEWORK_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 && \
-   [[ -n "$(git -C "$FRAMEWORK_ROOT" status --porcelain)" ]] && \
-   [[ "$ALLOW_DIRTY_FRAMEWORK" != "1" ]]; then
-  die "Framework checkout has uncommitted changes; commit them before a model run"
+OBSERVED_FRAMEWORK_COMMIT=""
+if [[ -n "${FRAMEWORK_HOST_GIT_VERIFIED_COMMIT+x}${FRAMEWORK_HOST_GIT_VERIFIED_CLEAN+x}${FRAMEWORK_HOST_GIT_VERIFIED_REPOSITORY+x}" ]]; then
+  [[ -n "${FRAMEWORK_HOST_GIT_VERIFIED_COMMIT:-}" && \
+     -n "${FRAMEWORK_HOST_GIT_VERIFIED_CLEAN:-}" && \
+     -n "${FRAMEWORK_HOST_GIT_VERIFIED_REPOSITORY:-}" ]] || \
+    die "Host framework Git verification is incomplete"
+  [[ "$FRAMEWORK_HOST_GIT_VERIFIED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || \
+    die "Host-verified framework commit must be 40 lowercase hexadecimal characters"
+  [[ "$FRAMEWORK_HOST_GIT_VERIFIED_CLEAN" == "1" ]] || \
+    die "Host-verified framework checkout must be explicitly clean"
+  [[ -d "$FRAMEWORK_HOST_GIT_VERIFIED_REPOSITORY" ]] || \
+    die "Host-verified framework repository does not exist"
+  [[ "$(cd "$FRAMEWORK_HOST_GIT_VERIFIED_REPOSITORY" && pwd -P)" == \
+     "$(cd "$FRAMEWORK_ROOT" && pwd -P)" ]] || \
+    die "Host-verified framework repository does not match the running framework"
+  OBSERVED_FRAMEWORK_COMMIT="$FRAMEWORK_HOST_GIT_VERIFIED_COMMIT"
+elif git -C "$FRAMEWORK_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  OBSERVED_FRAMEWORK_COMMIT="$(git -C "$FRAMEWORK_ROOT" rev-parse HEAD)"
+  if [[ -n "$(git -C "$FRAMEWORK_ROOT" status --porcelain)" ]] && \
+     [[ "$ALLOW_DIRTY_FRAMEWORK" != "1" ]]; then
+    die "Framework checkout has uncommitted changes; commit them before a model run"
+  fi
 fi
 if [[ -n "$IA_FILE_DIR" ]]; then
   [[ -d "$IA_FILE_DIR" ]] || die "IA file directory does not exist: $IA_FILE_DIR"
@@ -335,12 +371,13 @@ for modality, summary in before["modalities"].items():
 PY
 fi
 
-FRAMEWORK_COMMIT="$(git -C "$FRAMEWORK_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
-if [[ "$FRAMEWORK_COMMIT" != "unknown" ]] && \
+FRAMEWORK_COMMIT="${OBSERVED_FRAMEWORK_COMMIT:-unknown}"
+if [[ "$FRAMEWORK_COMMIT" != "unknown" && \
+      -z "${FRAMEWORK_HOST_GIT_VERIFIED_COMMIT:-}" ]] && \
    [[ -n "$(git -C "$FRAMEWORK_ROOT" status --porcelain 2>/dev/null)" ]]; then
   FRAMEWORK_COMMIT="${FRAMEWORK_COMMIT}-dirty"
 fi
-PFP_COMMIT="$(git -C "$PFP_ROOT" rev-parse HEAD 2>/dev/null || echo unversioned-fixture)"
+PFP_COMMIT="${OBSERVED_PFP_COMMIT:-unversioned-fixture}"
 SUMMARY_COMMAND=(
   "$PYTHON_BIN" "$HERE/summarize_pfp_benchmark_run.py"
   --benchmark-id "$BENCHMARK_ID"

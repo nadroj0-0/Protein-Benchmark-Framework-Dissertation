@@ -30,9 +30,10 @@ from .uniref import UniRefIndex
 LOGGER = logging.getLogger(__name__)
 
 CACHE_SCHEMA_NAME = "homology-cluster-common-preprocessing"
-CACHE_SCHEMA_VERSION = 2
+CACHE_SCHEMA_VERSION = 3
 CACHE_MARKER = "CACHE_COMPLETE.json"
 STATE_FILE = "preprocessing_state.pkl.gz"
+STATE_FORMAT = "homology-common-preprocessing-state-v1"
 UNIREF_INDEX_FILE = "uniref90.sqlite"
 FROZEN_MANIFEST_FILE = "frozen_input_manifest.json"
 GOA_RECORD_FILE = "goa/qualifying_annotations.raw.jsonl.gz"
@@ -53,6 +54,22 @@ PREPROCESSING_SOURCE_FILES = (
     "uniref.py",
 )
 
+# Schema 2 was produced by the first SAN cache build. Its CLI executed this
+# module with ``python -m``, which made the wrapper dataclass pickle as
+# ``__main__.CommonPreprocessingState``. The complete producer fingerprint is
+# pinned here so compatibility cannot silently extend to an unknown cache.
+SCHEMA_V2_PREPROCESSING_SOURCE_SHA256 = {
+    "common_cache.py": "07eb91fe7cfa8fd3bb8c23f62d633c56ebf5e4ce1905c755dd2e6006cf146994",
+    "config.py": "f41fdfbe5c5a2c0f9288899f46d1e527f07428df00976b547607543eab29b0ed",
+    "goa.py": "db0e4a7d0bc8124c1ea00c88c7a7694ac9ae52a76a6a031254fa562fb51bc055",
+    "idmapping.py": "c23b8232292ff3e868364014692c2df3f73234444ed198ed50b10509210bbefd",
+    "inputs.py": "7da70361cfc0db42bb529beabda64d01c09898b1e1d2476380de249e1e9983ad",
+    "mapping.py": "4f91448aab74271cc4e1562de46ed7ed685e8b5b39bbf7403906066d2333f9ff",
+    "models.py": "f8529658f3689a1499ad00b49d179c1f50ef4328c8824cbe54a7e7fcb19cee53",
+    "ontology.py": "138374a3338c9f9e38411298284810d16a039b4fc0abaae04ab757ed0ae2439b",
+    "uniref.py": "9a03bb24f3e6697730550e8420ab70adb9eb6dd344232c6a2c63a16ac98164c3",
+}
+
 
 @dataclass(frozen=True)
 class CommonPreprocessingState:
@@ -72,6 +89,37 @@ class LoadedCommonPreprocessing:
     catalog: ProteinCatalog
     decisions: list[MappingDecision]
     requested_raw: set[str]
+
+
+class _SchemaV2StateUnpickler(pickle.Unpickler):
+    def find_class(self, module: str, name: str) -> object:
+        if module == "__main__" and name == "CommonPreprocessingState":
+            return CommonPreprocessingState
+        return super().find_class(module, name)
+
+
+def _load_common_preprocessing_state(
+    path: Path, schema_version: int
+) -> CommonPreprocessingState:
+    with gzip.open(path, "rb") as handle:
+        if schema_version == 2:
+            state = _SchemaV2StateUnpickler(handle).load()
+        else:
+            payload = pickle.load(handle)
+            if not isinstance(payload, dict) or payload.get("state_format") != STATE_FORMAT:
+                raise ValueError("Common preprocessing cache state has an unsupported format")
+            expected = {"state_format", "goa", "catalog", "decisions", "requested_raw"}
+            if set(payload) != expected:
+                raise ValueError("Common preprocessing cache state fields are malformed")
+            state = CommonPreprocessingState(
+                goa=payload["goa"],
+                catalog=payload["catalog"],
+                decisions=payload["decisions"],
+                requested_raw=payload["requested_raw"],
+            )
+    if not isinstance(state, CommonPreprocessingState):
+        raise ValueError("Common preprocessing cache state has an unexpected type")
+    return state
 
 
 def _json(path: Path, payload: object) -> None:
@@ -210,9 +258,10 @@ def inspect_common_preprocessing_cache(
     if not root.is_dir() or not marker.is_file():
         raise ValueError(f"Common preprocessing cache is incomplete: {root}")
     payload = json.loads(marker.read_text(encoding="utf-8"))
+    schema_version = payload.get("schema_version")
     if (
         payload.get("schema_name") != CACHE_SCHEMA_NAME
-        or payload.get("schema_version") != CACHE_SCHEMA_VERSION
+        or schema_version not in {2, CACHE_SCHEMA_VERSION}
         or payload.get("complete") is not True
     ):
         raise ValueError("Common preprocessing cache marker has an unsupported contract")
@@ -224,9 +273,14 @@ def inspect_common_preprocessing_cache(
             "Common preprocessing cache source-scope mismatch: "
             f"expected={expected_source_scope}, observed={source_scope}"
         )
-    if payload.get("preprocessing_source_sha256") != _source_hashes():
+    observed_source_hashes = payload.get("preprocessing_source_sha256")
+    expected_source_hashes = (
+        SCHEMA_V2_PREPROCESSING_SOURCE_SHA256
+        if schema_version == 2 else _source_hashes()
+    )
+    if observed_source_hashes != expected_source_hashes:
         raise ValueError(
-            "Common preprocessing cache was produced by different preprocessing code"
+            "Common preprocessing cache was produced by unsupported preprocessing code"
         )
     if expected_policy is not None and payload.get("policy") != expected_policy:
         raise ValueError("Common preprocessing cache policy does not match this run")
@@ -369,7 +423,13 @@ def build_common_preprocessing_cache(
         if goa.excluded_spool is not None:
             shutil.copy2(goa.excluded_spool, stage / GOA_EXCLUDED_FILE)
             goa.excluded_spool = Path(GOA_EXCLUDED_FILE)
-        state = CommonPreprocessingState(goa, catalog, decisions, requested_raw)
+        state = {
+            "state_format": STATE_FORMAT,
+            "goa": goa,
+            "catalog": catalog,
+            "decisions": decisions,
+            "requested_raw": requested_raw,
+        }
         with gzip.open(stage / STATE_FILE, "wb", compresslevel=1) as handle:
             pickle.dump(state, handle, protocol=pickle.HIGHEST_PROTOCOL)
         shutil.copy2(manifest.path, stage / FROZEN_MANIFEST_FILE)
@@ -458,10 +518,9 @@ def load_common_preprocessing_cache(
         raise ValueError(
             "Common preprocessing cache was not built from this frozen-input manifest"
         )
-    with gzip.open(root / STATE_FILE, "rb") as handle:
-        state = pickle.load(handle)
-    if not isinstance(state, CommonPreprocessingState):
-        raise ValueError("Common preprocessing cache state has an unexpected type")
+    state = _load_common_preprocessing_state(
+        root / STATE_FILE, int(payload["schema_version"])
+    )
     goa = state.goa
     if goa.record_spool is not None:
         goa.record_spool = root / goa.record_spool

@@ -368,11 +368,26 @@ git clone --no-checkout "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"
 git_in_dir "$FRAMEWORK_DIR" checkout --detach "$FRAMEWORK_COMMIT"
 git clone --no-checkout "$PFP_REPO_URL" "$PFP_DIR"
 git_in_dir "$PFP_DIR" checkout --detach "$PFP_COMMIT"
+[[ "$(git_in_dir "$FRAMEWORK_DIR" rev-parse HEAD)" == "$FRAMEWORK_COMMIT" ]] || \
+  die "Cloned framework commit does not match the requested revision"
+[[ -z "$(git_in_dir "$FRAMEWORK_DIR" status --porcelain)" ]] || \
+  die "Cloned framework checkout is not clean"
+[[ "$(git_in_dir "$PFP_DIR" rev-parse HEAD)" == "$PFP_COMMIT" ]] || \
+  die "Cloned PFP commit does not match the requested revision"
+[[ -z "$(git_in_dir "$PFP_DIR" status --porcelain)" ]] || \
+  die "Cloned PFP checkout is not clean"
+export FRAMEWORK_HOST_GIT_VERIFIED_COMMIT="$FRAMEWORK_COMMIT"
+export FRAMEWORK_HOST_GIT_VERIFIED_CLEAN=1
+export FRAMEWORK_HOST_GIT_VERIFIED_REPOSITORY="$FRAMEWORK_DIR"
+export PFP_HOST_GIT_VERIFIED_COMMIT="$PFP_COMMIT"
+export PFP_HOST_GIT_VERIFIED_CLEAN=1
+export PFP_HOST_GIT_VERIFIED_REPOSITORY="$PFP_DIR"
 
 cd "$FRAMEWORK_DIR"
 source scripts/reproduction_common.sh
 load_framework_paths "$FRAMEWORK_DIR"
 add_mmfp_singularity_bind "$WORK"
+add_mmfp_singularity_bind "$RESULTS_ROOT"
 if [[ "$CACHE_STAGING" == "direct" ]]; then add_mmfp_singularity_bind "$CACHE_ROOT"; fi
 activate_or_create_mmfp_env
 PYTHON_BIN="$(command -v python)"

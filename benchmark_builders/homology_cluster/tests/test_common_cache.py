@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -12,6 +13,10 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from homology_cluster_benchmark.common_cache import (
     CACHE_MARKER,
+    CACHE_SCHEMA_VERSION,
+    CommonPreprocessingState,
+    SCHEMA_V2_PREPROCESSING_SOURCE_SHA256,
+    _load_common_preprocessing_state,
     build_common_preprocessing_cache,
     inspect_common_preprocessing_cache,
 )
@@ -120,6 +125,36 @@ class CommonPreprocessingCacheTests(unittest.TestCase):
             )
             payload = inspect_common_preprocessing_cache(cache / CACHE_MARKER)
             self.assertEqual(payload["uniprot_source_scope"], "sprot-only")
+            self.assertEqual(payload["schema_version"], CACHE_SCHEMA_VERSION)
+
+    def test_schema_v2_main_module_state_is_loaded_compatibly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "legacy.pkl.gz"
+            script = (
+                "from dataclasses import dataclass\n"
+                "import gzip,pickle,sys\n"
+                "@dataclass(frozen=True)\n"
+                "class CommonPreprocessingState:\n"
+                "  goa: object\n"
+                "  catalog: object\n"
+                "  decisions: list\n"
+                "  requested_raw: set\n"
+                "with gzip.open(sys.argv[1], 'wb') as handle:\n"
+                "  pickle.dump(CommonPreprocessingState('goa','catalog',['decision'],{'P1'}), handle)\n"
+            )
+            subprocess.run(
+                [sys.executable, "-c", script, str(state_path)], check=True
+            )
+            state = _load_common_preprocessing_state(state_path, 2)
+            self.assertIsInstance(state, CommonPreprocessingState)
+            self.assertEqual(state.decisions, ["decision"])
+            self.assertEqual(state.requested_raw, {"P1"})
+
+    def test_schema_v2_producer_fingerprint_is_exactly_pinned(self):
+        self.assertEqual(
+            SCHEMA_V2_PREPROCESSING_SOURCE_SHA256["common_cache.py"],
+            "07eb91fe7cfa8fd3bb8c23f62d633c56ebf5e4ce1905c755dd2e6006cf146994",
+        )
 
 
 if __name__ == "__main__":

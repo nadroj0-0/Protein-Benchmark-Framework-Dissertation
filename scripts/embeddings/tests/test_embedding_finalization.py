@@ -319,6 +319,20 @@ class EmbeddingFinalizationTests(unittest.TestCase):
         )
         self.assertLess(activation, extraction)
 
+    def test_generic_hpc_runner_binds_results_and_exports_verified_git_state(self) -> None:
+        content = HPC_RUNNER.read_text(encoding="utf-8")
+        activation = content.index("activate_or_create_mmfp_env")
+        self.assertLess(
+            content.index('add_mmfp_singularity_bind "$RESULTS_ROOT"'), activation
+        )
+        self.assertIn(
+            'export PFP_HOST_GIT_VERIFIED_COMMIT="$PFP_COMMIT"', content
+        )
+        self.assertIn(
+            'export FRAMEWORK_HOST_GIT_VERIFIED_COMMIT="$FRAMEWORK_COMMIT"',
+            content,
+        )
+
     def test_incompatible_ontology_fails_before_embedding_state_is_touched(self) -> None:
         benchmark = self.root / "benchmark"
         benchmark.mkdir()

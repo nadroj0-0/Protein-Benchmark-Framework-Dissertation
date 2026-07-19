@@ -255,6 +255,9 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn("trap cleanup EXIT", wrapper)
         self.assertIn('WORK="/scratch0/cafa3_embedding_retry_${JOB_TOKEN}"', wrapper)
         self.assertIn('rm -rf "$WORK"', wrapper)
+        bind = 'add_mmfp_singularity_bind "$(dirname "$EMBEDDING_STATE_ROOT")"'
+        self.assertIn(bind, wrapper)
+        self.assertLess(wrapper.index(bind), wrapper.index("activate_or_create_mmfp_env"))
 
     def test_bounded_alphafold_mode_is_opt_in_and_pfp_source_is_unchanged(self) -> None:
         path = REPO_ROOT / "scripts/embeddings/generate_embeddings_structure.sh"

@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -64,9 +65,13 @@ for aspect, prefix in (("BPO", "bp"), ("CCO", "cc"), ("MFO", "mf")):
 
 
 def run(
-    command: list[str], expected: int = 0, contains: str | None = None
+    command: list[str], expected: int = 0, contains: str | None = None,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(command, text=True, capture_output=True, check=False)
+    result = subprocess.run(
+        command, text=True, capture_output=True, check=False,
+        env=({**os.environ, **env} if env is not None else None),
+    )
     if result.returncode != expected:
         raise AssertionError(
             f"Expected status {expected}, got {result.returncode}\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
@@ -603,6 +608,71 @@ class ModelExecutionTests(unittest.TestCase):
         run_report = json.loads((output / "reports" / "run_report.json").read_text())
         self.assertEqual(run_report["status"], "passed")
         self.assertEqual(run_report["seed"], 7)
+
+    def test_prepare_only_runner_accepts_complete_host_verified_git_state(self) -> None:
+        work = self.root / "verified-runner-work"
+        output = self.root / "verified-runner-output"
+        pfp_commit = "a" * 40
+        framework_commit = "b" * 40
+        run(
+            [
+                "bash",
+                str(MODEL_EXECUTION / "run_pfp_benchmark.sh"),
+                "--benchmark-id",
+                "verified-fixture",
+                "--benchmark-dir",
+                str(self.benchmark),
+                "--obo-file",
+                str(self.obo),
+                "--pfp-root",
+                str(self.pfp),
+                "--work-dir",
+                str(work),
+                "--output-dir",
+                str(output),
+                "--config",
+                str(TEMPORAL_CONFIG),
+                "--execution-mode",
+                "prepare-only",
+                "--expected-pfp-commit",
+                pfp_commit,
+            ],
+            env={
+                "PFP_HOST_GIT_VERIFIED_COMMIT": pfp_commit,
+                "PFP_HOST_GIT_VERIFIED_CLEAN": "1",
+                "PFP_HOST_GIT_VERIFIED_REPOSITORY": str(self.pfp),
+                "FRAMEWORK_HOST_GIT_VERIFIED_COMMIT": framework_commit,
+                "FRAMEWORK_HOST_GIT_VERIFIED_CLEAN": "1",
+                "FRAMEWORK_HOST_GIT_VERIFIED_REPOSITORY": str(FRAMEWORK_ROOT),
+            },
+        )
+        report = json.loads((output / "reports" / "run_report.json").read_text())
+        self.assertEqual(report["pfp_commit"], pfp_commit)
+        self.assertEqual(report["framework_commit"], framework_commit)
+
+    def test_host_verified_pfp_path_must_match_requested_checkout(self) -> None:
+        run(
+            [
+                "bash",
+                str(MODEL_EXECUTION / "run_pfp_benchmark.sh"),
+                "--benchmark-id", "bad-verified-fixture",
+                "--benchmark-dir", str(self.benchmark),
+                "--obo-file", str(self.obo),
+                "--pfp-root", str(self.pfp),
+                "--work-dir", str(self.root / "bad-verified-work"),
+                "--output-dir", str(self.root / "bad-verified-output"),
+                "--config", str(TEMPORAL_CONFIG),
+                "--execution-mode", "prepare-only",
+                "--expected-pfp-commit", "a" * 40,
+            ],
+            expected=2,
+            contains="does not match --pfp-root",
+            env={
+                "PFP_HOST_GIT_VERIFIED_COMMIT": "a" * 40,
+                "PFP_HOST_GIT_VERIFIED_CLEAN": "1",
+                "PFP_HOST_GIT_VERIFIED_REPOSITORY": str(self.root),
+            },
+        )
 
     def test_eval_only_adapter_requires_and_records_cafa_metrics(self) -> None:
         data = self.prepare()
