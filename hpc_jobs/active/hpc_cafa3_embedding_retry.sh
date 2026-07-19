@@ -19,7 +19,8 @@ Usage: qsub hpc_jobs/active/hpc_cafa3_embedding_retry.sh \
   --modality sequence|text|structure|ppi \
   [--embedding-state-root /SAN/bioinf/bmpfp/embedding_states/cafa3_full_reproduction] \
   [--results-root /absolute/path] \
-  [--text-cutoff-date YYYY-MM-DD] [--artifact-catalog PATH]
+  [--text-cutoff-date YYYY-MM-DD] [--artifact-catalog PATH] \
+  [--strict-framework-commit]
 
 This wrapper never submits another job. It retries only missing pairs for one
 modality, publishes valid arrays into the single persistent state, copies only
@@ -34,6 +35,7 @@ EMBEDDING_STATE_ROOT="/SAN/bioinf/bmpfp/embedding_states/cafa3_full_reproduction
 CLI_RESULTS_ROOT=""
 TEXT_CUTOFF_DATE="2016-02-17"
 CLI_ARTIFACT_CATALOG="${ARTIFACT_CATALOG:-}"
+STRICT_FRAMEWORK_COMMIT=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --modality) MODALITY="$2"; shift 2 ;;
@@ -41,6 +43,7 @@ while [[ $# -gt 0 ]]; do
     --results-root) CLI_RESULTS_ROOT="$2"; shift 2 ;;
     --text-cutoff-date) TEXT_CUTOFF_DATE="$2"; shift 2 ;;
     --artifact-catalog) CLI_ARTIFACT_CATALOG="$2"; shift 2 ;;
+    --strict-framework-commit) STRICT_FRAMEWORK_COMMIT=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; die "Unknown argument: $1" ;;
   esac
@@ -148,6 +151,7 @@ echo "Modality          : $MODALITY"
 echo "Persistent state  : $EMBEDDING_STATE_ROOT"
 echo "Scratch           : $WORK"
 echo "Final report      : $FINAL_RUN_ROOT"
+echo "Framework policy  : $([[ "$STRICT_FRAMEWORK_COMMIT" == "1" ]] && echo strict || echo permissive)"
 
 git clone --no-checkout "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"
 git_in_dir "$FRAMEWORK_DIR" checkout --detach "$FRAMEWORK_COMMIT"
@@ -174,6 +178,9 @@ command=(
 )
 if [[ -n "${ARTIFACT_CATALOG:-}" ]]; then
   command+=(--artifact-catalog "$ARTIFACT_CATALOG")
+fi
+if [[ "$STRICT_FRAMEWORK_COMMIT" == "1" ]]; then
+  command+=(--strict-framework-commit)
 fi
 printf 'Command:'; printf ' %q' "${command[@]}"; printf '\n'
 set +e

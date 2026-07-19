@@ -215,7 +215,7 @@ class ResumableEmbeddingStateTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("contract mismatch", result.stderr)
 
-    def test_framework_commit_drift_can_be_allowed_without_weakening_contract(self) -> None:
+    def test_framework_commit_drift_is_permissive_by_default_without_weakening_contract(self) -> None:
         self.initialize()
         contract_path = self.state / "contract.json"
         original_contract = contract_path.read_bytes()
@@ -241,7 +241,6 @@ class ResumableEmbeddingStateTest(unittest.TestCase):
             f"fixture={self.source}",
             "--runtime-value",
             "text_cutoff_date=2016-02-17",
-            "--allow-framework-commit-drift",
         )
 
         accepted = self.run_state(*common_arguments)
@@ -259,34 +258,18 @@ class ResumableEmbeddingStateTest(unittest.TestCase):
         self.assertNotEqual(rejected.returncode, 0)
         self.assertIn("contract mismatch", rejected.stderr)
 
-    def test_framework_commit_drift_flag_requires_existing_state(self) -> None:
-        result = self.run_state(
-            "initialize",
-            "--state-root",
-            str(self.state),
-            "--benchmark-id",
-            "fixture",
-            "--benchmark-dir",
-            str(self.benchmark),
-            "--data-dir",
-            str(self.data),
-            "--policy",
-            str(self.policy),
-            "--pfp-commit",
-            "1" * 40,
-            "--framework-commit",
-            "2" * 40,
-            "--environment-report",
-            str(self.environment),
-            "--source-file",
-            f"fixture={self.source}",
-            "--runtime-value",
-            "text_cutoff_date=2016-02-17",
-            "--allow-framework-commit-drift",
+        strict = self.run_state(
+            *common_arguments,
+            "--strict-framework-commit",
             check=False,
         )
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("requires an existing state contract", result.stderr)
+        self.assertNotEqual(strict.returncode, 0)
+        self.assertIn("contract mismatch", strict.stderr)
+
+        self.source.write_text("changed-scientific-source\n", encoding="utf-8")
+        source_drift = self.run_state(*common_arguments, check=False)
+        self.assertNotEqual(source_drift.returncode, 0)
+        self.assertIn("contract mismatch", source_drift.stderr)
 
     def test_invalid_array_stays_needs_retry(self) -> None:
         self.initialize()

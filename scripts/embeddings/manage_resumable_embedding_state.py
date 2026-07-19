@@ -833,10 +833,11 @@ def command_initialize(args: argparse.Namespace) -> dict:
                 compatible = dict(contract)
                 compatible["framework_commit"] = existing.get("framework_commit")
                 compatible["contract_sha256"] = existing.get("contract_sha256")
-                if args.allow_framework_commit_drift and compatible == existing:
+                if not args.strict_framework_commit and compatible == existing:
                     print(
                         "WARNING: current framework commit differs from the state "
-                        "initializer; every other contract field matched exactly",
+                        "initializer; continuing because strict framework commit "
+                        "matching is disabled and every other contract field matched exactly",
                         file=sys.stderr,
                     )
                     contract = existing
@@ -850,10 +851,6 @@ def command_initialize(args: argparse.Namespace) -> dict:
             if existing_targets != targets:
                 raise ValueError("Persistent target manifest changed without a contract change")
         else:
-            if args.allow_framework_commit_drift:
-                raise ValueError(
-                    "--allow-framework-commit-drift requires an existing state contract"
-                )
             atomic_write_json(contract_path, contract)
             atomic_write_text(targets_path, targets_tsv(targets))
             for specification in policy["modalities"].values():
@@ -1558,7 +1555,19 @@ def parse_args() -> argparse.Namespace:
     initialize.add_argument("--runtime-value", action="append", default=[])
     initialize.add_argument("--baseline-archive", type=Path)
     initialize.add_argument("--baseline-assembly-report", type=Path)
-    initialize.add_argument("--allow-framework-commit-drift", action="store_true")
+    framework_commit_mode = initialize.add_mutually_exclusive_group()
+    framework_commit_mode.add_argument(
+        "--strict-framework-commit",
+        action="store_true",
+        help="require the current framework commit to equal an existing state contract",
+    )
+    framework_commit_mode.add_argument(
+        "--allow-framework-commit-drift",
+        action="store_false",
+        dest="strict_framework_commit",
+        help=argparse.SUPPRESS,
+    )
+    initialize.set_defaults(strict_framework_commit=False)
 
     merge = subparsers.add_parser("merge")
     add_state_root(merge)

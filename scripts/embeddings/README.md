@@ -353,7 +353,9 @@ state `source_cache`; a killed retry does not force their acquisition again.
    valid array. It does not train or evaluate.
 2. Submit `hpc_cafa3_embedding_retry.sh` once per modality that still has
    missing pairs. Each job builds a PFP view containing only that modality's
-   missing IDs plus 20 accepted controls.
+   missing IDs plus 20 accepted controls. Framework-commit equality is
+   permissive by default during development while every scientific contract
+   field remains strict; add `--strict-framework-commit` for the frozen run.
 3. At least five controls must regenerate and match the accepted arrays within
    `rtol=1e-5`, `atol=1e-6` before retry outputs can be merged. Source-unavailable
    controls are reported separately; numerical differences fail loudly.

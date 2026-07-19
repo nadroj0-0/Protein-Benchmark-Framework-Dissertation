@@ -19,6 +19,7 @@ EMBEDDING_STATE_ROOT=""
 MODALITY=""
 TEXT_CUTOFF_DATE="2016-02-17"
 EMBEDDING_POLICY="$FRAMEWORK_ROOT/configs/cafa3_embedding_resume.json"
+STRICT_FRAMEWORK_COMMIT=0
 
 usage() {
   cat <<'EOF'
@@ -29,7 +30,8 @@ Usage: run_cafa3_embedding_retry.sh \
   --embedding-state-root PATH \
   --modality sequence|text|structure|ppi \
   [--text-cutoff-date YYYY-MM-DD] \
-  [--embedding-policy PATH] [--artifact-catalog PATH]
+  [--embedding-policy PATH] [--artifact-catalog PATH] \
+  [--strict-framework-commit]
 
 Only missing pairs for the selected modality are generated. Twenty accepted
 control proteins are regenerated in the same subset and must be numerically
@@ -58,6 +60,7 @@ while [[ $# -gt 0 ]]; do
     --text-cutoff-date) TEXT_CUTOFF_DATE="$2"; shift 2 ;;
     --embedding-policy) EMBEDDING_POLICY="$2"; shift 2 ;;
     --artifact-catalog) ARTIFACT_CATALOG="$2"; export ARTIFACT_CATALOG; shift 2 ;;
+    --strict-framework-commit) STRICT_FRAMEWORK_COMMIT=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; die "Unknown argument: $1" ;;
   esac
@@ -149,7 +152,8 @@ BASELINE_ARCHIVE="${baseline_paths[0]}"
 BASELINE_ASSEMBLY_REPORT="${baseline_paths[1]}"
 [[ -f "$BASELINE_ARCHIVE" && -f "$BASELINE_ASSEMBLY_REPORT" ]] || \
   die "CAFA3 retry baseline artifacts are missing"
-"$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/manage_resumable_embedding_state.py" \
+initialize_command=(
+  "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/manage_resumable_embedding_state.py"
   initialize \
   --state-root "$EMBEDDING_STATE_ROOT" \
   --benchmark-id cafa3-zijian-canonical \
@@ -174,25 +178,33 @@ BASELINE_ASSEMBLY_REPORT="${baseline_paths[1]}"
   --runtime-value "alphafold_api_workers=${ALPHAFOLD_API_WORKERS:-8}" \
   --runtime-value "alphafold_download_workers=${ALPHAFOLD_DOWNLOAD_WORKERS:-8}" \
   --baseline-archive "$BASELINE_ARCHIVE" \
-  --baseline-assembly-report "$BASELINE_ASSEMBLY_REPORT" \
-  --allow-framework-commit-drift \
+  --baseline-assembly-report "$BASELINE_ASSEMBLY_REPORT"
+)
+if [[ "$STRICT_FRAMEWORK_COMMIT" == "1" ]]; then
+  initialize_command+=(--strict-framework-commit)
+fi
+"${initialize_command[@]}" \
   > "$OUTPUT_DIR/reports/embedding_state_initialization.json"
 "$PYTHON_BIN" - \
   "$EMBEDDING_STATE_ROOT/contract.json" \
   "$framework_commit" \
+  "$STRICT_FRAMEWORK_COMMIT" \
   "$OUTPUT_DIR/reports/retry_framework_provenance.json" <<'PY'
 import json
 import sys
 
-contract_path, retry_commit, report_path = sys.argv[1:]
+contract_path, retry_commit, strict_value, report_path = sys.argv[1:]
 contract = json.load(open(contract_path, encoding="utf-8"))
 initialized_commit = contract["framework_commit"]
+strict = strict_value == "1"
 report = {
     "schema_version": 1,
     "contract_sha256": contract["contract_sha256"],
     "initialized_framework_commit": initialized_commit,
     "retry_framework_commit": retry_commit,
     "framework_commit_drifted": initialized_commit != retry_commit,
+    "framework_commit_policy": "strict" if strict else "permissive",
+    "strict_framework_commit": strict,
     "all_non_framework_contract_fields_matched": True,
 }
 with open(report_path, "w", encoding="utf-8") as handle:

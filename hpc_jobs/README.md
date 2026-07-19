@@ -193,6 +193,10 @@ retry wrapper requests one GPU, recreates canonical inputs in scratch, runs a
 20-protein subset-equivalence control, merges only validated successes, copies
 compact reports to `$HOME/cafa3_embedding_retry_results`, and always removes
 scratch. It does not resubmit itself and does not trigger training.
+During development, retries permit a framework-commit difference only when all
+other scientific contract fields match exactly. Add
+`--strict-framework-commit` for a frozen run that also requires exact framework
+revision equality. Both modes clone and record the exact submitted commit.
 
 After the SAN marker passes, continue the original audit without regenerating
 accepted embeddings:
