@@ -94,9 +94,31 @@ the framework, run a workflow, and copy results home.
 hpc_jobs/
 ├── active/    # Current qsub wrappers used for reproduction jobs
 ├── launchers/ # Reviewed dry-run/pilot/array launchers for guarded workflows
+├── tests/     # Scheduler-free tests for shared submission behavior
+├── qsub_with_notifications.sh # Optional machine-local Grid Engine mail wrapper
 ├── examples/  # Scheduler examples/templates
 └── archive/   # Historical scripts kept for provenance
 ```
+
+## Email Notifications
+
+`qsub_with_notifications.sh` is a transparent `qsub` wrapper. It reads exactly
+one email address from `${GRID_ENGINE_NOTIFY_EMAIL_FILE:-$HOME/.grid_engine_notify_email}`
+and requests every supported Grid Engine mail event: begin, end,
+abort/reschedule, and suspend (`-m beas`). The address file is machine-local and
+must not be committed. If it is absent, unreadable, or malformed, the helper
+prints a warning and submits the original command normally without email.
+
+Use it anywhere that `qsub` would otherwise be used:
+
+```bash
+hpc_jobs/qsub_with_notifications.sh hpc_jobs/active/hpc_reproduce_eval_only.sh
+hpc_jobs/qsub_with_notifications.sh -v PROFILE=supervisor \
+  hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh
+```
+
+The wrapper does not submit anything by itself. It only submits when given the
+same worker script and arguments that would have been passed to `qsub`.
 
 ## Active Jobs
 
