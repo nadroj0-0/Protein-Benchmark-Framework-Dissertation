@@ -215,6 +215,79 @@ class ResumableEmbeddingStateTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("contract mismatch", result.stderr)
 
+    def test_framework_commit_drift_can_be_allowed_without_weakening_contract(self) -> None:
+        self.initialize()
+        contract_path = self.state / "contract.json"
+        original_contract = contract_path.read_bytes()
+        common_arguments = (
+            "initialize",
+            "--state-root",
+            str(self.state),
+            "--benchmark-id",
+            "fixture",
+            "--benchmark-dir",
+            str(self.benchmark),
+            "--data-dir",
+            str(self.data),
+            "--policy",
+            str(self.policy),
+            "--pfp-commit",
+            "1" * 40,
+            "--framework-commit",
+            "3" * 40,
+            "--environment-report",
+            str(self.environment),
+            "--source-file",
+            f"fixture={self.source}",
+            "--runtime-value",
+            "text_cutoff_date=2016-02-17",
+            "--allow-framework-commit-drift",
+        )
+
+        accepted = self.run_state(*common_arguments)
+        self.assertIn("every other contract field matched exactly", accepted.stderr)
+        self.assertEqual(contract_path.read_bytes(), original_contract)
+        self.assertEqual(
+            json.loads(accepted.stdout)["contract_sha256"],
+            json.loads(original_contract)["contract_sha256"],
+        )
+
+        rejected_arguments = list(common_arguments)
+        benchmark_index = rejected_arguments.index("fixture")
+        rejected_arguments[benchmark_index] = "different"
+        rejected = self.run_state(*rejected_arguments, check=False)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("contract mismatch", rejected.stderr)
+
+    def test_framework_commit_drift_flag_requires_existing_state(self) -> None:
+        result = self.run_state(
+            "initialize",
+            "--state-root",
+            str(self.state),
+            "--benchmark-id",
+            "fixture",
+            "--benchmark-dir",
+            str(self.benchmark),
+            "--data-dir",
+            str(self.data),
+            "--policy",
+            str(self.policy),
+            "--pfp-commit",
+            "1" * 40,
+            "--framework-commit",
+            "2" * 40,
+            "--environment-report",
+            str(self.environment),
+            "--source-file",
+            f"fixture={self.source}",
+            "--runtime-value",
+            "text_cutoff_date=2016-02-17",
+            "--allow-framework-commit-drift",
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("requires an existing state contract", result.stderr)
+
     def test_invalid_array_stays_needs_retry(self) -> None:
         self.initialize()
         generated = self.root / "generated"

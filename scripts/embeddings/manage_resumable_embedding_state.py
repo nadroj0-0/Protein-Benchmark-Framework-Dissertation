@@ -18,6 +18,7 @@ import json
 import math
 import os
 import shutil
+import sys
 import tarfile
 import tempfile
 from contextlib import contextmanager
@@ -829,15 +830,30 @@ def command_initialize(args: argparse.Namespace) -> dict:
         if contract_path.exists() or targets_path.exists():
             existing = load_contract(state_root)
             if existing != contract:
-                raise ValueError(
-                    "Persistent embedding state contract mismatch; use a new state root. "
-                    f"existing={existing.get('contract_sha256')} "
-                    f"requested={contract.get('contract_sha256')}"
-                )
+                compatible = dict(contract)
+                compatible["framework_commit"] = existing.get("framework_commit")
+                compatible["contract_sha256"] = existing.get("contract_sha256")
+                if args.allow_framework_commit_drift and compatible == existing:
+                    print(
+                        "WARNING: current framework commit differs from the state "
+                        "initializer; every other contract field matched exactly",
+                        file=sys.stderr,
+                    )
+                    contract = existing
+                else:
+                    raise ValueError(
+                        "Persistent embedding state contract mismatch; use a new state root. "
+                        f"existing={existing.get('contract_sha256')} "
+                        f"requested={contract.get('contract_sha256')}"
+                    )
             existing_targets = load_target_manifest(state_root)
             if existing_targets != targets:
                 raise ValueError("Persistent target manifest changed without a contract change")
         else:
+            if args.allow_framework_commit_drift:
+                raise ValueError(
+                    "--allow-framework-commit-drift requires an existing state contract"
+                )
             atomic_write_json(contract_path, contract)
             atomic_write_text(targets_path, targets_tsv(targets))
             for specification in policy["modalities"].values():
@@ -1542,6 +1558,7 @@ def parse_args() -> argparse.Namespace:
     initialize.add_argument("--runtime-value", action="append", default=[])
     initialize.add_argument("--baseline-archive", type=Path)
     initialize.add_argument("--baseline-assembly-report", type=Path)
+    initialize.add_argument("--allow-framework-commit-drift", action="store_true")
 
     merge = subparsers.add_parser("merge")
     add_state_root(merge)

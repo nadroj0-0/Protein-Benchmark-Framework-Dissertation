@@ -68,6 +68,8 @@ artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 [[ -n "$WORK_DIR" ]] || die "--work-dir is required"
 [[ -n "$OUTPUT_DIR" ]] || die "--output-dir is required"
 [[ -n "$EMBEDDING_STATE_ROOT" ]] || die "--embedding-state-root is required"
+[[ -f "$EMBEDDING_STATE_ROOT/contract.json" ]] || \
+  die "CAFA3 retry requires an initialized embedding state"
 case "$MODALITY" in sequence|text|structure|ppi) ;; *) die "Invalid --modality: $MODALITY" ;; esac
 [[ "$CONTROL_COUNT" =~ ^[1-9][0-9]*$ ]] || die "CONTROL_COUNT must be positive"
 [[ "$EQUIVALENCE_MINIMUM" =~ ^[1-9][0-9]*$ ]] || die "EQUIVALENCE_MINIMUM must be positive"
@@ -125,6 +127,28 @@ validate_mmfp_if1_env "$PYTHON_BIN" "$IF1_NUMPY_OVERLAY" \
 
 pfp_commit="$(git_in_dir "$PFP_ROOT" rev-parse HEAD)"
 framework_commit="$(git_in_dir "$FRAMEWORK_ROOT" rev-parse HEAD)"
+mapfile -t baseline_paths < <(
+  "$PYTHON_BIN" - "$EMBEDDING_STATE_ROOT/contract.json" <<'PY'
+import json
+import sys
+
+contract = json.load(open(sys.argv[1], encoding="utf-8"))
+baseline = contract.get("baseline")
+if not isinstance(baseline, dict):
+    raise SystemExit("CAFA3 retry state contract has no baseline binding")
+for key in ("archive", "assembly_report"):
+    entry = baseline.get(key)
+    if not isinstance(entry, dict) or not entry.get("path"):
+        raise SystemExit(f"CAFA3 retry state baseline lacks {key} path")
+    print(entry["path"])
+PY
+)
+[[ "${#baseline_paths[@]}" == "2" ]] || \
+  die "CAFA3 retry state did not provide both baseline paths"
+BASELINE_ARCHIVE="${baseline_paths[0]}"
+BASELINE_ASSEMBLY_REPORT="${baseline_paths[1]}"
+[[ -f "$BASELINE_ARCHIVE" && -f "$BASELINE_ASSEMBLY_REPORT" ]] || \
+  die "CAFA3 retry baseline artifacts are missing"
 "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/manage_resumable_embedding_state.py" \
   initialize \
   --state-root "$EMBEDDING_STATE_ROOT" \
@@ -149,7 +173,32 @@ framework_commit="$(git_in_dir "$FRAMEWORK_ROOT" rev-parse HEAD)"
   --runtime-value "alphafold_acquisition=framework-bounded" \
   --runtime-value "alphafold_api_workers=${ALPHAFOLD_API_WORKERS:-8}" \
   --runtime-value "alphafold_download_workers=${ALPHAFOLD_DOWNLOAD_WORKERS:-8}" \
+  --baseline-archive "$BASELINE_ARCHIVE" \
+  --baseline-assembly-report "$BASELINE_ASSEMBLY_REPORT" \
+  --allow-framework-commit-drift \
   > "$OUTPUT_DIR/reports/embedding_state_initialization.json"
+"$PYTHON_BIN" - \
+  "$EMBEDDING_STATE_ROOT/contract.json" \
+  "$framework_commit" \
+  "$OUTPUT_DIR/reports/retry_framework_provenance.json" <<'PY'
+import json
+import sys
+
+contract_path, retry_commit, report_path = sys.argv[1:]
+contract = json.load(open(contract_path, encoding="utf-8"))
+initialized_commit = contract["framework_commit"]
+report = {
+    "schema_version": 1,
+    "contract_sha256": contract["contract_sha256"],
+    "initialized_framework_commit": initialized_commit,
+    "retry_framework_commit": retry_commit,
+    "framework_commit_drifted": initialized_commit != retry_commit,
+    "all_non_framework_contract_fields_matched": True,
+}
+with open(report_path, "w", encoding="utf-8") as handle:
+    json.dump(report, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+PY
 
 echo "==> [4/7] Select only missing pairs and accepted equivalence controls"
 "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/manage_resumable_embedding_state.py" \
