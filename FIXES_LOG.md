@@ -432,3 +432,26 @@ therefore made the original persistent-state layout impossible to complete.
 - Keep AlphaFold PDB acquisition intermediates in job-owned scratch.
 
 PFP source and all embedding-generation behavior remain unchanged.
+
+## 2026-07-19 - `[fix]` Bind contemporary execution to its benchmark ontology
+
+### Observed failure
+
+Contemporary finalization hydrated all 545,059 accepted embedding arrays, then
+failed during PFP preparation. The job had been passed the 2026-06-19 endpoint
+ontology even though the benchmark term universe was frozen against the
+2025-02-06 ontology. Five valid benchmark BP terms had become obsolete by the
+later snapshot, so the strict GO/OBO contract correctly rejected them.
+
+### Correctness change
+
+- Use the frozen t0 benchmark ontology for contemporary finalization, training
+  and evaluation; retain the t1 ontology only for endpoint annotation
+  resolution during benchmark construction.
+- Validate and prepare the benchmark before hashing or hydrating embedding
+  state, so an incompatible ontology fails before expensive archive work.
+- Keep the strict obsolete, missing-term and namespace checks unchanged.
+
+No benchmark row, label, embedding, PFP source file or model behavior is
+changed. This correction restores the ontology contract recorded by the
+successful benchmark build.

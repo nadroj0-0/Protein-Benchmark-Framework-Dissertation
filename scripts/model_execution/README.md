@@ -241,14 +241,15 @@ First consolidate the archive-backed retry state after all retry jobs finish:
 qsub hpc_jobs/active/hpc_finalize_contemporary_embedding_state.sh \
   --state-root /SAN/.../embeddings/contemporary/.../retry_state \
   --benchmark-dir /SAN/.../benchmarks/contemporary/... \
-  --obo-file /SAN/.../frozen_inputs/ontology/2026-06-19/go-basic.obo \
+  --obo-file /SAN/.../frozen_inputs/ontology/2025-02-06/go-basic.obo \
   --final-root /SAN/.../embeddings/contemporary/.../finalized_pfp_cache \
   --confirm-retries-finished \
   --retire-source-embeddings
 ```
 
-Then use the completed benchmark, frozen t1 ontology, consolidated archive and
-its self-contained evidence. Paths below are examples, not defaults:
+Then use the completed benchmark, the frozen t0 benchmark ontology that defines
+its term universe, the consolidated archive and its self-contained evidence.
+Paths below are examples, not defaults:
 
 ```bash
 qsub hpc_jobs/active/hpc_pfp_benchmark.sh \
@@ -261,7 +262,7 @@ qsub hpc_jobs/active/hpc_pfp_benchmark.sh \
   --embedding-evidence /SAN/.../finalized_pfp_cache/evidence/targets.tsv \
   --embedding-evidence /SAN/.../finalized_pfp_cache/evidence/pair_status.tsv \
   --require-embedding-evidence \
-  --obo-file /SAN/.../frozen_inputs/ontology/2026-06-19/go-basic.obo \
+  --obo-file /SAN/.../frozen_inputs/ontology/2025-02-06/go-basic.obo \
   --results-root /SAN/bioinf/bmpfp/model_runs/contemporary/full \
   --config "$PWD/configs/pfp_benchmark_run.temporal.json" \
   --execution-mode train-eval \

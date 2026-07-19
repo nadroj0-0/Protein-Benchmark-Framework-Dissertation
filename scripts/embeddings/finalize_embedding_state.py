@@ -346,50 +346,10 @@ def main() -> int:
     published = False
 
     try:
-        upgrade_report = reports / "evidence_hash_upgrade.json"
-        run_logged(
-            "[1/8] Upgrade per-array evidence hashes without changing membership",
-            [
-                sys.executable,
-                str(STATE_MANAGER),
-                "upgrade-evidence-hashes",
-                "--state-root",
-                str(args.state_root),
-                "--report",
-                str(upgrade_report),
-            ],
-            logs / "01_evidence_upgrade.log",
-        )
-        upgrade = load_json(upgrade_report)
-        if upgrade.get("accepted_membership_unchanged") is not True:
-            raise ValueError("Evidence upgrade did not prove accepted membership unchanged")
-        snapshot = source_snapshot(args.state_root)
-
-        hydrated = args.work_dir / "hydrated_cache"
-        hydrate_report = reports / "hydrate.json"
-        run_logged(
-            "[2/8] Hydrate the accepted baseline and retry delta into scratch",
-            [
-                sys.executable,
-                str(STATE_MANAGER),
-                "hydrate",
-                "--state-root",
-                str(args.state_root),
-                "--output-cache-root",
-                str(hydrated),
-                "--report",
-                str(hydrate_report),
-                "--preserve-evidence",
-            ],
-            logs / "02_hydrate.log",
-        )
-        if source_snapshot(args.state_root) != snapshot:
-            raise ValueError("Embedding state changed during hydration")
-
         prepared = args.work_dir / "prepared_data"
         preparation_report = reports / "preparation.json"
         run_logged(
-            "[3/8] Prepare the nine-CSV benchmark through unmodified PFP",
+            "[1/8] Validate and prepare the benchmark with its frozen ontology",
             [
                 sys.executable,
                 str(PREPARER),
@@ -408,8 +368,48 @@ def main() -> int:
                 "--log-dir",
                 str(logs / "preparation"),
             ],
-            logs / "03_prepare.log",
+            logs / "01_prepare.log",
         )
+
+        upgrade_report = reports / "evidence_hash_upgrade.json"
+        run_logged(
+            "[2/8] Upgrade per-array evidence hashes without changing membership",
+            [
+                sys.executable,
+                str(STATE_MANAGER),
+                "upgrade-evidence-hashes",
+                "--state-root",
+                str(args.state_root),
+                "--report",
+                str(upgrade_report),
+            ],
+            logs / "02_evidence_upgrade.log",
+        )
+        upgrade = load_json(upgrade_report)
+        if upgrade.get("accepted_membership_unchanged") is not True:
+            raise ValueError("Evidence upgrade did not prove accepted membership unchanged")
+        snapshot = source_snapshot(args.state_root)
+
+        hydrated = args.work_dir / "hydrated_cache"
+        hydrate_report = reports / "hydrate.json"
+        run_logged(
+            "[3/8] Hydrate the accepted baseline and retry delta into scratch",
+            [
+                sys.executable,
+                str(STATE_MANAGER),
+                "hydrate",
+                "--state-root",
+                str(args.state_root),
+                "--output-cache-root",
+                str(hydrated),
+                "--report",
+                str(hydrate_report),
+                "--preserve-evidence",
+            ],
+            logs / "03_hydrate.log",
+        )
+        if source_snapshot(args.state_root) != snapshot:
+            raise ValueError("Embedding state changed during hydration")
 
         validate_cache(
             "[4/8] Exhaustively validate the hydrated cache and source evidence",

@@ -31,7 +31,10 @@ transactional bridge from the contemporary baseline-plus-delta retry state to
 one final PFP cache archive. It requires explicit confirmation that retry jobs
 are finished and explicit permission to retire source embedding bytes. The old
 baseline and delta cannot be removed until the new SAN archive has passed both
-scratch validation and an extract-and-revalidate round trip from SAN.
+scratch validation and an extract-and-revalidate round trip from SAN. Pass the
+frozen t0 benchmark ontology that defines the CSV term universe, not the later
+t1 endpoint ontology. The benchmark/ontology contract is checked before the
+workflow hashes or hydrates any embedding arrays.
 
 ## SAN frozen-input acquisition
 

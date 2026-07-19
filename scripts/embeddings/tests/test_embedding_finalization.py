@@ -311,6 +311,85 @@ class EmbeddingFinalizationTests(unittest.TestCase):
         self.assertIn("manage_embedding_archive.py", content)
         self.assertIn("--embedding-cache-root", content)
 
+    def test_incompatible_ontology_fails_before_embedding_state_is_touched(self) -> None:
+        benchmark = self.root / "benchmark"
+        benchmark.mkdir()
+        proteins = {
+            "training": ("TRAIN", "AAAA"),
+            "validation": ("VALID", "CCCC"),
+            "test": ("TEST", "GGGG"),
+        }
+        terms = {
+            "bp": ("GO:0000001", "biological_process"),
+            "cc": ("GO:0000002", "cellular_component"),
+            "mf": ("GO:0000003", "molecular_function"),
+        }
+        for prefix, (term, _) in terms.items():
+            for split, (protein_id, sequence) in proteins.items():
+                with (benchmark / f"{prefix}-{split}.csv").open(
+                    "w", encoding="utf-8", newline=""
+                ) as handle:
+                    writer = csv.writer(handle)
+                    writer.writerow(("proteins", "sequences", term))
+                    writer.writerow((protein_id, sequence, "1"))
+
+        incompatible_obo = self.root / "incompatible.obo"
+        incompatible_obo.write_text(
+            "format-version: 1.2\n\n"
+            "[Term]\nid: GO:0000001\nname: obsolete fixture process\n"
+            "namespace: biological_process\nis_obsolete: true\n\n"
+            "[Term]\nid: GO:0000002\nnamespace: cellular_component\n\n"
+            "[Term]\nid: GO:0000003\nnamespace: molecular_function\n",
+            encoding="utf-8",
+        )
+        pfp = self.root / "PFP"
+        (pfp / "scripts").mkdir(parents=True)
+        (pfp / "scripts/prepare_cafa3_data.py").write_text(
+            FAKE_PREPARER, encoding="utf-8"
+        )
+        state = self.root / "retry_state"
+        state.mkdir()
+        sentinel = state / "untouched.txt"
+        sentinel.write_text("original\n", encoding="utf-8")
+
+        work = self.root / "work"
+        report = self.root / "report"
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(FINALIZER),
+                "--state-root",
+                str(state),
+                "--benchmark-dir",
+                str(benchmark),
+                "--obo-file",
+                str(incompatible_obo),
+                "--pfp-root",
+                str(pfp),
+                "--config",
+                str(CONFIG),
+                "--work-dir",
+                str(work),
+                "--final-root",
+                str(self.root / "final"),
+                "--report-dir",
+                str(report),
+                "--confirm-retries-finished",
+                "--retire-source-embeddings",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("BPO GO/OBO contract failed", result.stdout + result.stderr)
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "original\n")
+        self.assertFalse((state / ".state.lock").exists())
+        self.assertFalse((work / "hydrated_cache").exists())
+        self.assertFalse((report / "reports/evidence_hash_upgrade.json").exists())
+        self.assertTrue((report / "FINALIZATION_FAILED.json").is_file())
+
     def test_tiny_end_to_end_finalization_publishes_before_retirement(self) -> None:
         benchmark = self.root / "benchmark"
         benchmark.mkdir()
