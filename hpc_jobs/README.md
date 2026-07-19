@@ -427,14 +427,17 @@ Submit all six identities without a pilot prerequisite with:
 qsub hpc_jobs/active/hpc_homology_cluster_runtime_array.sh
 ```
 
-The array maps tasks `1-6` to `30, 25, 20, 15, 10, 5%` and uses `-tc 2`. Node-local scratch is not
+The array maps tasks `1-6` to `30, 25, 20, 15, 10, 5%` and uses `-tc 6`, so all six independent
+tasks are eligible to run concurrently when Grid Engine can place them. Node-local scratch is not
 shared between array tasks. When the portable artifact catalogue contains
 `homology_common_preprocessing_2026_02`, each task stages that cache and skips the repeated
 pre-MMseqs scans; otherwise every task retains the original raw-input/download fallback.
 The 30% diagnostic pilot requests approximately `300G` scratch in total. UCL Grid Engine accounts
 the consumable `tmem` and `tscratch` requests per SMP slot. The pilot uses four slots at
 `tmem=16G` and `tscratch=75G` per slot (64 GB memory and 300 GB scratch total); each full-array
-task uses two slots at `tmem=32G` and `tscratch=150G` per slot (the same totals).
+task provisionally uses six slots at `tmem=12G` and `tscratch=50G` per slot (72 GB memory and
+300 GB scratch total). Review and revise these provisional production requests against the
+completed pilot's measured resource report before submission.
 The non-consumable `scratch0free=300G` remains a host-free-space threshold. The unsupported parser/MMseqs/publication
 defaults are reduced globally to neutral `1x` bookkeeping; the pilot records rather than enforces
 the resulting estimate. The six-task wrapper uses the same provisional per-task request, but do
