@@ -95,8 +95,9 @@ esac
 RUNTIME_COMPAT="$WORK_DIR/runtime_compat"
 REQUESTED="$WORK_DIR/requested_pairs.tsv"
 CONTROLS="$WORK_DIR/control_pairs.tsv"
+REFERENCE_CONTROLS="$WORK_DIR/reference_controls"
 MODALITY_STATUS="$OUTPUT_DIR/reports/modality_status.tsv"
-mkdir -p "$RUNTIME_COMPAT"
+mkdir -p "$RUNTIME_COMPAT" "$REFERENCE_CONTROLS"
 printf 'phase\tmodality\texit_status\n' > "$MODALITY_STATUS"
 
 echo "==> [1/7] Validate the author-supplied environment"
@@ -237,6 +238,12 @@ fi
   --control-pairs "$CONTROLS" \
   --modality "$MODALITY" \
   --report "$OUTPUT_DIR/reports/retry_workspace.json"
+"$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/manage_resumable_embedding_state.py" \
+  materialize \
+  --state-root "$EMBEDDING_STATE_ROOT" \
+  --pairs "$CONTROLS" \
+  --output-cache-root "$REFERENCE_CONTROLS" \
+  --report "$OUTPUT_DIR/reports/control_materialization.json"
 
 export PPI_EXTRACT_SCRIPT="$RUNTIME_COMPAT/extract_ppi_embeddings.py"
 export IF1_EXTRACT_SCRIPT="$RUNTIME_COMPAT/extract_esm_if1_embeddings.py"
@@ -274,6 +281,7 @@ printf 'retry\t%s\t%s\n' "$MODALITY" "$generation_status" >> "$MODALITY_STATUS"
 echo "==> [6/7] Enforce subset-equivalence before accepting retry outputs"
 "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/verify_embedding_subset_equivalence.py" \
   --state-root "$EMBEDDING_STATE_ROOT" \
+  --reference-cache-root "$REFERENCE_CONTROLS" \
   --generated-cache-root "$PFP_ROOT/data/embedding_cache" \
   --control-pairs "$CONTROLS" \
   --modality "$MODALITY" \
