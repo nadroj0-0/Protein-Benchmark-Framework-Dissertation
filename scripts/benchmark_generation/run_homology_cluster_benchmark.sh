@@ -44,6 +44,8 @@ PERSISTENT_RESULTS_ROOT="${PERSISTENT_RESULTS_ROOT:-}"
 MMSEQS_WORK_MULTIPLIER="${MMSEQS_WORK_MULTIPLIER:-1}"
 PUBLICATION_SAFETY_MULTIPLIER="${PUBLICATION_SAFETY_MULTIPLIER:-1}"
 EXCLUDED_SAMPLE_PER_REASON="${EXCLUDED_SAMPLE_PER_REASON:-1000}"
+HOMOLOGY_CLUSTER_CACHE_ROOT="${HOMOLOGY_CLUSTER_CACHE_ROOT:-}"
+REQUIRE_HOMOLOGY_CLUSTER_CACHE="${REQUIRE_HOMOLOGY_CLUSTER_CACHE:-0}"
 LOG_FILE="${LOG_FILE:-}"
 ACTIVE_CHILD_PID=""
 SIGNAL_STATUS=0
@@ -77,6 +79,31 @@ resolve_common_preprocessing_cache() {
 HOMOLOGY_COMMON_PREPROCESSING_CACHE="$(
     resolve_common_preprocessing_cache "${HOMOLOGY_COMMON_PREPROCESSING_CACHE:-}" || true
 )"
+resolve_cluster_cache_root() {
+    local explicit="${1:-}"
+    local candidate=""
+    if [[ -n "$explicit" ]]; then
+        if [[ -d "$explicit" && -s "$explicit/CLUSTER_CACHE_ROOT.json" ]]; then
+            (cd "$explicit" && pwd -P)
+            return 0
+        fi
+        if [[ -s "$explicit" && "$(basename "$explicit")" == "CLUSTER_CACHE_ROOT.json" ]]; then
+            (cd "$(dirname "$explicit")" && pwd -P)
+            return 0
+        fi
+        artifact_catalog_warn \
+            "explicit homology cluster-cache root is invalid; trying catalogue fallback: $explicit"
+    fi
+    candidate="$(artifact_catalog_lookup homology_mmseqs_cluster_cache_root_2026_02 2>/dev/null || true)"
+    if [[ -s "$candidate" && "$(basename "$candidate")" == "CLUSTER_CACHE_ROOT.json" ]]; then
+        (cd "$(dirname "$candidate")" && pwd -P)
+        return 0
+    fi
+    return 1
+}
+HOMOLOGY_CLUSTER_CACHE_ROOT="$(
+    resolve_cluster_cache_root "$HOMOLOGY_CLUSTER_CACHE_ROOT" || true
+)"
 if [[ -n "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then
     IDMAPPING="${IDMAPPING:-}"
     UNIPROT_SPROT_SEQUENCES="${UNIPROT_SPROT_SEQUENCES:-}"
@@ -90,9 +117,18 @@ else
 fi
 for catalog_input in "$UNIREF90_FASTA" "$IDMAPPING" "$UNIPROT_SPROT_SEQUENCES" \
     "$UNIPROT_TREMBL_SEQUENCES" "$GOA" "$GO_OBO" \
-    "$HOMOLOGY_COMMON_PREPROCESSING_CACHE"; do
+    "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" "$HOMOLOGY_CLUSTER_CACHE_ROOT"; do
     [[ -z "$catalog_input" ]] || add_mmfp_singularity_bind "$(dirname "$catalog_input")"
 done
+
+case "$REQUIRE_HOMOLOGY_CLUSTER_CACHE" in
+    0|1) ;;
+    *) echo "REQUIRE_HOMOLOGY_CLUSTER_CACHE must be 0 or 1" >&2; exit 2 ;;
+esac
+if [[ "$REQUIRE_HOMOLOGY_CLUSTER_CACHE" == "1" && -z "$HOMOLOGY_CLUSTER_CACHE_ROOT" ]]; then
+    echo "A validated HOMOLOGY_CLUSTER_CACHE_ROOT is required but unavailable" >&2
+    exit 2
+fi
 
 forward_signal() {
     local signal_name="$1"
@@ -254,6 +290,12 @@ fi
 if [[ -n "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then
     COMMAND+=(--common-preprocessing-cache "$HOMOLOGY_COMMON_PREPROCESSING_CACHE")
 fi
+if [[ -n "$HOMOLOGY_CLUSTER_CACHE_ROOT" ]]; then
+    COMMAND+=(--cluster-cache-root "$HOMOLOGY_CLUSTER_CACHE_ROOT")
+fi
+if [[ "$REQUIRE_HOMOLOGY_CLUSTER_CACHE" == "1" ]]; then
+    COMMAND+=(--require-cluster-cache)
+fi
 if [[ -n "$ATTRITION_POLICY" ]]; then
     COMMAND+=(--attrition-policy "$ATTRITION_POLICY")
 fi
@@ -298,6 +340,7 @@ COMMAND+=("$@")
 echo "Framework root: $FRAMEWORK_ROOT"
 echo "Output root   : $OUTPUT_ROOT"
 echo "Temporary root: $TEMP_DIR"
+echo "Cluster cache : ${HOMOLOGY_CLUSTER_CACHE_ROOT:-disabled}"
 printf 'Command        : '
 printf '%q ' "${COMMAND[@]}"
 printf '\n'

@@ -743,6 +743,91 @@ class ModelExecutionTests(unittest.TestCase):
         self.assertEqual(result["cafa_wfmax"], 0.5)
         self.assertEqual(result["cafa_smin"], 1.2)
 
+        (mmfp / "evaluation.py").write_text(
+            "from pathlib import Path\n"
+            "import numpy as np\n"
+            "def save_predictions_cafa_format(predictions, protein_ids, go_terms, output_file):\n"
+            "  p=Path(output_file); p.parent.mkdir(parents=True, exist_ok=True); p.write_text('predictions\\n')\n"
+            "def save_ground_truth_cafa_format(labels, protein_ids, go_terms, output_file):\n"
+            "  p=Path(output_file); p.parent.mkdir(parents=True, exist_ok=True); p.write_text('truth\\n')\n"
+            "def save_ia_file(values, output_file):\n"
+            "  Path(output_file).write_text('GO:0000001\\t0.0\\n')\n"
+            "def evaluate_with_cafa(**kwargs):\n"
+            "  labels=np.vstack([batch['labels'].numpy() for batch in kwargs['loader']]); predictions=np.full(labels.shape, 0.5, dtype=np.float32)\n"
+            "  temp=Path(kwargs['output_dir'])/'capture-fixture'; temp.mkdir(parents=True, exist_ok=True)\n"
+            "  save_predictions_cafa_format(predictions, kwargs['protein_ids'], kwargs['go_terms'], temp/'predictions.tsv')\n"
+            "  save_ground_truth_cafa_format(labels, kwargs['protein_ids'], kwargs['go_terms'], temp/'truth.tsv')\n"
+            "  save_ia_file({}, temp/'ia.txt')\n"
+            "  return {'fmax':0.6,'wfmax':0.5,'smin':1.2,'threshold':0.5}\n"
+        )
+        capture_output = self.root / "evaluation-with-capture"
+        artifact_output = self.root / "prediction-artifacts"
+        preparation_sha256 = hashlib.sha256(
+            self.last_preparation_report.read_bytes()
+        ).hexdigest()
+        embedding_report = self.root / "embedding-validation-for-capture.json"
+        embedding_report.write_text(
+            json.dumps(
+                {
+                    "status": "passed",
+                    "mode": "sequence-only",
+                    "preparation_report": {"sha256": preparation_sha256},
+                }
+            )
+            + "\n"
+        )
+        run(
+            [
+                sys.executable,
+                str(MODEL_EXECUTION / "evaluate_pfp_checkpoints.py"),
+                "--pfp-root",
+                str(self.pfp),
+                "--data-dir",
+                str(data),
+                "--cache-root",
+                str(cache),
+                "--obo-file",
+                str(self.obo),
+                "--checkpoint-root",
+                str(checkpoint_root),
+                "--output-dir",
+                str(capture_output),
+                "--config",
+                str(TEMPORAL_CONFIG),
+                "--mode",
+                "sequence-only",
+                "--aspect",
+                "BPO",
+                "--benchmark-id",
+                "fixture",
+                "--framework-commit",
+                "a" * 40,
+                "--pfp-commit",
+                "b" * 40,
+                "--preparation-report",
+                str(self.last_preparation_report),
+                "--embedding-report",
+                str(embedding_report),
+                "--prediction-artifact-dir",
+                str(artifact_output),
+            ]
+        )
+        artifact = json.loads(
+            (artifact_output / "prediction_artifact_manifest.json").read_text()
+        )
+        self.assertEqual(artifact["benchmark_id"], "fixture")
+        self.assertEqual(artifact["schema_version"], 2)
+        self.assertEqual(artifact["provenance"]["framework_commit"], "a" * 40)
+        self.assertEqual(
+            artifact["provenance"]["preparation_report"]["sha256"],
+            preparation_sha256,
+        )
+        self.assertEqual(artifact["selected_aspects"], ["BPO"])
+        self.assertTrue((artifact_output / "BPO_evaluation_arrays.npz").is_file())
+        self.assertTrue((artifact_output / "preparation_report.json").is_file())
+        self.assertTrue((artifact_output / "embedding_validation_report.json").is_file())
+        self.assertTrue((artifact_output / "RUN_COMPLETE.json").is_file())
+
     def test_required_reference_comparison_cannot_pass_without_selected_aspect(self) -> None:
         preparation = self.root / "preparation.json"
         preparation.write_text(

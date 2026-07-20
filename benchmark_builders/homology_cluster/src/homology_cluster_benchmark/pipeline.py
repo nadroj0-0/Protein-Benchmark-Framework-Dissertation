@@ -31,6 +31,14 @@ from .clustering import (
     mapping_counters_by_source,
     retained_cluster_info,
 )
+from .cluster_cache import (
+    CACHE_MARKER as CLUSTER_CACHE_MARKER,
+    cluster_cache_contract,
+    load_cluster_cache,
+    prepare_cluster_cache_destination,
+    publish_cluster_cache,
+    verify_loaded_cluster_cache,
+)
 from .common_cache import (
     CACHE_MARKER,
     COLLISION_REPORT_FILE,
@@ -153,6 +161,8 @@ def _parameters(config: BuildConfig) -> dict[str, object]:
         "ontology_release": config.release_ontology,
         "fixture_mode": config.fixture_mode,
         "precomputed_cluster_assignments": str(config.cluster_assignments.resolve()) if config.cluster_assignments else None,
+        "cluster_cache_enabled": config.cluster_cache_root is not None,
+        "require_cluster_cache": config.require_cluster_cache,
         "scratch_safety_multiplier": config.scratch_safety_multiplier,
         "minimum_free_disk_bytes": config.minimum_free_disk_bytes,
         "mmseqs_work_multiplier": config.mmseqs_work_multiplier,
@@ -531,16 +541,21 @@ def _write_cluster_manifests(
     assignments: dict,
     decisions: list[MappingDecision],
     giant_threshold: int,
+    canonical_membership: Path | None = None,
 ) -> tuple[int, int]:
     retained_ids = set(retained)
     annotated_uniref = {
         item.uniref90_id for item in decisions
         if item.mmseqs_cluster_id in retained_ids and item.uniref90_id
     }
-    _tsv(stage / "mmseqs_cluster_membership.tsv.gz", ["mmseqs_cluster_id", "uniref90_id"], (
-        {"mmseqs_cluster_id": cluster, "uniref90_id": member}
-        for cluster, member in cluster_index.iter_assignments()
-    ))
+    membership_output = stage / "mmseqs_cluster_membership.tsv.gz"
+    if canonical_membership is None:
+        _tsv(membership_output, ["mmseqs_cluster_id", "uniref90_id"], (
+            {"mmseqs_cluster_id": cluster, "uniref90_id": member}
+            for cluster, member in cluster_index.iter_assignments()
+        ))
+    else:
+        shutil.copyfile(canonical_membership, membership_output)
     _tsv(stage / "cluster_split_assignments.tsv", [
         "mmseqs_cluster_id", "split", "uniref90_member_count",
         "qualifying_uniprot_count", "assignment_stage",
@@ -1511,6 +1526,8 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
         eligibility = bind_frozen_inputs(frozen_manifest, _input_specs(config), inputs)
         disk_preflight = _disk_preflight(config, work, inputs)
         loaded_common_cache = None
+        loaded_cluster_cache = None
+        cluster_cache_action = "disabled"
         LOGGER.info(
             "Stage completed: resolve and hash frozen inputs elapsed_seconds=%.1f",
             time.monotonic() - stage_started,
@@ -1617,6 +1634,26 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
             )
             write_command_manifest(stage / "mmseqs_commands.tsv", commands)
             write_command_manifest(work / "logs" / "mmseqs_commands.tsv", commands)
+            cache_contract = None
+            if config.cluster_cache_root is not None:
+                cache_contract = cluster_cache_contract(
+                    runtime_config,
+                    mmseqs_runtime,
+                    inputs["uniref90_fasta"].sha256,
+                )
+                expected_cache = prepare_cluster_cache_destination(
+                    config.cluster_cache_root, cache_contract
+                )
+                if expected_cache.exists():
+                    loaded_cluster_cache = load_cluster_cache(
+                        config.cluster_cache_root, cache_contract
+                    )
+                    cluster_cache_action = "reused"
+                elif config.require_cluster_cache:
+                    raise ValueError(
+                        "Required validated cluster cache is absent: "
+                        f"{expected_cache}"
+                    )
             if config.cluster_assignments:
                 source_clusters = config.cluster_assignments.expanduser().resolve()
                 if not source_clusters.is_file():
@@ -1633,6 +1670,24 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                         config.expected_mmseqs_version
                     ),
                 })
+            elif loaded_cluster_cache is not None:
+                source_clusters = loaded_cluster_cache.assignments
+                cache_log_dir = stage / "logs" / "mmseqs"
+                cache_log_dir.mkdir(parents=True)
+                _json(cache_log_dir / "CACHE_REUSED.json", {
+                    "mmseqs_execution": "not executed by this run",
+                    "cache_directory": str(loaded_cluster_cache.root),
+                    "cache_marker_sha256": loaded_cluster_cache.marker_sha256,
+                    "assignment_sha256": loaded_cluster_cache.payload[
+                        "assignment_sha256"
+                    ],
+                    "contract_sha256": loaded_cluster_cache.payload[
+                        "contract_sha256"
+                    ],
+                    "runtime_mmseqs_probe": mmseqs_runtime.as_dict(
+                        config.expected_mmseqs_version
+                    ),
+                })
             else:
                 if mmseqs_runtime.resolved_executable is None:
                     raise FileNotFoundError(
@@ -1643,8 +1698,38 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 shutil.copytree(work / "logs" / "mmseqs", stage / "logs" / "mmseqs")
                 source_clusters = mmseqs_work / "uniref90_clusters.tsv"
             cluster_index = ClusterIndex.build(
-                source_clusters, uniref, work / "clusters.sqlite"
+                source_clusters,
+                uniref,
+                work / "clusters.sqlite",
+                has_header=loaded_cluster_cache is not None,
             )
+            if (
+                config.cluster_cache_root is not None
+                and loaded_cluster_cache is None
+                and cache_contract is not None
+            ):
+                loaded_cluster_cache = publish_cluster_cache(
+                    config.cluster_cache_root,
+                    cache_contract,
+                    cluster_index,
+                    stage / "mmseqs_commands.tsv",
+                    producer={
+                        "framework_revision": config.framework_revision,
+                        "repository_commit": repository_commit,
+                        "run_id": config.run_id,
+                        "benchmark_scope": config.benchmark_scope,
+                        "threads": config.threads,
+                        "requested_slots": config.requested_slots,
+                        "allocated_slots": config.allocated_slots,
+                    },
+                    log_dir=work / "logs" / "mmseqs",
+                )
+                cluster_cache_action = "built"
+            if loaded_cluster_cache is not None:
+                shutil.copyfile(
+                    loaded_cluster_cache.root / CLUSTER_CACHE_MARKER,
+                    stage / "cluster_cache_manifest.json",
+                )
             LOGGER.info(
                 "Stage completed: MMseqs2 execution or fixture assignment validation "
                 "clusters=%d members=%d elapsed_seconds=%.1f",
@@ -1709,6 +1794,10 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
             retained_members, retained_unannotated = _write_cluster_manifests(
                 stage, cluster_index, uniref, retained, assignments, decisions,
                 config.giant_cluster_threshold,
+                (
+                    loaded_cluster_cache.assignments
+                    if loaded_cluster_cache is not None else None
+                ),
             )
             _write_annotation_manifests(stage, goa, decisions)
             _write_evidence_summary(stage, goa)
@@ -1769,6 +1858,30 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                         "threshold_specific_data_cached": False,
                     }
                     if loaded_common_cache is not None else {"used": False}
+                ),
+                "cluster_cache": (
+                    {
+                        "used": True,
+                        "action": cluster_cache_action,
+                        "published_manifest": "cluster_cache_manifest.json",
+                        "marker_sha256": loaded_cluster_cache.marker_sha256,
+                        "contract_sha256": loaded_cluster_cache.payload[
+                            "contract_sha256"
+                        ],
+                        "assignment_sha256": loaded_cluster_cache.payload[
+                            "assignment_sha256"
+                        ],
+                        "cached_stage": "MMseqs2 cluster through createtsv",
+                        "excluded_downstream_policy": [
+                            "GOA retention",
+                            "split policy",
+                            "seed",
+                            "training population",
+                            "term universe",
+                            "PFP exports",
+                        ],
+                    }
+                    if loaded_cluster_cache is not None else {"used": False}
                 ),
                 "selected_uniprot_population": {
                     "scope": config.uniprot_source_scope,
@@ -2017,6 +2130,8 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                     raise ValueError(
                         "Common preprocessing cache contract changed while the run was in progress"
                     )
+            if loaded_cluster_cache is not None:
+                verify_loaded_cluster_cache(loaded_cluster_cache)
             verify_frozen_manifest_unchanged(frozen_manifest)
             if sha256_file(policy_source) != attrition_policy_sha256:
                 raise ValueError("Attrition policy changed while the run was in progress")

@@ -77,6 +77,8 @@ class BuildConfig:
     mmseqs_bin: str = "mmseqs"
     expected_mmseqs_version: str | None = None
     cluster_assignments: Path | None = None
+    cluster_cache_root: Path | None = None
+    require_cluster_cache: bool = False
     common_preprocessing_cache: Path | None = None
     frozen_input_manifest: Path | None = None
     attrition_policy: Path | None = None
@@ -191,6 +193,12 @@ class BuildConfig:
                 "Precomputed --cluster-assignments are fixture-only because their generating "
                 "MMseqs2 identity, coverage, command, and version cannot be proven by this run"
             )
+        if self.cluster_assignments is not None and self.cluster_cache_root is not None:
+            raise ValueError(
+                "Fixture --cluster-assignments cannot be combined with a production cluster cache"
+            )
+        if self.require_cluster_cache and self.cluster_cache_root is None:
+            raise ValueError("--require-cluster-cache requires --cluster-cache-root")
         if self.common_preprocessing_cache is not None:
             cache = self.common_preprocessing_cache.expanduser()
             if not cache.exists():

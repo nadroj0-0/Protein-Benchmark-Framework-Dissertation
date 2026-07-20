@@ -18,8 +18,10 @@ from common import (
     ASPECTS,
     PFP_SPLITS,
     atomic_write_json,
+    file_snapshot,
     load_run_config,
     modality_paths,
+    require_unchanged,
     selected_aspects,
     sha256_file,
 )
@@ -266,7 +268,10 @@ def main() -> int:
         }
 
     failures: list[str] = []
-    preparation = json.loads(args.preparation_report.read_text(encoding="utf-8"))
+    preparation_path = args.preparation_report.resolve()
+    preparation_snapshot = file_snapshot(preparation_path)
+    preparation = json.loads(preparation_path.read_text(encoding="utf-8"))
+    require_unchanged(preparation_path, preparation_snapshot, "Preparation report")
     if preparation.get("status") != "passed":
         failures.append("Preparation report does not declare status=passed")
     evidence = []
@@ -473,6 +478,10 @@ def main() -> int:
         "provenance_evidence_supplied": bool(evidence),
         "provenance_evidence_bound": evidence_bound,
         "information_accretion": ia_inputs,
+        "preparation_report": {
+            **preparation_snapshot,
+            "benchmark_fingerprint": preparation.get("benchmark_fingerprint"),
+        },
         "policy": {
             "sequence": "100% valid sequence coverage is mandatory",
             "non_sequence_full_mode": (

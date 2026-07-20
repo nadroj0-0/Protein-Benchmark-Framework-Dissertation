@@ -26,7 +26,7 @@ Usage: qsub hpc_jobs/active/hpc_pfp_benchmark.sh \
   [--checkpoint-root DIR] [--config FILE] \
   [--modality-mode full|sequence-only] [--cache-staging copy|direct] \
   [--aspect BPO|CCO|MFO] [--seed N] [--num-workers N] \
-  [--ia-file-dir DIR] [--expected-metrics FILE] \
+  [--ia-file-dir DIR] [--capture-predictions] [--expected-metrics FILE] \
   [--reference-data-dir DIR] [--reference-source-archive FILE] \
   [--benchmark-evidence FILE] \
   [--embedding-evidence FILE] [--require-embedding-evidence] \
@@ -62,6 +62,7 @@ CACHE_STAGING="copy"
 SEED=42
 NUM_WORKERS=0
 IA_FILE_DIR=""
+CAPTURE_PREDICTIONS=0
 EXPECTED_METRICS=""
 REFERENCE_DATA_DIR=""
 REFERENCE_SOURCE_ARCHIVE=""
@@ -92,6 +93,7 @@ while [[ $# -gt 0 ]]; do
     --seed) require_value "$@"; SEED="$2"; shift 2 ;;
     --num-workers) require_value "$@"; NUM_WORKERS="$2"; shift 2 ;;
     --ia-file-dir) require_value "$@"; IA_FILE_DIR="$2"; shift 2 ;;
+    --capture-predictions) CAPTURE_PREDICTIONS=1; shift ;;
     --expected-metrics) require_value "$@"; EXPECTED_METRICS="$2"; shift 2 ;;
     --reference-data-dir) require_value "$@"; REFERENCE_DATA_DIR="$2"; shift 2 ;;
     --reference-source-archive) require_value "$@"; REFERENCE_SOURCE_ARCHIVE="$2"; shift 2 ;;
@@ -513,6 +515,7 @@ if [[ "$EMBEDDING_EVIDENCE_COUNT" -gt 0 ]]; then
 fi
 if [[ "$REQUIRE_EMBEDDING_EVIDENCE" == "1" ]]; then COMMAND+=(--require-embedding-evidence); fi
 if [[ -n "${EFFECTIVE_IA:-}" ]]; then COMMAND+=(--ia-file-dir "$EFFECTIVE_IA"); fi
+if [[ "$CAPTURE_PREDICTIONS" == "1" ]]; then COMMAND+=(--capture-predictions); fi
 if [[ -n "${EFFECTIVE_EXPECTED:-}" ]]; then COMMAND+=(--expected-metrics "$EFFECTIVE_EXPECTED"); fi
 if [[ -n "$REFERENCE_TOLERANCE" ]]; then COMMAND+=(--reference-tolerance "$REFERENCE_TOLERANCE"); fi
 if [[ "$REQUIRE_REFERENCE_MATCH" == "1" ]]; then COMMAND+=(--require-reference-match); fi

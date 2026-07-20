@@ -27,3 +27,95 @@ The report separates:
 
 Local-only files are evidence of local development, not automatic evidence
 that those files should have been included in the published repository.
+
+## Benchmark-agnostic label-space audit
+
+`audit_pfp_label_space.py` audits any benchmark implementing the exact PFP
+nine-CSV contract. It is not CAFA3-specific: use the same command for the
+contemporary benchmark, each homology threshold, and future benchmark builds.
+It validates the CSVs against the supplied ontology, including ancestor closure
+and root connectivity, reports root-only targets, annotation depth, term support
+and label concentration, and can independently verify one or more prepared PFP
+data directories against the source CSVs. Both Unicode and the object-dtype name
+arrays emitted by upstream PFP are accepted, but every loaded name must be a
+plain string.
+
+```bash
+python scripts/diagnostics/audit_pfp_label_space.py \
+  --benchmark-id contemporary-2025-2026 \
+  --benchmark-dir /absolute/path/to/nine-csvs \
+  --obo-file /absolute/path/to/go.obo \
+  --config configs/pfp_benchmark_run.temporal.json \
+  --prepared-data framework=/absolute/path/to/prepared_data \
+  --output-dir /absolute/path/to/new/label-audit
+```
+
+For CAFA3, pass the direct published nine CSVs and the directly extracted
+author-prepared data as separate evidence. The legacy singular `protein`
+header is accepted only through the CAFA3 config and is recorded as an alias;
+the source CSV is never edited. High root-only prevalence is a reported
+finding, not a hard failure threshold.
+
+Compare any number of completed audits without assuming matching protein or
+term universes:
+
+```bash
+python scripts/diagnostics/compare_pfp_label_audits.py \
+  --report /path/to/cafa3/label_space_audit.json \
+  --report /path/to/contemporary/label_space_audit.json \
+  --report /path/to/homology-30/label_space_audit.json \
+  --output-dir /absolute/path/to/new/label-audit-comparison
+```
+
+Every audit is staged and published only after validation. Its manifests bind
+the exact CSV, OBO, policy, optional IA files and optional prepared-data
+evidence. Input files are hashed before parsing and checked again afterward.
+
+## Root-only evaluation sensitivity
+
+Prediction sensitivity is deliberately separate from canonical PFP results.
+First opt in while evaluating a checkpoint by adding `--capture-predictions`
+to `run_pfp_benchmark.sh` or `hpc_pfp_benchmark.sh`. This observes the arrays
+already produced by PFP's normal CAFA evaluation; it does not rerun inference.
+The completed run publishes compressed prediction/truth arrays, protein and GO
+term order, checkpoint hashes, the exact IA files, both code revisions, and
+copies of the preparation and embedding-validation reports under
+`evaluation/prediction_artifacts/`.
+
+Then run the standalone analysis:
+
+```bash
+python scripts/diagnostics/evaluate_pfp_label_sensitivity.py \
+  --prediction-manifest /path/to/prediction_artifacts/prediction_artifact_manifest.json \
+  --obo-file /absolute/path/to/the-same-go.obo \
+  --output-dir /absolute/path/to/new/root-exclusion-sensitivity
+```
+
+The analysis first reproduces the canonical strict cafaeval result from the
+captured artifact and fails if it drifts. It then reports:
+
+- strict CAFA metrics after excluding targets with no positive non-root term;
+- both a re-optimized Fmax and a result fixed at the canonical threshold;
+- a strict-cafaeval root-only prediction baseline; and
+- a clearly labelled flat non-root diagnostic with no GO propagation.
+
+It never retrains a model or overwrites canonical output. Captured benchmark
+rows, cafaeval-evaluable targets and all-zero rows are reported separately.
+The original-threshold cohort result avoids retuning after changing the test
+cohort. When modes are compared, each mode's original threshold is shown
+explicitly; this is not described as a shared-threshold comparison.
+
+After running both full and sequence-only modes, compare their gains with:
+
+```bash
+python scripts/diagnostics/compare_pfp_label_sensitivity.py \
+  --report /path/to/full/root_exclusion_sensitivity.json \
+  --report /path/to/sequence-only/root_exclusion_sensitivity.json \
+  --output-dir /absolute/path/to/new/sensitivity-comparison
+```
+
+The comparator calculates full-minus-sequence deltas only when the benchmark
+fingerprint, source CSVs, seed, config, OBO, PFP revision, protein order, truth,
+GO-term order and IA bytes match. Non-evaluable aspects remain visible with an
+explicit status. It does not treat Fmax values from different benchmark label
+spaces as directly comparable model rankings.

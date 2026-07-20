@@ -45,6 +45,25 @@ class CLITests(unittest.TestCase):
                 main(["build", "--identity", "40", "--output-dir", str(Path(tmp) / "out"), "--dry-run"])
             self.assertEqual(caught.exception.code, 2)
 
+    def test_dry_run_reports_cluster_cache_policy(self):
+        with tempfile.TemporaryDirectory() as tmp, redirect_stdout(io.StringIO()) as output:
+            root = Path(tmp)
+            status = main([
+                "build", "--identity", "30", "--output-dir", str(root / "out"),
+                "--uniref90-fasta-url", "https://example.invalid/uniref90.fasta.gz",
+                "--idmapping-url", "https://example.invalid/idmapping.gz",
+                "--uniprot-source-scope", "sprot-only",
+                "--uniprot-sprot-sequences-url", "https://example.invalid/uniprot.dat.gz",
+                "--goa-url", "https://example.invalid/goa.gaf.gz",
+                "--go-obo-url", "https://example.invalid/go.obo",
+                "--cluster-cache-root", str(root / "cluster-cache"),
+                "--require-cluster-cache", "--fixture-mode", "--dry-run",
+            ])
+            self.assertEqual(status, 0)
+            text = output.getvalue()
+            self.assertIn(str(root / "cluster-cache"), text)
+            self.assertIn('"require_cluster_cache": true', text)
+
     def test_cli_rejects_all_members_before_input_resolution(self):
         with tempfile.TemporaryDirectory() as tmp, redirect_stderr(io.StringIO()) as errors:
             with self.assertRaises(SystemExit) as caught:

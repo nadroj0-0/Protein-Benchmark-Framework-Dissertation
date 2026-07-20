@@ -356,6 +356,15 @@ class SanAcquisitionTest(unittest.TestCase):
         self.assertIn("--replace-existing", script)
         self.assertIn("process_homology_derived_inputs", script)
         self.assertIn("$HOMOLOGY_CACHE_RELATIVE/$CACHE_MARKER", script)
+        self.assertIn(
+            'HOMOLOGY_CLUSTER_CACHE_ROOT_ROLE="homology_mmseqs_cluster_cache_root_2026_02"',
+            script,
+        )
+        self.assertIn("process_homology_cluster_cache_root()", script)
+        self.assertIn("homology_cluster_benchmark.cluster_cache", script)
+        self.assertIn("init-root --cache-root", script)
+        self.assertIn("verify-root --cache-root", script)
+        self.assertIn("process_homology_cluster_cache_root", script)
 
 
 if __name__ == "__main__":

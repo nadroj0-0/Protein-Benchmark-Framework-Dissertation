@@ -17,7 +17,7 @@ Usage:
     --execution-mode prepare-only|eval-only|train-eval \
     [--embedding-cache-root DIR] [--checkpoint-root DIR] \
     [--modality-mode full|sequence-only] [--aspect BPO|CCO|MFO] \
-    [--seed N] [--num-workers N] [--ia-file-dir DIR] \
+    [--seed N] [--num-workers N] [--ia-file-dir DIR] [--capture-predictions] \
     [--reference-data-dir DIR] [--reference-source-archive FILE] \
     [--expected-metrics FILE] \
     [--benchmark-evidence FILE] \
@@ -49,6 +49,7 @@ MODALITY_MODE="full"
 SEED=42
 NUM_WORKERS=0
 IA_FILE_DIR=""
+CAPTURE_PREDICTIONS=0
 REFERENCE_DATA_DIR=""
 REFERENCE_SOURCE_ARCHIVE=""
 EXPECTED_METRICS=""
@@ -82,6 +83,7 @@ while [[ $# -gt 0 ]]; do
     --seed) require_value "$@"; SEED="$2"; shift 2 ;;
     --num-workers) require_value "$@"; NUM_WORKERS="$2"; shift 2 ;;
     --ia-file-dir) require_value "$@"; IA_FILE_DIR="$2"; shift 2 ;;
+    --capture-predictions) CAPTURE_PREDICTIONS=1; shift ;;
     --reference-data-dir) require_value "$@"; REFERENCE_DATA_DIR="$2"; shift 2 ;;
     --reference-source-archive) require_value "$@"; REFERENCE_SOURCE_ARCHIVE="$2"; shift 2 ;;
     --expected-metrics) require_value "$@"; EXPECTED_METRICS="$2"; shift 2 ;;
@@ -108,6 +110,9 @@ done
 [[ -n "$EXECUTION_MODE" ]] || die "--execution-mode is required"
 [[ "$EXECUTION_MODE" =~ ^(prepare-only|eval-only|train-eval)$ ]] || die "Invalid --execution-mode"
 [[ "$MODALITY_MODE" =~ ^(full|sequence-only)$ ]] || die "Invalid --modality-mode"
+if [[ "$CAPTURE_PREDICTIONS" == "1" && "$EXECUTION_MODE" == "prepare-only" ]]; then
+  die "--capture-predictions requires eval-only or train-eval"
+fi
 if [[ "$ALLOW_DIRTY_FRAMEWORK" == "1" ]] && \
    [[ "$EXECUTION_MODE" != "prepare-only" || "$ALLOW_UNVERSIONED_PFP" != "1" ]]; then
   die "--allow-dirty-framework is restricted to prepare-only unversioned test fixtures"
@@ -201,6 +206,14 @@ if [[ "$REQUIRE_REFERENCE_MATCH" == "1" ]]; then
     die "Reference metrics cannot be checked in prepare-only mode"
 fi
 
+FRAMEWORK_COMMIT="${OBSERVED_FRAMEWORK_COMMIT:-unknown}"
+if [[ "$FRAMEWORK_COMMIT" != "unknown" && \
+      -z "${FRAMEWORK_HOST_GIT_VERIFIED_COMMIT:-}" ]] && \
+   [[ -n "$(git -C "$FRAMEWORK_ROOT" status --porcelain 2>/dev/null)" ]]; then
+  FRAMEWORK_COMMIT="${FRAMEWORK_COMMIT}-dirty"
+fi
+PFP_COMMIT="${OBSERVED_PFP_COMMIT:-unversioned-fixture}"
+
 mkdir -p "$WORK_DIR" "$WORK_DIR/logs" "$WORK_DIR/reports"
 DATA_DIR="$WORK_DIR/data"
 MODEL_OUTPUT="$WORK_DIR/model_output"
@@ -291,11 +304,19 @@ if [[ "$EXECUTION_MODE" != "prepare-only" ]]; then
       --output-dir "$EVALUATION_OUTPUT"
       --config "$CONFIG"
       --mode "$MODALITY_MODE"
+      --benchmark-id "$BENCHMARK_ID"
+      --framework-commit "$FRAMEWORK_COMMIT"
+      --pfp-commit "$PFP_COMMIT"
+      --preparation-report "$WORK_DIR/reports/preparation.json"
+      --embedding-report "$WORK_DIR/reports/embedding_cache.json"
       --num-workers "$NUM_WORKERS"
       --seed "$SEED"
       "${ASPECT_ARGS[@]}"
     )
     if [[ -n "$IA_FILE_DIR" ]]; then EVAL_COMMAND+=(--ia-file-dir "$IA_FILE_DIR"); fi
+    if [[ "$CAPTURE_PREDICTIONS" == "1" ]]; then
+      EVAL_COMMAND+=(--prediction-artifact-dir "$EVALUATION_OUTPUT/prediction_artifacts")
+    fi
     "${EVAL_COMMAND[@]}" >"$WORK_DIR/logs/evaluation.log" 2>&1
   else
     echo "==> Train and evaluate fresh PFP models"
@@ -340,11 +361,19 @@ if [[ "$EXECUTION_MODE" != "prepare-only" ]]; then
       --output-dir "$EVALUATION_OUTPUT"
       --config "$CONFIG"
       --mode "$MODALITY_MODE"
+      --benchmark-id "$BENCHMARK_ID"
+      --framework-commit "$FRAMEWORK_COMMIT"
+      --pfp-commit "$PFP_COMMIT"
+      --preparation-report "$WORK_DIR/reports/preparation.json"
+      --embedding-report "$WORK_DIR/reports/embedding_cache.json"
       --num-workers "$NUM_WORKERS"
       --seed "$SEED"
       "${ASPECT_ARGS[@]}"
     )
     if [[ -n "$IA_FILE_DIR" ]]; then EVAL_COMMAND+=(--ia-file-dir "$IA_FILE_DIR"); fi
+    if [[ "$CAPTURE_PREDICTIONS" == "1" ]]; then
+      EVAL_COMMAND+=(--prediction-artifact-dir "$EVALUATION_OUTPUT/prediction_artifacts")
+    fi
     "${EVAL_COMMAND[@]}" >"$WORK_DIR/logs/strict_post_training_evaluation.log" 2>&1
   fi
 
@@ -371,13 +400,6 @@ for modality, summary in before["modalities"].items():
 PY
 fi
 
-FRAMEWORK_COMMIT="${OBSERVED_FRAMEWORK_COMMIT:-unknown}"
-if [[ "$FRAMEWORK_COMMIT" != "unknown" && \
-      -z "${FRAMEWORK_HOST_GIT_VERIFIED_COMMIT:-}" ]] && \
-   [[ -n "$(git -C "$FRAMEWORK_ROOT" status --porcelain 2>/dev/null)" ]]; then
-  FRAMEWORK_COMMIT="${FRAMEWORK_COMMIT}-dirty"
-fi
-PFP_COMMIT="${OBSERVED_PFP_COMMIT:-unversioned-fixture}"
 SUMMARY_COMMAND=(
   "$PYTHON_BIN" "$HERE/summarize_pfp_benchmark_run.py"
   --benchmark-id "$BENCHMARK_ID"

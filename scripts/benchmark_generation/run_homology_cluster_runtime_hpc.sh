@@ -460,6 +460,47 @@ else
         "$PINNED_GOA_SHA256"
 fi
 
+resolve_runtime_cluster_cache_root() {
+    local explicit="${1:-}"
+    local marker=""
+    if [[ -n "$explicit" ]]; then
+        if [[ -d "$explicit" && -s "$explicit/CLUSTER_CACHE_ROOT.json" ]]; then
+            printf '%s\n' "$explicit"
+            return 0
+        fi
+        if [[ -s "$explicit" && "$(basename "$explicit")" == "CLUSTER_CACHE_ROOT.json" ]]; then
+            dirname "$explicit"
+            return 0
+        fi
+        artifact_catalog_warn \
+            "explicit homology cluster-cache root is invalid; trying catalogue fallback: $explicit"
+    fi
+    marker="$(resolve_artifact_path homology_mmseqs_cluster_cache_root_2026_02 "" || true)"
+    if [[ -s "$marker" && "$(basename "$marker")" == "CLUSTER_CACHE_ROOT.json" ]]; then
+        dirname "$marker"
+        return 0
+    fi
+    return 1
+}
+HOMOLOGY_CLUSTER_CACHE_ROOT="$(
+    resolve_runtime_cluster_cache_root "${HOMOLOGY_CLUSTER_CACHE_ROOT:-}" || true
+)"
+REQUIRE_HOMOLOGY_CLUSTER_CACHE="${REQUIRE_HOMOLOGY_CLUSTER_CACHE:-0}"
+case "$REQUIRE_HOMOLOGY_CLUSTER_CACHE" in
+    0|1) ;;
+    *) echo "REQUIRE_HOMOLOGY_CLUSTER_CACHE must be 0 or 1" >&2; exit 2 ;;
+esac
+if [[ "$REQUIRE_HOMOLOGY_CLUSTER_CACHE" == "1" && -z "$HOMOLOGY_CLUSTER_CACHE_ROOT" ]]; then
+    echo "A validated homology cluster-cache root is required but unavailable" >&2
+    exit 1
+fi
+if [[ -n "$HOMOLOGY_CLUSTER_CACHE_ROOT" ]]; then
+    HOMOLOGY_CLUSTER_CACHE_ROOT="$(cd "$HOMOLOGY_CLUSTER_CACHE_ROOT" && pwd -P)"
+    echo "Using persistent homology cluster cache: $HOMOLOGY_CLUSTER_CACHE_ROOT"
+else
+    echo "No persistent homology cluster cache is configured; clustering output will not be reusable"
+fi
+
 download_file() {
     local url="$1"
     local destination="$2"
@@ -727,6 +768,12 @@ builder_environment=(
     GO_OBO_SHA256="$(input_sha go_obo)"
     LOG_FILE="$ARTIFACTS/logs/builder.log"
 )
+if [[ -n "$HOMOLOGY_CLUSTER_CACHE_ROOT" ]]; then
+    builder_environment+=(
+        HOMOLOGY_CLUSTER_CACHE_ROOT="$HOMOLOGY_CLUSTER_CACHE_ROOT"
+        REQUIRE_HOMOLOGY_CLUSTER_CACHE="$REQUIRE_HOMOLOGY_CLUSTER_CACHE"
+    )
+fi
 if [[ -n "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then
     builder_environment+=(
         HOMOLOGY_COMMON_PREPROCESSING_CACHE="$STAGED_COMMON_CACHE"
@@ -800,6 +847,7 @@ uniprot_source_scope=$UNIPROT_SOURCE_SCOPE
 framework_revision=$FRAMEWORK_REVISION
 pilot_required_for_array=false
 publication_directory=$RUN_DIR
+cluster_cache_root=${HOMOLOGY_CLUSTER_CACHE_ROOT:-disabled}
 EOF
 
 echo "Homology runtime task completed and passed automatic review"

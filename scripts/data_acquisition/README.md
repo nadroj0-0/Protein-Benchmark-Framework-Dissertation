@@ -63,6 +63,21 @@ marker binds every file to all six frozen input hashes, the source scope,
 evidence/ontology policy, and the preprocessing implementation hashes. It never
 contains MMseqs clusters, splits, term universes, CSVs, or pickles.
 
+The same profile also initializes a separate persistent root for validated,
+threshold-specific MMseqs2 memberships:
+
+```text
+derived_inputs/homology/2026_02/mmseqs_cluster_cache/CLUSTER_CACHE_ROOT.json
+```
+
+The root marker is catalogued as
+`homology_mmseqs_cluster_cache_root_2026_02`. It is initially tiny; completed
+30%, 25%, 20%, 15%, 10%, and 5% children are published there atomically by the
+benchmark tasks themselves. The cache is not copied into each task's scratch
+space. It binds UniRef90, the exact MMseqs2 binary/version, and the complete
+clustering contract, while deliberately excluding annotation, split, and
+training-population policy.
+
 Inspect the plan before starting the large transfer:
 
 ```bash

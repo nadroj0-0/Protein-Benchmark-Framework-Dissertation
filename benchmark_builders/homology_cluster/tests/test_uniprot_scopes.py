@@ -252,6 +252,9 @@ class UniProtScopeTests(unittest.TestCase):
             self.assertEqual(
                 catalog.source_counts["sprot"]["ambiguous_secondary_aliases"], 1
             )
+            self.assertEqual(
+                int.from_bytes(report.read_bytes()[4:8], "little"), 0
+            )
             with gzip.open(report, "rt", encoding="utf-8", newline="") as handle:
                 rows = list(csv.DictReader(handle, delimiter="\t"))
             self.assertEqual(len(rows), 1)

@@ -55,6 +55,89 @@ mmseqs createtsv WORK/uniref90_db WORK/uniref90_db \
 `-s 7.5` is prefilter sensitivity, not one of the six array values. See
 [METHODOLOGY.md](METHODOLOGY.md) for parameter semantics and source references.
 
+### Identity selection
+
+The Python CLI can build one locked threshold, any explicit subset, or all six:
+
+```bash
+# One threshold.
+python3 -m homology_cluster_benchmark build --identity 20 ...
+
+# A chosen subset in one invocation.
+python3 -m homology_cluster_benchmark build --identity 30 --identity 10 ...
+
+# The complete locked sweep.
+python3 -m homology_cluster_benchmark build --identity all ...
+```
+
+The Grid Engine task mapping remains `1->30`, `2->25`, `3->20`, `4->15`,
+`5->10`, `6->5`. For example, the following runs only 20%:
+
+```bash
+qsub -t 3 hpc_jobs/active/hpc_homology_cluster_runtime_array.sh
+```
+
+A new percentage outside the six supervisor-specified values is a methodology change,
+not an ordinary runtime option, and is rejected deliberately.
+
+### Reusable validated cluster cache
+
+`--cluster-cache-root` moves the reusable boundary to immediately after
+`mmseqs createtsv` and complete one-assignment-per-UniRef90-member validation.
+A cache hit skips MMseqs2 but rebuilds a disposable local SQLite index and
+revalidates the cached membership before annotation-dependent work.
+
+The cache key binds UniRef90 release and SHA-256, exact MMseqs2 expected and
+observed versions and executable SHA-256, identity, coverage, cluster/alignment
+modes, reassignment, sensitivity, E-value, and database options. It deliberately
+does not bind threads, scheduler slots, framework commit, GOA, split policy,
+seed, training population, term universe, or PFP export settings. Those values
+either cannot change the deterministic clustering contract or occur downstream
+of the cache boundary. They remain recorded as run or producer provenance.
+Consequently the same validated memberships are ready for a future reviewed
+`all-cluster-members` implementation, but the current builder still fails that
+mode until Daniel supplies the missing label semantics; caching does not grant
+methodological permission.
+
+Initialize and verify a portable persistent root with:
+
+```bash
+python3 -m homology_cluster_benchmark.cluster_cache init-root \
+  --cache-root /persistent/homology/mmseqs_cluster_cache
+python3 -m homology_cluster_benchmark.cluster_cache verify-root \
+  --cache-root /persistent/homology/mmseqs_cluster_cache
+```
+
+Normal builds reuse a matching cache and create a missing one atomically:
+
+```bash
+python3 -m homology_cluster_benchmark build ... \
+  --cluster-cache-root /persistent/homology/mmseqs_cluster_cache
+```
+
+For downstream experiments that must never recluster, add
+`--require-cluster-cache`. Missing, partial, differently contracted, tampered,
+or concurrently inconsistent caches fail rather than falling back silently.
+All six array tasks can run concurrently because each identity has its own
+contract-keyed child directory.
+
+A completed pre-cache publication can seed the same cache without rerunning
+MMseqs2:
+
+```bash
+python3 -m homology_cluster_benchmark.cluster_cache import-publication \
+  --run-dir /persistent/results/identity_30/... \
+  --common-preprocessing-cache /persistent/common_preprocessing \
+  --cache-root /persistent/homology/mmseqs_cluster_cache \
+  --work-dir /scratch/import-work
+```
+
+The importer first validates the complete publication, verifies the shared
+UniRef90 index and input hash, normalizes the published membership, rebuilds the
+assignment index, and only then publishes the cache atomically. The SAN artifact
+catalogue exposes the root marker as
+`homology_mmseqs_cluster_cache_root_2026_02`.
+
 ## Explicit UniProt source scope
 
 Daniel did not specify whether eligible UniProtKB proteins should come from Swiss-Prot, TrEMBL, or

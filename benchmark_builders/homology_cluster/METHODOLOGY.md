@@ -98,6 +98,27 @@ every member pair meets the threshold, nor does finite prefilter sensitivity pro
 homology edge was discovered. Production pins one exact successful MMseqs2 version token,
 executable path/hash when readable, and the literal command arguments.
 
+The MMseqs2 `cluster` workflow and `--cluster-mode` are separate choices. The workflow performs
+the documented cascaded search before the final clustering algorithm. Mode 0 then applies greedy
+set cover to that alignment graph; reassignment checks members against their final representative.
+Mode 1 instead takes transitive connected components, so chains of pairwise edges can merge very
+distant endpoints into one large component. It does provide a stronger guarantee on the finite
+alignment graph MMseqs2 actually discovered: no discovered edge crosses two components. That may
+be desirable for an explicitly edge-separated sensitivity experiment, but can create giant,
+poorly balanced components and is not equivalent to Daniel's default-clustering experiment.
+Mode 2 is a CD-HIT-like greedy incremental policy
+that repeatedly chooses the longest remaining sequence and its direct neighbours. None is a
+pairwise-clique guarantee. For the frozen experiment, mode 0 plus cascaded search and reassignment
+is retained because it balances family consolidation, representative validity, sensitivity, and
+hundred-million-record feasibility. Changing mode is a new clustering experiment, not a faster
+implementation of the same contract.
+
+Bare Linclust is not substituted for `cluster`. The official guide describes it as a faster
+linear-time clustering route with a reduced search, while the cascaded workflow is the selected
+sensitivity/rigour trade-off. MMseqs2 single-step clustering is also not treated as automatically
+more rigorous: the guide documents substantially greater runtime and memory and reduced
+sensitivity, even though it can enforce direct representative criteria without a cascade.
+
 ### UniRef and UniProt
 
 - [UniRef overview](https://www.uniprot.org/help/uniref)
@@ -220,6 +241,16 @@ Internal QC validates declared inputs and methodology, mappings, schemas, leakag
 construction, attrition authorization, and publication integrity. It does not prove biological
 optimality, external source correctness beyond reviewed metadata/hash evidence, exhaustive
 low-identity recall, scheduler resource sufficiency, or successful PFP training.
+
+The reusable cluster cache has a narrower contract than a complete publication. It is published
+only after `createtsv` and complete UniRef90 assignment validation, and is keyed by the frozen
+UniRef90 bytes, exact MMseqs2 binary/version, and every clustering parameter that can change
+membership. Thread count and framework revision are recorded as producer provenance but do not
+change the key. GOA retention, source-scope eligibility, split policy, seed, training population,
+labels, term universes, and exports remain downstream and are excluded. Every reuse rehashes the
+cache and reconstructs/revalidates the disk-backed assignment index before proceeding. This makes
+the costly clustering reusable for later reviewed downstream policies without claiming that those
+policies are interchangeable.
 
 ## Remaining decisions for Daniel
 

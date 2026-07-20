@@ -71,10 +71,17 @@ reported per aspect/split. Missing or invalid sequence arrays are fatal.
 Each aspect is trained separately with upstream `train.py --single`, so a
 failure cannot be swallowed by PFP's multi-experiment exception handler. Fresh
 checkpoints are then evaluated again by the framework through PFP's normal
-model/dataset code but a strict cafaeval call: `ia`, `norm=cafa`, and
-`prop=max` may not be silently discarded. A run is complete only when every
+model/dataset code but a strict cafaeval call: `ia`, `norm=cafa`, `prop=max`,
+and `no_orphans=false` may not be silently discarded. A run is complete only when every
 selected aspect has a checkpoint and finite, physically valid `cafa_fmax`,
 `cafa_wfmax`, and `cafa_smin` values.
+
+`--capture-predictions` is opt-in. It observes the arrays from that same CAFA
+inference call and atomically publishes a standalone sensitivity bundle. The
+bundle includes exact truth and score arrays, IA bytes, benchmark and prepared
+data fingerprints, validation reports, config/OBO hashes, seed, and code
+revisions. Capture requires those provenance reports; ordinary evaluation does
+not.
 
 ## Frozen model behavior
 
@@ -210,6 +217,20 @@ rung.
 `42` is the default seed, not a forced value. Both the local runner and HPC
 wrapper accept `--seed N`, forward it to training and evaluation, and record it
 in the final report.
+
+## Optional prediction artifacts
+
+Add `--capture-predictions` to either runner when a separate label-cohort
+sensitivity analysis is planned. The option is off by default. It observes the
+prediction and truth arrays from PFP's existing strict CAFA evaluation pass,
+records their content hashes together with protein/term order, checkpoint and
+IA hashes, and publishes them under `evaluation/prediction_artifacts/`. It does
+not change canonical metrics and does not perform a second inference pass.
+
+The artifact is intentionally larger than the ordinary metric report. Capture
+it only for runs that will be analysed, then pass its manifest to
+`scripts/diagnostics/evaluate_pfp_label_sensitivity.py`. That analysis is
+separately staged and can never overwrite the canonical run.
 
 ## Existing embedding-state evidence upgrade
 

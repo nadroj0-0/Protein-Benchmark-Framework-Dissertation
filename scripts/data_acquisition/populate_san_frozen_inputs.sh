@@ -41,6 +41,9 @@ HOMOLOGY_CACHE_SCOPE="sprot-and-trembl"
 HOMOLOGY_CACHE_RELATIVE="derived_inputs/homology/2026_02/goa_234/sprot-and-trembl/common_preprocessing"
 HOMOLOGY_CACHE_ALLOWANCE_GB="${HOMOLOGY_CACHE_ALLOWANCE_GB:-50}"
 CACHE_MARKER="CACHE_COMPLETE.json"
+HOMOLOGY_CLUSTER_CACHE_ROOT_ROLE="homology_mmseqs_cluster_cache_root_2026_02"
+HOMOLOGY_CLUSTER_CACHE_ROOT_RELATIVE="derived_inputs/homology/2026_02/mmseqs_cluster_cache"
+HOMOLOGY_CLUSTER_CACHE_ROOT_MARKER="CLUSTER_CACHE_ROOT.json"
 
 usage() {
     cat <<'EOF'
@@ -727,6 +730,35 @@ process_homology_derived_inputs() {
     VERIFIED=$((VERIFIED + 1))
 }
 
+process_homology_cluster_cache_root() {
+    profile_selected homology || return 0
+    local destination="$ROOT/$HOMOLOGY_CLUSTER_CACHE_ROOT_RELATIVE"
+    local marker="$destination/$HOMOLOGY_CLUSTER_CACHE_ROOT_MARKER"
+
+    echo
+    echo "[$HOMOLOGY_CLUSTER_CACHE_ROOT_ROLE] $HOMOLOGY_CLUSTER_CACHE_ROOT_RELATIVE"
+    resolve_python_bin
+    export PYTHONPATH="$FRAMEWORK_ROOT/benchmark_builders/homology_cluster/src${PYTHONPATH:+:$PYTHONPATH}"
+    export MMFP_PYTHONPATH="$PYTHONPATH"
+    if [[ -s "$marker" ]] && "$PYTHON_BIN" -m homology_cluster_benchmark.cluster_cache \
+        verify-root --cache-root "$destination" >/dev/null; then
+        echo "  persistent validated cluster-cache root is ready"
+        DERIVED_SKIPPED=$((DERIVED_SKIPPED + 1))
+        [[ "$FULL_VERIFY" == "1" ]] && VERIFIED=$((VERIFIED + 1))
+        return 0
+    fi
+    if [[ "$VERIFY_ONLY" == "1" ]]; then
+        die "Homology cluster-cache root is missing or invalid: $destination"
+    fi
+    "$PYTHON_BIN" -m homology_cluster_benchmark.cluster_cache \
+        init-root --cache-root "$destination" >/dev/null
+    "$PYTHON_BIN" -m homology_cluster_benchmark.cluster_cache \
+        verify-root --cache-root "$destination" >/dev/null
+    echo "  initialized: $destination"
+    DERIVED_CREATED=$((DERIVED_CREATED + 1))
+    VERIFIED=$((VERIFIED + 1))
+}
+
 fetch_text() {
     local url="$1"
     if command -v curl >/dev/null 2>&1; then
@@ -809,6 +841,10 @@ write_artifact_path_catalog() {
     if [[ -s "$destination" ]]; then
         printf '%s\t%s\n' "$HOMOLOGY_CACHE_ROLE" "$destination" >> "$temporary"
     fi
+    destination="$ROOT/$HOMOLOGY_CLUSTER_CACHE_ROOT_RELATIVE/$HOMOLOGY_CLUSTER_CACHE_ROOT_MARKER"
+    if [[ -s "$destination" ]]; then
+        printf '%s\t%s\n' "$HOMOLOGY_CLUSTER_CACHE_ROOT_ROLE" "$destination" >> "$temporary"
+    fi
     if [[ -f "$catalog" ]] && cmp -s "$temporary" "$catalog"; then
         rm -f "$temporary"
     else
@@ -882,7 +918,7 @@ if profile_selected temporal; then
 fi
 
 if profile_selected homology; then
-    selected_count=$((selected_count + 1))
+    selected_count=$((selected_count + 2))
     destination="$ROOT/$HOMOLOGY_CACHE_RELATIVE/$CACHE_MARKER"
     if [[ ! -s "$destination" ]]; then
         missing_count=$((missing_count + 1))
@@ -893,6 +929,14 @@ if profile_selected homology; then
     if [[ "$LIST_ONLY" == "1" || "$DRY_RUN" == "1" ]]; then
         printf '%-18s %-32s %-16s %s\n' \
             homology "$HOMOLOGY_CACHE_ROLE" derived "$destination"
+    fi
+    destination="$ROOT/$HOMOLOGY_CLUSTER_CACHE_ROOT_RELATIVE/$HOMOLOGY_CLUSTER_CACHE_ROOT_MARKER"
+    if [[ ! -s "$destination" ]]; then
+        missing_count=$((missing_count + 1))
+    fi
+    if [[ "$LIST_ONLY" == "1" || "$DRY_RUN" == "1" ]]; then
+        printf '%-18s %-32s %-16s %s\n' \
+            homology "$HOMOLOGY_CLUSTER_CACHE_ROOT_ROLE" derived "$destination"
     fi
 fi
 
@@ -1031,6 +1075,7 @@ fi
 
 process_temporal_derived_inputs
 process_homology_derived_inputs
+process_homology_cluster_cache_root
 
 catalog_metadata
 write_artifact_path_catalog

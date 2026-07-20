@@ -14,7 +14,7 @@ import time
 from typing import Iterable, Iterator
 
 from .config import BuildConfig
-from .inputs import sha256_file
+from .inputs import open_text, sha256_file
 from .uniref import UniRefIndex
 
 
@@ -245,7 +245,14 @@ class ClusterIndex:
         self.database = database
 
     @classmethod
-    def build(cls, cluster_tsv: Path, uniref: UniRefIndex, database: Path) -> "ClusterIndex":
+    def build(
+        cls,
+        cluster_tsv: Path,
+        uniref: UniRefIndex,
+        database: Path,
+        *,
+        has_header: bool = False,
+    ) -> "ClusterIndex":
         started = time.monotonic()
         LOGGER.info("MMseqs2 assignment index started: %s -> %s", cluster_tsv, database)
         if not cluster_tsv.is_file() or cluster_tsv.stat().st_size == 0:
@@ -262,7 +269,8 @@ class ClusterIndex:
                 "member_id TEXT PRIMARY KEY, cluster_id TEXT NOT NULL)"
             )
             batch: list[tuple[str, str]] = []
-            with cluster_tsv.open("r", encoding="utf-8", newline="") as handle:
+            first_content = True
+            with open_text(cluster_tsv) as handle:
                 for line_number, raw_line in enumerate(handle, start=1):
                     if line_number % 1_000_000 == 0:
                         LOGGER.info(
@@ -272,6 +280,14 @@ class ClusterIndex:
                     if not raw_line.strip():
                         continue
                     columns = raw_line.rstrip("\n\r").split("\t")
+                    if has_header and first_content:
+                        first_content = False
+                        if columns != ["mmseqs_cluster_id", "uniref90_id"]:
+                            raise ValueError(
+                                "Cached MMseqs2 membership has an unexpected header"
+                            )
+                        continue
+                    first_content = False
                     if len(columns) != 2 or not columns[0] or not columns[1]:
                         raise ValueError(
                             f"Malformed MMseqs2 cluster row at {cluster_tsv}:{line_number}; "

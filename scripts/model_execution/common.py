@@ -102,6 +102,25 @@ def sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
     return digest.hexdigest()
 
 
+def file_snapshot(path: Path) -> Dict[str, Any]:
+    if not path.is_file():
+        raise FileNotFoundError(f"Required file is missing: {path}")
+    return {
+        "path": str(path.resolve()),
+        "bytes": path.stat().st_size,
+        "sha256": sha256_file(path),
+    }
+
+
+def require_unchanged(path: Path, snapshot: Mapping[str, Any], context: str) -> None:
+    if (
+        not path.is_file()
+        or path.stat().st_size != snapshot["bytes"]
+        or sha256_file(path) != snapshot["sha256"]
+    ):
+        raise ValueError(f"{context} changed while it was being read: {path}")
+
+
 def sha256_lines(values: Iterable[str]) -> str:
     digest = hashlib.sha256()
     for value in values:

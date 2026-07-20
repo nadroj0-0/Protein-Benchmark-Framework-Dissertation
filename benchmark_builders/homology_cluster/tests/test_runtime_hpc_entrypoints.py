@@ -212,6 +212,17 @@ class RuntimeHPCEntrypointTests(unittest.TestCase):
         )
         self.assertNotIn("/SAN/bioinf/bmpfp", driver)
 
+    def test_runtime_driver_uses_persistent_cluster_cache_without_scratch_copy(self):
+        driver = DRIVER.read_text()
+        self.assertIn("homology_mmseqs_cluster_cache_root_2026_02", driver)
+        self.assertIn("HOMOLOGY_CLUSTER_CACHE_ROOT", driver)
+        self.assertIn("REQUIRE_HOMOLOGY_CLUSTER_CACHE", driver)
+        self.assertIn(
+            'HOMOLOGY_CLUSTER_CACHE_ROOT="$HOMOLOGY_CLUSTER_CACHE_ROOT"', driver
+        )
+        self.assertNotIn("STAGED_CLUSTER_CACHE", driver)
+        self.assertNotIn("cp -a \"$HOMOLOGY_CLUSTER_CACHE_ROOT\"", driver)
+
 
 if __name__ == "__main__":
     unittest.main()

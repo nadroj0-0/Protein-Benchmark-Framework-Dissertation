@@ -70,6 +70,17 @@ def _parser() -> argparse.ArgumentParser:
     _add_input(build, "go-obo", "frozen GO OBO")
     build.add_argument("--cluster-assignments", type=Path, help="Precomputed MMseqs2 createtsv output; intended for validated fixture tests")
     build.add_argument(
+        "--cluster-cache-root", type=Path,
+        help=(
+            "Persistent validated MMseqs2 assignment-cache root. A matching cache is reused; "
+            "a missing cache is built and published before annotation-dependent work."
+        ),
+    )
+    build.add_argument(
+        "--require-cluster-cache", action="store_true",
+        help="Fail instead of running MMseqs2 when the matching validated cache is absent",
+    )
+    build.add_argument(
         "--fixture-mode", action="store_true",
         help=(
             "Permit synthetic/smoke inputs, precomputed assignments, and fixture thresholds; "
@@ -226,6 +237,8 @@ def _config(args: argparse.Namespace, identity: float) -> BuildConfig:
         mmseqs_bin=args.mmseqs_bin,
         expected_mmseqs_version=args.expected_mmseqs_version,
         cluster_assignments=args.cluster_assignments,
+        cluster_cache_root=args.cluster_cache_root,
+        require_cluster_cache=args.require_cluster_cache,
         frozen_input_manifest=args.frozen_input_manifest,
         common_preprocessing_cache=args.common_preprocessing_cache,
         attrition_policy=args.attrition_policy,
@@ -276,6 +289,10 @@ def _preview(config: BuildConfig) -> dict[str, object]:
             str(config.common_preprocessing_cache)
             if config.common_preprocessing_cache else None
         ),
+        "cluster_cache_root": (
+            str(config.cluster_cache_root) if config.cluster_cache_root else None
+        ),
+        "require_cluster_cache": config.require_cluster_cache,
         "requested_slots": config.requested_slots,
         "allocated_slots": config.allocated_slots,
         "mmseqs_threads": config.threads,

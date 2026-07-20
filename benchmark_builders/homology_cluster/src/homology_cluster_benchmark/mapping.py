@@ -5,6 +5,7 @@ from dataclasses import replace
 import csv
 import gzip
 import hashlib
+import io
 import logging
 from pathlib import Path
 import re
@@ -156,13 +157,22 @@ def load_requested_proteins_from_sources(
         collision_database.unlink(missing_ok=True)
     connection = sqlite3.connect(str(database))
     collision_handle = None
+    raw_collision_handle = None
     collision_writer = None
     if collision_report is not None:
         collision_report.parent.mkdir(parents=True, exist_ok=True)
-        opener = gzip.open if collision_report.suffix == ".gz" else open
-        collision_handle = opener(
-            collision_report, "wt", encoding="utf-8", newline=""
-        )
+        if collision_report.suffix == ".gz":
+            raw_collision_handle = collision_report.open("wb")
+            compressed_collision_handle = gzip.GzipFile(
+                filename="", mode="wb", fileobj=raw_collision_handle, mtime=0
+            )
+            collision_handle = io.TextIOWrapper(
+                compressed_collision_handle, encoding="utf-8", newline=""
+            )
+        else:
+            collision_handle = collision_report.open(
+                "w", encoding="utf-8", newline=""
+            )
         collision_fields = [
             "accession", "collision_kind", "previous_primary",
             "previous_sequence_sha256", "previous_source", "previous_kind",
@@ -354,6 +364,8 @@ def load_requested_proteins_from_sources(
         connection.close()
         if collision_handle is not None:
             collision_handle.close()
+        if raw_collision_handle is not None:
+            raw_collision_handle.close()
     ambiguous_secondary_collisions = sum(
         catalog.collision_counts[kind]
         for kind in (
