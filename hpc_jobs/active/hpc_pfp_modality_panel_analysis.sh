@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Compare a completed five-condition PFP modality panel and its prediction artifacts.
 
+#$ -S /bin/bash
 #$ -l tmem=32G
 #$ -l scratch0free=20G
 #$ -l tscratch=20G

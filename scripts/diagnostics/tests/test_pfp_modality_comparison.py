@@ -27,6 +27,10 @@ def sha256(path: Path) -> str:
 
 
 class PfpModalityComparisonTests(unittest.TestCase):
+    def test_panel_wrapper_requests_bash_from_grid_engine(self) -> None:
+        wrapper = PANEL_WRAPPER.read_text(encoding="utf-8")
+        self.assertIn("#$ -S /bin/bash", wrapper)
+
     def test_panel_wrapper_path_normalization_does_not_require_pathlib(self) -> None:
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)
