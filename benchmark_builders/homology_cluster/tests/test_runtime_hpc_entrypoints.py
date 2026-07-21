@@ -131,9 +131,9 @@ class RuntimeHPCEntrypointTests(unittest.TestCase):
         self.assertIn("#$ -t 1-6\n", array)
         self.assertIn("#$ -tc 6\n", array)
         self.assertIn("HOMOLOGY_RUNTIME_KIND=array", array)
-        self.assertIn("#$ -pe smp 6", array)
-        self.assertIn("#$ -l tmem=28G", array)
-        self.assertIn("#$ -l tscratch=50G", array)
+        self.assertIn("#$ -pe smp 8", array)
+        self.assertIn("#$ -l tmem=15G", array)
+        self.assertIn("#$ -l tscratch=38G", array)
         self.assertIn("#$ -l h_rt=168:0:0", array)
         for text in (pilot, array):
             self.assertIn("#$ -l scratch0free=300G", text)

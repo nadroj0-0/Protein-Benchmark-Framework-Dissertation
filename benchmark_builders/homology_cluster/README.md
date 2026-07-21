@@ -376,7 +376,7 @@ four slots primarily accelerate MMseqs2. It runs as a measurement job: the old s
 multiplier defaults are reduced globally to neutral `1x` values, and the pilot records rather than
 enforces the resulting estimate. Interim pilot accounting already exceeded the former 72 GB
 production memory reservation and approached its 96-hour limit. The current full-array wrapper
-therefore requests six slots at `tmem=28G` and `tscratch=50G` per slot (168 GB memory and 300 GB
+therefore requests eight slots at `tmem=15G` and `tscratch=38G` per slot (120 GB memory and 304 GB
 scratch total) with `h_rt=168:0:0`. Final pilot accounting must still be reviewed before submission;
 this safer request is not evidence that every task will consume the full reservation or that the
 old 1200 GB scratch estimate was necessary.
@@ -390,6 +390,8 @@ covering input staging, MMseqs2 installation, builder execution, and validation.
 include `logs/disk_usage.tsv`, a per-directory `logs/disk_usage_by_path.tsv`, and
 `logs/disk_usage_summary.tsv`. The summary's `peak_work_bytes` is the measured pilot high-water
 mark; apply deliberate headroom before converting it into a future Grid Engine request.
+MMseqs2 output is also streamed to the Grid Engine output as it is written to each stage log. Use
+`qsub -o` with a home-directory log folder to inspect progress without accessing node-local scratch.
 
 Each task writes the five DeepGOPlus-shaped pickles, nine PFP CSVs, provenance, validation,
 attrition observations, automatic review, and logs below
@@ -613,7 +615,7 @@ It cannot prove external biological correctness, exhaustive low-identity edge di
 sufficiency, or downstream model performance.
 
 Daniel still needs to decide the production UniProt source scope. Reviewed pilot evidence must set
-the attrition limits and confirm the current `168G / 300G / 168h` production request. The `-e 1e-4`,
+the attrition limits and confirm the current `120G / 304G / 168h` production request. The `-e 1e-4`,
 GO relationship policy, root compatibility lock, archived input URLs, and
 any future all-cluster-member supervision remain explicit review points.
 

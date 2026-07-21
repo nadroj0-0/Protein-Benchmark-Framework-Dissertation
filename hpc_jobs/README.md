@@ -458,8 +458,8 @@ The 30% diagnostic pilot requests approximately `300G` scratch in total. UCL Gri
 the consumable `tmem` and `tscratch` requests per SMP slot. The pilot uses four slots at
 `tmem=16G` and `tscratch=75G` per slot (64 GB memory and 300 GB scratch total). Interim pilot
 accounting exceeded the old 72 GB production memory reservation and approached its 96-hour limit,
-so each full-array task now requests six slots at `tmem=28G` and `tscratch=50G` per slot (168 GB
-memory and 300 GB scratch total) with `h_rt=168:0:0`. This is conservative production headroom,
+so each full-array task now requests eight slots at `tmem=15G` and `tscratch=38G` per slot (120 GB
+memory and 304 GB scratch total) with `h_rt=168:0:0`. This is conservative production headroom,
 not a claim that every task will consume the full reservation; review the completed pilot's final
 accounting before submission.
 The non-consumable `scratch0free=300G` remains a host-free-space threshold. The unsupported parser/MMseqs/publication
@@ -491,6 +491,9 @@ Both wrappers delegate to
 - samples allocated bytes in the job-owned scratch tree every 120 seconds and at named stage
   boundaries, writing `logs/disk_usage.tsv`, `logs/disk_usage_by_path.tsv`, and
   `logs/disk_usage_summary.tsv` with the measured peak;
+- streams MMseqs2 progress to the Grid Engine output while preserving the same bytes in each
+  scratch-first `mmseqs_<stage>.log`; submit with `qsub -o <home-log-directory>` to retain and
+  inspect that output live from the login node;
 - copies important results and logs atomically under
   `$HOME/homology_cluster_benchmark_results` by default; and
 - always removes the task-owned scratch directory, including when home copy-back fails. A copy

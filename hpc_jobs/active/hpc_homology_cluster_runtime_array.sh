@@ -2,16 +2,16 @@
 # Direct qsub entrypoint for all six homology identity thresholds.
 
 # UCL Grid Engine charges consumable tmem/tscratch per SMP slot:
-# 6 slots x 28G = 168G memory; 6 slots x 50G = 300G scratch per array task.
+# 8 slots x 15G = 120G memory; 8 slots x 38G = 304G scratch per array task.
 # Each identity is independent and all six may run concurrently when resources permit.
 # Interim 30% pilot accounting exceeded the old 72G memory reservation and approached
 # the old 96-hour limit, so production carries deliberate memory and walltime headroom.
 # Final pilot accounting must still be reviewed before submission.
-#$ -l tmem=28G
-#$ -l tscratch=50G
+#$ -l tmem=15G
+#$ -l tscratch=38G
 #$ -l scratch0free=300G
 #$ -l h_rt=168:0:0
-#$ -pe smp 6
+#$ -pe smp 8
 #$ -t 1-6
 #$ -tc 6
 #$ -j y

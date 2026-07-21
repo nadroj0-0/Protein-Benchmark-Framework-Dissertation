@@ -215,12 +215,25 @@ def execute_commands(commands: Iterable[CommandSpec], log_dir: Path) -> None:
         started = time.monotonic()
         LOGGER.info("MMseqs2 stage started: %s; log=%s", command.stage, log_path)
         with log_path.open("w", encoding="utf-8") as log:
-            result = subprocess.run(
-                list(command.argv), stdout=log, stderr=subprocess.STDOUT, text=True, check=False,
-            )
-        if result.returncode != 0:
+            with subprocess.Popen(
+                list(command.argv),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            ) as process:
+                if process.stdout is None:
+                    raise RuntimeError(
+                        f"MMseqs2 stage {command.stage!r} did not expose its output stream"
+                    )
+                for line in process.stdout:
+                    log.write(line)
+                    log.flush()
+                    print(line, end="", flush=True)
+                returncode = process.wait()
+        if returncode != 0:
             raise RuntimeError(
-                f"MMseqs2 stage {command.stage!r} failed with exit code {result.returncode}; "
+                f"MMseqs2 stage {command.stage!r} failed with exit code {returncode}; "
                 f"see {log_path}"
             )
         LOGGER.info(

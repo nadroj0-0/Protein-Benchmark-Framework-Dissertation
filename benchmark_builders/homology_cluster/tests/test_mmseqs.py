@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import contextlib
+import io
 import shutil
 import subprocess
 import sys
@@ -13,7 +15,9 @@ sys.path.insert(0, str(ROOT / "src"))
 from homology_cluster_benchmark.config import SUPPORTED_IDENTITIES, parse_identity
 from homology_cluster_benchmark.mmseqs import (
     ClusterIndex,
+    CommandSpec,
     build_mmseqs_commands,
+    execute_commands,
     resolve_mmseqs_runtime,
     validate_exact_mmseqs_version,
     validate_mmseqs_version,
@@ -25,6 +29,51 @@ from tests.helpers import FIXTURES, fixture_config
 
 
 class MMseqsTests(unittest.TestCase):
+    def test_command_output_is_streamed_and_preserved_in_stage_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            command = CommandSpec(
+                "fixture",
+                (
+                    sys.executable,
+                    "-c",
+                    "import sys; print('progress-one', flush=True); "
+                    "print('progress-two', file=sys.stderr)",
+                ),
+            )
+            streamed = io.StringIO()
+
+            with contextlib.redirect_stdout(streamed):
+                execute_commands((command,), root / "logs")
+
+            expected = "progress-one\nprogress-two\n"
+            self.assertEqual(streamed.getvalue(), expected)
+            self.assertEqual((root / "logs" / "mmseqs_fixture.log").read_text(), expected)
+
+    def test_failed_command_output_is_streamed_and_preserved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            command = CommandSpec(
+                "fixture-failure",
+                (
+                    sys.executable,
+                    "-c",
+                    "import sys; print('last-progress'); sys.exit(9)",
+                ),
+            )
+            streamed = io.StringIO()
+
+            with contextlib.redirect_stdout(streamed), self.assertRaisesRegex(
+                RuntimeError, "exit code 9"
+            ):
+                execute_commands((command,), root / "logs")
+
+            self.assertEqual(streamed.getvalue(), "last-progress\n")
+            self.assertEqual(
+                (root / "logs" / "mmseqs_fixture-failure.log").read_text(),
+                "last-progress\n",
+            )
+
     def test_all_six_commands_encode_locked_identity_and_coverage(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
