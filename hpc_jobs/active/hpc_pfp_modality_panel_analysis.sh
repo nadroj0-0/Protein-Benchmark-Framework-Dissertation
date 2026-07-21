@@ -59,7 +59,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 absolute_path() {
-  "$HOST_PYTHON" -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); base=pathlib.Path(sys.argv[2]); print((p if p.is_absolute() else base / p).resolve())' "$1" "$SUBMISSION_DIR"
+  "$HOST_PYTHON" -c 'import os,sys; p=sys.argv[1]; base=sys.argv[2]; sys.stdout.write(os.path.realpath(p if os.path.isabs(p) else os.path.join(base,p))+"\n")' "$1" "$SUBMISSION_DIR"
 }
 
 HOST_PYTHON="$(command -v python3 || command -v python || true)"

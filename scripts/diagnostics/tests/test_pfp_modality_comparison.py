@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -11,6 +12,7 @@ from pathlib import Path
 
 FRAMEWORK = Path(__file__).parents[3]
 COMPARE = FRAMEWORK / "scripts" / "diagnostics" / "compare_pfp_modality_runs.py"
+PANEL_WRAPPER = FRAMEWORK / "hpc_jobs" / "active" / "hpc_pfp_modality_panel_analysis.sh"
 MODALITIES = {
     "full": ("sequence", "text", "structure", "ppi"),
     "sequence-only": ("sequence",),
@@ -25,6 +27,50 @@ def sha256(path: Path) -> str:
 
 
 class PfpModalityComparisonTests(unittest.TestCase):
+    def test_panel_wrapper_path_normalization_does_not_require_pathlib(self) -> None:
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            fake_python = fake_bin / "python3"
+            fake_python.write_text(
+                "#!/bin/sh\n"
+                "case \"$*\" in\n"
+                "  *pathlib*) echo 'pathlib must not be used before environment activation' >&2; exit 91 ;;\n"
+                "esac\n"
+                "exec \"$REAL_PYTHON\" \"$@\"\n",
+                encoding="utf-8",
+            )
+            fake_python.chmod(0o755)
+            obo = root / "go-basic.obo"
+            obo.write_text("format-version: 1.2\n", encoding="utf-8")
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "PATH": f"{fake_bin}:{environment['PATH']}",
+                    "REAL_PYTHON": sys.executable,
+                    "SGE_O_WORKDIR": str(root),
+                }
+            )
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(PANEL_WRAPPER),
+                    "--obo-file",
+                    obo.name,
+                    "--output-dir",
+                    "comparison",
+                ],
+                cwd=root,
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("Exactly five --run specifications", result.stderr)
+            self.assertNotIn("pathlib", result.stderr)
+
     def embedding_report(self, mode: str) -> dict[str, object]:
         return {
             "status": "passed",
