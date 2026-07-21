@@ -374,8 +374,12 @@ use `tscratch=75G` (300 GB total) and `tmem=16G` (64 GB total), while `scratch0f
 host free-space threshold. The streaming and indexing stages remain largely single-threaded; the
 four slots primarily accelerate MMseqs2. It runs as a measurement job: the old speculative
 multiplier defaults are reduced globally to neutral `1x` values, and the pilot records rather than
-enforces the resulting estimate. The full wrapper's resource request must be recalibrated from the
-pilot before submission; it is not evidence that the old 1200 GB estimate was necessary.
+enforces the resulting estimate. Interim pilot accounting already exceeded the former 72 GB
+production memory reservation and approached its 96-hour limit. The current full-array wrapper
+therefore requests six slots at `tmem=28G` and `tscratch=50G` per slot (168 GB memory and 300 GB
+scratch total) with `h_rt=168:0:0`. Final pilot accounting must still be reviewed before submission;
+this safer request is not evidence that every task will consume the full reservation or that the
+old 1200 GB scratch estimate was necessary.
 
 The cache is only a performance optimization. Fixture tests require cached and uncached
 construction to emit byte-identical nine CSVs, five pickles, mappings, and split assignments.
@@ -609,8 +613,8 @@ It cannot prove external biological correctness, exhaustive low-identity edge di
 sufficiency, or downstream model performance.
 
 Daniel still needs to decide the production UniProt source scope. Reviewed pilot evidence must set
-the attrition limits and confirm memory, scratch, walltime, and provisional `64G / 200G / 72h`
-resources. The `-e 1e-4`, GO relationship policy, root compatibility lock, archived input URLs, and
+the attrition limits and confirm the current `168G / 300G / 168h` production request. The `-e 1e-4`,
+GO relationship policy, root compatibility lock, archived input URLs, and
 any future all-cluster-member supervision remain explicit review points.
 
 No real scheduler command, full source download, full MMseqs2 clustering, production benchmark,

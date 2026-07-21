@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# UCL Grid Engine wrapper. Resource directives are provisional until a measured smoke run.
+# Guarded UCL Grid Engine worker. Consumable resources are charged per SMP slot:
+# 2 slots x 84G = 168G memory; 2 slots x 150G = 300G scratch per array task.
+# This matches the safer total production contract used by the direct runtime array.
 
-#$ -l tmem=32G
+#$ -l tmem=84G
 #$ -l tscratch=150G
 #$ -l scratch0free=300G
-#$ -l h_rt=96:0:0
+#$ -l h_rt=168:0:0
 #$ -pe smp 2
 #$ -j y
 #$ -N homology_cluster
@@ -589,7 +591,7 @@ echo "Run ID      : $RUN_ID"
 echo "Split policy: $SPLIT_POLICY"
 echo "Scratch     : $WORK"
 echo "Final output: $FINAL_RUN_ROOT"
-echo "Resources   : provisional 64G tmem / 200G scratch / 72h"
+echo "Resources   : 168G tmem / 300G scratch / 168h production request"
 
 [[ ! -e "$WORK" && ! -L "$WORK" ]] || {
     echo "Refusing to reuse pre-existing task scratch path: $WORK" >&2

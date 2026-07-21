@@ -456,14 +456,15 @@ shared between array tasks. When the portable artifact catalogue contains
 pre-MMseqs scans; otherwise every task retains the original raw-input/download fallback.
 The 30% diagnostic pilot requests approximately `300G` scratch in total. UCL Grid Engine accounts
 the consumable `tmem` and `tscratch` requests per SMP slot. The pilot uses four slots at
-`tmem=16G` and `tscratch=75G` per slot (64 GB memory and 300 GB scratch total); each full-array
-task provisionally uses six slots at `tmem=12G` and `tscratch=50G` per slot (72 GB memory and
-300 GB scratch total). Review and revise these provisional production requests against the
-completed pilot's measured resource report before submission.
+`tmem=16G` and `tscratch=75G` per slot (64 GB memory and 300 GB scratch total). Interim pilot
+accounting exceeded the old 72 GB production memory reservation and approached its 96-hour limit,
+so each full-array task now requests six slots at `tmem=28G` and `tscratch=50G` per slot (168 GB
+memory and 300 GB scratch total) with `h_rt=168:0:0`. This is conservative production headroom,
+not a claim that every task will consume the full reservation; review the completed pilot's final
+accounting before submission.
 The non-consumable `scratch0free=300G` remains a host-free-space threshold. The unsupported parser/MMseqs/publication
 defaults are reduced globally to neutral `1x` bookkeeping; the pilot records rather than enforces
-the resulting estimate. The six-task wrapper uses the same provisional per-task request, but do
-not submit that array before
+the resulting estimate. The six-task wrapper uses the same per-task request, but do not submit that array before
 reviewing the pilot's disk report.
 
 Both wrappers delegate to

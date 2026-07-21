@@ -15,6 +15,9 @@ DRIVER = (
 )
 PILOT = WORKSPACE_ROOT / "hpc_jobs" / "active" / "hpc_homology_cluster_runtime_pilot.sh"
 ARRAY = WORKSPACE_ROOT / "hpc_jobs" / "active" / "hpc_homology_cluster_runtime_array.sh"
+GUARDED_WORKER = (
+    WORKSPACE_ROOT / "hpc_jobs" / "active" / "hpc_homology_cluster_benchmark.sh"
+)
 
 
 class RuntimeHPCEntrypointTests(unittest.TestCase):
@@ -124,17 +127,26 @@ class RuntimeHPCEntrypointTests(unittest.TestCase):
         self.assertIn("#$ -l tmem=16G", pilot)
         self.assertIn("#$ -l tscratch=75G", pilot)
         self.assertIn("#$ -l scratch0free=300G", pilot)
+        self.assertIn("#$ -l h_rt=96:0:0", pilot)
         self.assertIn("#$ -t 1-6\n", array)
         self.assertIn("#$ -tc 6\n", array)
         self.assertIn("HOMOLOGY_RUNTIME_KIND=array", array)
         self.assertIn("#$ -pe smp 6", array)
-        self.assertIn("#$ -l tmem=12G", array)
+        self.assertIn("#$ -l tmem=28G", array)
         self.assertIn("#$ -l tscratch=50G", array)
+        self.assertIn("#$ -l h_rt=168:0:0", array)
         for text in (pilot, array):
             self.assertIn("#$ -l scratch0free=300G", text)
             self.assertIn("run_homology_cluster_runtime_hpc.sh", text)
             self.assertNotIn("wget ", text)
             self.assertNotIn("rm -rf", text)
+
+        guarded_worker = GUARDED_WORKER.read_text()
+        self.assertIn("#$ -pe smp 2", guarded_worker)
+        self.assertIn("#$ -l tmem=84G", guarded_worker)
+        self.assertIn("#$ -l tscratch=150G", guarded_worker)
+        self.assertIn("#$ -l scratch0free=300G", guarded_worker)
+        self.assertIn("#$ -l h_rt=168:0:0", guarded_worker)
 
     def test_runtime_driver_supports_the_clusters_legacy_git(self):
         driver = DRIVER.read_text()
