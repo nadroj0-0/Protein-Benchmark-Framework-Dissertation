@@ -24,6 +24,10 @@ from label_space_common import (
 )
 
 
+BASELINE_MODE = "sequence-only"
+COMPARISON_MODES = ("sequence-text", "sequence-structure", "sequence-ppi", "full")
+
+
 def load_report(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     completion_path = path.parent / "RUN_COMPLETE.json"
     output_path = path.parent / "output_manifest.json"
@@ -119,10 +123,10 @@ def markdown_report(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
-            "## Full Minus Sequence-Only",
+            "## Mode Minus Sequence-Only",
             "",
-            "| Benchmark | Aspect | Full threshold | Sequence threshold | Canonical delta | Excluded optimized delta | Delta at each mode's original threshold | Status |",
-            "|---|---|---:|---:|---:|---:|---:|---|",
+            "| Benchmark | Mode | Aspect | Mode threshold | Sequence threshold | Canonical delta | Excluded optimized delta | Delta at each mode's original threshold | Status |",
+            "|---|---|---|---:|---:|---:|---:|---:|---|",
         ]
     )
     if report["mode_delta_rows"]:
@@ -138,18 +142,19 @@ def markdown_report(report: dict[str, Any]) -> str:
                 else "n/a"
             )
             lines.append(
-                "| {benchmark_id} | {aspect} | {full_canonical_threshold:.4f} | "
-                "{sequence_canonical_threshold:.4f} | {canonical_fmax_delta:.4f} | "
+                "| {benchmark_id} | {comparison_mode} | {aspect} | "
+                "{mode_canonical_threshold:.4f} | "
+                "{baseline_canonical_threshold:.4f} | {canonical_fmax_delta:.4f} | "
                 "{excluded_delta} | {original_delta} | {status} |".format(
                     **row, excluded_delta=excluded_delta, original_delta=original_delta
                 )
             )
     else:
-        lines.append("| No benchmark has both modes yet |  |  |  |  |  |  |  |")
+        lines.append("| No benchmark has a sequence-only baseline and comparison mode yet |  |  |  |  |  |  |  |  |")
     lines.extend(
         [
             "",
-            "The original-threshold value avoids retuning after cohort exclusion within each mode. Full and sequence-only may have different original thresholds, which are shown explicitly; this is not a shared-threshold comparison.",
+            "The original-threshold value avoids retuning after cohort exclusion within each mode. Each comparison mode and sequence-only may have different original thresholds, which are shown explicitly; this is not a shared-threshold comparison.",
             "These results compare model modes only within the same benchmark and aspect; they are not cross-benchmark model rankings.",
             "",
         ]
@@ -175,6 +180,14 @@ def main() -> int:
     identities = [(value["benchmark_id"], value["mode"]) for value in reports]
     if len(identities) != len(set(identities)):
         raise ValueError("Sensitivity reports repeat a benchmark/mode identity")
+    for benchmark_id in sorted({value["benchmark_id"] for value in reports}):
+        modes = {
+            value["mode"] for value in reports if value["benchmark_id"] == benchmark_id
+        }
+        if BASELINE_MODE not in modes:
+            raise ValueError(
+                f"Sensitivity comparison lacks {BASELINE_MODE} for {benchmark_id}"
+            )
 
     run_rows: list[dict[str, Any]] = []
     indexed: dict[tuple[str, str, str], dict[str, Any]] = {}
@@ -226,52 +239,65 @@ def main() -> int:
     delta_rows = []
     for benchmark_id in sorted({row["benchmark_id"] for row in run_rows}):
         for aspect in ASPECTS:
-            full = indexed.get((benchmark_id, "full", aspect))
-            sequence = indexed.get((benchmark_id, "sequence-only", aspect))
-            if full is None or sequence is None:
+            baseline = indexed.get((benchmark_id, BASELINE_MODE, aspect))
+            if baseline is None:
                 continue
-            if (
-                full["global_comparison_contract_sha256"]
-                != sequence["global_comparison_contract_sha256"]
-                or full["aspect_comparison_contract_sha256"]
-                != sequence["aspect_comparison_contract_sha256"]
-            ):
-                raise ValueError(
-                    f"Full and sequence-only provenance differs for {benchmark_id} {aspect}"
+            for comparison_mode in COMPARISON_MODES:
+                candidate = indexed.get((benchmark_id, comparison_mode, aspect))
+                if candidate is None:
+                    continue
+                if (
+                    candidate["global_comparison_contract_sha256"]
+                    != baseline["global_comparison_contract_sha256"]
+                    or candidate["aspect_comparison_contract_sha256"]
+                    != baseline["aspect_comparison_contract_sha256"]
+                ):
+                    raise ValueError(
+                        f"{comparison_mode} and {BASELINE_MODE} provenance differs for "
+                        f"{benchmark_id} {aspect}"
+                    )
+                if candidate["exclusion_status"] != baseline["exclusion_status"]:
+                    raise ValueError(
+                        f"{comparison_mode} and {BASELINE_MODE} exclusion status differs "
+                        f"for {benchmark_id} {aspect}"
+                    )
+                complete = candidate["exclusion_status"] == "complete"
+                delta_rows.append(
+                    {
+                        "benchmark_id": benchmark_id,
+                        "comparison_mode": comparison_mode,
+                        "baseline_mode": BASELINE_MODE,
+                        "aspect": aspect,
+                        "canonical_fmax_delta": candidate["canonical_fmax"]
+                        - baseline["canonical_fmax"],
+                        "mode_canonical_threshold": candidate["canonical_threshold"],
+                        "baseline_canonical_threshold": baseline["canonical_threshold"],
+                        "root_excluded_fmax_delta": (
+                            candidate["root_excluded_fmax"]
+                            - baseline["root_excluded_fmax"]
+                            if complete
+                            else None
+                        ),
+                        "root_excluded_at_mode_canonical_threshold_delta": (
+                            candidate["root_excluded_at_mode_canonical_threshold_f"]
+                            - baseline["root_excluded_at_mode_canonical_threshold_f"]
+                            if complete
+                            else None
+                        ),
+                        "status": candidate["exclusion_status"],
+                        "framework_commit_match": (
+                            candidate["framework_commit"] == baseline["framework_commit"]
+                        ),
+                    }
                 )
-            if full["exclusion_status"] != sequence["exclusion_status"]:
-                raise ValueError(
-                    f"Full and sequence-only exclusion status differs for {benchmark_id} {aspect}"
-                )
-            complete = full["exclusion_status"] == "complete"
-            delta_rows.append(
-                {
-                    "benchmark_id": benchmark_id,
-                    "aspect": aspect,
-                    "canonical_fmax_delta": full["canonical_fmax"]
-                    - sequence["canonical_fmax"],
-                    "full_canonical_threshold": full["canonical_threshold"],
-                    "sequence_canonical_threshold": sequence["canonical_threshold"],
-                    "root_excluded_fmax_delta": (
-                        full["root_excluded_fmax"] - sequence["root_excluded_fmax"]
-                        if complete
-                        else None
-                    ),
-                    "root_excluded_at_mode_canonical_threshold_delta": (
-                        full["root_excluded_at_mode_canonical_threshold_f"]
-                        - sequence["root_excluded_at_mode_canonical_threshold_f"]
-                        if complete
-                        else None
-                    ),
-                    "status": full["exclusion_status"],
-                    "framework_commit_match": (
-                        full["framework_commit"] == sequence["framework_commit"]
-                    ),
-                }
-            )
+
+    if not delta_rows:
+        raise ValueError(
+            "Sensitivity comparison contains no mode-versus-sequence comparison"
+        )
 
     comparison = {
-        "schema_version": 2,
+        "schema_version": 3,
         "status": "complete",
         "source_reports": [
             {"path": str(path), "sha256": snapshot["sha256"]}
@@ -282,8 +308,9 @@ def main() -> int:
         ),
         "mode_delta_rows": delta_rows,
         "interpretation_policy": (
-            "compare modes only within the same benchmark/aspect; preserve canonical "
-            "results; mode-specific original-threshold deltas are no-retuning controls, "
+            "compare each modality mode with sequence-only only within the same "
+            "benchmark/aspect; preserve canonical results; mode-specific "
+            "original-threshold deltas are no-retuning controls, "
             "not shared-threshold comparisons; framework commits are reported but are "
             "not part of the scientific pairing key"
         ),
@@ -300,8 +327,18 @@ def main() -> int:
         )
         atomic_write_text(stage / "run_profiles.tsv", tsv_text(comparison["run_rows"]))
         atomic_write_text(
-            stage / "full_vs_sequence_deltas.tsv",
+            stage / "mode_vs_sequence_deltas.tsv",
             tsv_text(comparison["mode_delta_rows"]),
+        )
+        atomic_write_text(
+            stage / "full_vs_sequence_deltas.tsv",
+            tsv_text(
+                [
+                    row
+                    for row in comparison["mode_delta_rows"]
+                    if row["comparison_mode"] == "full"
+                ]
+            ),
         )
         manifest = output_manifest(
             stage, exclude={"output_manifest.json", "RUN_COMPLETE.json"}

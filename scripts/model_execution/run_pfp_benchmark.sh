@@ -16,7 +16,8 @@ Usage:
     --work-dir DIR --output-dir DIR --config FILE \
     --execution-mode prepare-only|eval-only|train-eval \
     [--embedding-cache-root DIR] [--checkpoint-root DIR] \
-    [--modality-mode full|sequence-only] [--aspect BPO|CCO|MFO] \
+    [--modality-mode full|sequence-only|sequence-text|sequence-structure|sequence-ppi] \
+    [--aspect BPO|CCO|MFO] \
     [--seed N] [--num-workers N] [--ia-file-dir DIR] [--capture-predictions] \
     [--reference-data-dir DIR] [--reference-source-archive FILE] \
     [--expected-metrics FILE] \
@@ -109,7 +110,8 @@ done
 [[ -n "$CONFIG" ]] || die "--config is required"
 [[ -n "$EXECUTION_MODE" ]] || die "--execution-mode is required"
 [[ "$EXECUTION_MODE" =~ ^(prepare-only|eval-only|train-eval)$ ]] || die "Invalid --execution-mode"
-[[ "$MODALITY_MODE" =~ ^(full|sequence-only)$ ]] || die "Invalid --modality-mode"
+[[ "$MODALITY_MODE" =~ ^(full|sequence-only|sequence-text|sequence-structure|sequence-ppi)$ ]] || \
+  die "Invalid --modality-mode"
 if [[ "$CAPTURE_PREDICTIONS" == "1" && "$EXECUTION_MODE" == "prepare-only" ]]; then
   die "--capture-predictions requires eval-only or train-eval"
 fi
@@ -341,9 +343,17 @@ if [[ "$EXECUTION_MODE" != "prepare-only" ]]; then
         --num-workers "$NUM_WORKERS"
         --seed "$SEED"
       )
-      if [[ "$MODALITY_MODE" == "sequence-only" ]]; then
-        TRAIN_COMMAND+=(--text-embedding-dir "$EMPTY_DIR" --no-struct --no-ppi)
-      fi
+      case "$MODALITY_MODE" in
+        full) ;;
+        sequence-only)
+          TRAIN_COMMAND+=(--text-embedding-dir "$EMPTY_DIR" --no-struct --no-ppi) ;;
+        sequence-text)
+          TRAIN_COMMAND+=(--no-struct --no-ppi) ;;
+        sequence-structure)
+          TRAIN_COMMAND+=(--text-embedding-dir "$EMPTY_DIR" --no-ppi) ;;
+        sequence-ppi)
+          TRAIN_COMMAND+=(--text-embedding-dir "$EMPTY_DIR" --no-struct) ;;
+      esac
       if [[ -n "$IA_FILE_DIR" ]]; then TRAIN_COMMAND+=(--ia-file-dir "$IA_FILE_DIR"); fi
       "${TRAIN_COMMAND[@]}" >"$WORK_DIR/logs/train_${aspect}.log" 2>&1
       RESULT_DIR="$MODEL_OUTPUT/fusion_comparison/prott5/$aspect/gated_bilinear"

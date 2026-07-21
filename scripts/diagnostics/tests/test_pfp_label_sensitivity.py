@@ -132,8 +132,34 @@ class PfpLabelSensitivityTests(unittest.TestCase):
             encoding="utf-8",
         )
         embedding = stage / "embedding_validation_report.json"
+        active_modalities = {
+            "full": ("sequence", "text", "structure", "ppi"),
+            "sequence-only": ("sequence",),
+            "sequence-text": ("sequence", "text"),
+            "sequence-structure": ("sequence", "structure"),
+            "sequence-ppi": ("sequence", "ppi"),
+        }[mode]
         embedding.write_text(
-            json.dumps({"status": "passed", "mode": mode}, sort_keys=True) + "\n",
+            json.dumps(
+                {
+                    "status": "passed",
+                    "mode": mode,
+                    "modalities": {
+                        modality: {"valid_content_sha256": (modality[0] * 64)[:64]}
+                        for modality in active_modalities
+                    },
+                    "embedding_evidence_binding": {
+                        "contract_sha256": "5" * 64,
+                        "target_manifest_sha256": "6" * 64,
+                        "pair_status_sha256": "7" * 64,
+                    },
+                    "information_accretion": {
+                        "BPO": {"sha256": expected_ia_sha256}
+                    },
+                },
+                sort_keys=True,
+            )
+            + "\n",
             encoding="utf-8",
         )
         manifest = {
@@ -302,6 +328,28 @@ class PfpLabelSensitivityTests(unittest.TestCase):
                 env=environment,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
+            text_manifest = self.make_prediction_artifact(
+                root, obo, mode="sequence-text"
+            )
+            text_output = root / "sensitivity-text"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SENSITIVITY),
+                    "--prediction-manifest",
+                    str(text_manifest),
+                    "--obo-file",
+                    str(obo),
+                    "--output-dir",
+                    str(text_output),
+                ],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=environment,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
             comparison = root / "comparison"
             result = subprocess.run(
                 [
@@ -311,6 +359,8 @@ class PfpLabelSensitivityTests(unittest.TestCase):
                     str(output / "root_exclusion_sensitivity.json"),
                     "--report",
                     str(sequence_output / "root_exclusion_sensitivity.json"),
+                    "--report",
+                    str(text_output / "root_exclusion_sensitivity.json"),
                     "--output-dir",
                     str(comparison),
                 ],
@@ -324,13 +374,20 @@ class PfpLabelSensitivityTests(unittest.TestCase):
             compared = json.loads(
                 (comparison / "label_sensitivity_comparison.json").read_text()
             )
-            self.assertEqual(len(compared["mode_delta_rows"]), 1)
+            self.assertEqual(compared["schema_version"], 3)
+            self.assertEqual(len(compared["mode_delta_rows"]), 2)
             self.assertEqual(
-                compared["mode_delta_rows"][0][
-                    "root_excluded_at_mode_canonical_threshold_delta"
-                ],
-                0.0,
+                {row["comparison_mode"] for row in compared["mode_delta_rows"]},
+                {"full", "sequence-text"},
             )
+            self.assertTrue(
+                all(
+                    row["root_excluded_at_mode_canonical_threshold_delta"] == 0.0
+                    for row in compared["mode_delta_rows"]
+                )
+            )
+            self.assertTrue((comparison / "mode_vs_sequence_deltas.tsv").is_file())
+            self.assertTrue((comparison / "full_vs_sequence_deltas.tsv").is_file())
 
     def test_comparator_rejects_different_scientific_provenance(self) -> None:
         with tempfile.TemporaryDirectory() as name:

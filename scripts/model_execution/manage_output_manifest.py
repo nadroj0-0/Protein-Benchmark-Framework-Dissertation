@@ -13,12 +13,17 @@ from common import atomic_write_json, sha256_file
 EXCLUDED = {"output_manifest.json", "WORKFLOW_COMPLETE.json"}
 
 
-def payload(root: Path) -> dict:
+def payload(root: Path, include_nested_control_files: bool = False) -> dict:
     files = []
     for path in sorted(root.rglob("*")):
-        if not path.is_file() or path.name in EXCLUDED:
+        if not path.is_file():
             continue
         relative = path.relative_to(root).as_posix()
+        if (
+            relative in EXCLUDED
+            or (not include_nested_control_files and path.name in EXCLUDED)
+        ):
+            continue
         files.append(
             {"path": relative, "bytes": path.stat().st_size, "sha256": sha256_file(path)}
         )
@@ -34,10 +39,15 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=("write", "verify"))
     parser.add_argument("--root", type=Path, required=True)
+    parser.add_argument(
+        "--include-nested-control-files",
+        action="store_true",
+        help="Bind nested manifests/completion markers while excluding only root controls",
+    )
     args = parser.parse_args()
     root = args.root.resolve()
     manifest = root / "output_manifest.json"
-    observed = payload(root)
+    observed = payload(root, args.include_nested_control_files)
     if args.action == "write":
         if manifest.exists():
             raise ValueError(f"Output manifest already exists: {manifest}")

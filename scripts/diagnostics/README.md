@@ -105,17 +105,47 @@ The original-threshold cohort result avoids retuning after changing the test
 cohort. When modes are compared, each mode's original threshold is shown
 explicitly; this is not described as a shared-threshold comparison.
 
-After running both full and sequence-only modes, compare their gains with:
+After running the available modality modes, compare every additive/full mode
+with the sequence-only baseline using repeated `--report` arguments:
 
 ```bash
 python scripts/diagnostics/compare_pfp_label_sensitivity.py \
   --report /path/to/full/root_exclusion_sensitivity.json \
   --report /path/to/sequence-only/root_exclusion_sensitivity.json \
+  --report /path/to/sequence-text/root_exclusion_sensitivity.json \
+  --report /path/to/sequence-structure/root_exclusion_sensitivity.json \
+  --report /path/to/sequence-ppi/root_exclusion_sensitivity.json \
   --output-dir /absolute/path/to/new/sensitivity-comparison
 ```
 
-The comparator calculates full-minus-sequence deltas only when the benchmark
+The comparator calculates each mode-minus-sequence delta only when the benchmark
 fingerprint, source CSVs, seed, config, OBO, PFP revision, protein order, truth,
-GO-term order and IA bytes match. Non-evaluable aspects remain visible with an
-explicit status. It does not treat Fmax values from different benchmark label
-spaces as directly comparable model rankings.
+GO-term order, IA bytes, sequence-embedding content and finalized embedding
+evidence match. Non-evaluable aspects remain visible with an explicit status.
+It does not treat Fmax values from different benchmark label spaces as directly
+comparable model rankings.
+
+Canonical Fmax, weighted Fmax and Smin can be compared independently from the
+completed PFP run reports:
+
+```bash
+python scripts/diagnostics/compare_pfp_modality_runs.py \
+  --run-report /path/to/sequence-only/reports/run_report.json \
+  --run-report /path/to/sequence-text/reports/run_report.json \
+  --run-report /path/to/sequence-structure/reports/run_report.json \
+  --run-report /path/to/sequence-ppi/reports/run_report.json \
+  --run-report /path/to/full/reports/run_report.json \
+  --prediction-manifest sequence-only=/path/to/sequence-only/prediction_artifact_manifest.json \
+  --prediction-manifest sequence-text=/path/to/sequence-text/prediction_artifact_manifest.json \
+  --prediction-manifest sequence-structure=/path/to/sequence-structure/prediction_artifact_manifest.json \
+  --prediction-manifest sequence-ppi=/path/to/sequence-ppi/prediction_artifact_manifest.json \
+  --prediction-manifest full=/path/to/full/prediction_artifact_manifest.json \
+  --output-dir /absolute/path/to/new/modality-comparison
+```
+
+Canonical reports must be from `train-eval` runs. A prediction capture may come
+from the same run or a later `eval-only` replay, but its exact checkpoint hash,
+canonical metrics, prepared benchmark, configuration, IA and active embedding
+content must bind back to the canonical retraining run. Framework commit drift
+is rejected unless it has been audited and explicitly acknowledged with
+`--allow-framework-commit-drift`.

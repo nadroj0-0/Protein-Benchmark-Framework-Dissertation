@@ -29,6 +29,7 @@ from prepare_pfp_benchmark import (  # noqa: E402
     compare_prepared,
     require_production_homology_publication,
 )
+from common import active_modalities  # noqa: E402
 
 
 FAKE_PREPARER = r'''#!/usr/bin/env python3
@@ -491,6 +492,29 @@ class ModelExecutionTests(unittest.TestCase):
         report = self.validate_cache(data, self.make_cache(data, include_nonsequence=False), "sequence-only")
         self.assertEqual(set(report["modalities"]), {"sequence"})
 
+    def test_modality_contribution_modes_validate_only_active_branches(self) -> None:
+        expected = {
+            "sequence-only": {"sequence"},
+            "sequence-text": {"sequence", "text"},
+            "sequence-structure": {"sequence", "structure"},
+            "sequence-ppi": {"sequence", "ppi"},
+            "full": {"sequence", "text", "structure", "ppi"},
+        }
+        data = self.prepare()
+        cache = self.make_cache(data)
+        for mode, modalities in expected.items():
+            with self.subTest(mode=mode):
+                self.assertEqual(set(active_modalities(mode)), modalities)
+                report = self.validate_cache(data, cache, mode)
+                self.assertEqual(set(report["modalities"]), modalities)
+
+    def test_disabled_malformed_modality_is_ignored_but_active_one_fails(self) -> None:
+        data = self.prepare()
+        cache = self.make_cache(data)
+        np.save(cache / "IF1" / "TEST.npy", np.zeros((1, 512), dtype=np.float32))
+        self.validate_cache(data, cache, "sequence-text")
+        self.validate_cache(data, cache, "sequence-structure", expected=1)
+
     def test_aspect_selection_scopes_cache_targets(self) -> None:
         path = self.benchmark / "cc-test.csv"
         path.write_text("proteins,sequences,GO:0000002\nCCONLY,TTTT,1\n")
@@ -608,6 +632,46 @@ class ModelExecutionTests(unittest.TestCase):
         run_report = json.loads((output / "reports" / "run_report.json").read_text())
         self.assertEqual(run_report["status"], "passed")
         self.assertEqual(run_report["seed"], 7)
+
+    def test_manifest_can_bind_nested_control_files(self) -> None:
+        root = self.root / "nested-manifest"
+        nested = root / "analysis"
+        nested.mkdir(parents=True)
+        (nested / "result.json").write_text("{}\n", encoding="utf-8")
+        (nested / "output_manifest.json").write_text(
+            '{"files":[]}\n', encoding="utf-8"
+        )
+        (nested / "RUN_COMPLETE.json").write_text(
+            '{"complete":true}\n', encoding="utf-8"
+        )
+        command = [
+            sys.executable,
+            str(MODEL_EXECUTION / "manage_output_manifest.py"),
+            "write",
+            "--root",
+            str(root),
+            "--include-nested-control-files",
+        ]
+        run(command)
+        manifest = json.loads((root / "output_manifest.json").read_text())
+        paths = {item["path"] for item in manifest["files"]}
+        self.assertIn("analysis/output_manifest.json", paths)
+        self.assertIn("analysis/RUN_COMPLETE.json", paths)
+        (nested / "output_manifest.json").write_text(
+            '{"files":["changed"]}\n', encoding="utf-8"
+        )
+        run(
+            [
+                sys.executable,
+                str(MODEL_EXECUTION / "manage_output_manifest.py"),
+                "verify",
+                "--root",
+                str(root),
+                "--include-nested-control-files",
+            ],
+            expected=1,
+            contains="does not match",
+        )
 
     def test_prepare_only_runner_accepts_complete_host_verified_git_state(self) -> None:
         work = self.root / "verified-runner-work"

@@ -16,7 +16,9 @@ import numpy as np
 
 from common import (
     ASPECTS,
+    MODALITY_MODES,
     PFP_SPLITS,
+    active_modalities,
     atomic_write_json,
     file_snapshot,
     load_run_config,
@@ -200,7 +202,7 @@ def main() -> int:
     parser.add_argument("--data-dir", type=Path, required=True)
     parser.add_argument("--cache-root", type=Path, required=True)
     parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--mode", choices=("full", "sequence-only"), required=True)
+    parser.add_argument("--mode", choices=MODALITY_MODES, required=True)
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--issues-tsv", type=Path, required=True)
     parser.add_argument("--embedding-evidence", type=Path, action="append", default=[])
@@ -215,7 +217,7 @@ def main() -> int:
     directories = modality_paths(cache_root, config)
     aspects = selected_aspects(args.aspect)
     targets, memberships = load_memberships(args.data_dir, aspects)
-    active = ["sequence"] if args.mode == "sequence-only" else list(config["modalities"])
+    active = list(active_modalities(args.mode))
     summaries: Dict[str, Any] = {}
     valid_ids: Dict[str, set[str]] = defaultdict(set)
     valid_hashes: Dict[str, Dict[str, str]] = defaultdict(dict)
@@ -409,11 +411,13 @@ def main() -> int:
             "Sequence embeddings must be valid for every benchmark protein: "
             f"{sequence_summary['valid']}/{len(targets)}"
         )
-    if args.mode == "full":
-        for modality in ("text", "structure", "ppi"):
+    for modality in active:
+        if modality != "sequence":
             summary = summaries[modality]
             if summary["valid"] == 0:
-                failures.append(f"Full mode has zero valid {modality} embeddings")
+                failures.append(
+                    f"{args.mode} mode has zero valid {modality} embeddings"
+                )
             if summary["invalid_present"]:
                 failures.append(
                     f"{modality} contains {summary['invalid_present']} malformed present arrays"
@@ -432,7 +436,7 @@ def main() -> int:
                 "coverage": valid_rows / len(protein_ids),
             }
     normalization_samples: Dict[str, Any] = {}
-    if args.mode == "full":
+    if len(active) > 1:
         for aspect in aspects:
             sample_ids = memberships[(aspect, "train")][:1000]
             sample_set = set(sample_ids)

@@ -166,7 +166,7 @@ def main() -> int:
         tempfile.mkdtemp(prefix=f".{output_dir.name}.stage-", dir=str(output_dir.parent))
     )
     started = time.perf_counter()
-    comparison_contract = global_comparison_contract(manifest)
+    comparison_contract = global_comparison_contract(manifest, artifact_root)
     report = {
         "schema_version": 2,
         "status": "complete",

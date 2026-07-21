@@ -27,7 +27,7 @@ calling PFP and checks every required output afterwards.
 - `eval-only`: evaluate an existing standard PFP checkpoint tree; and
 - `train-eval`: train fresh checkpoints and evaluate them.
 
-It has two modality modes:
+It has five modality modes:
 
 - `full`: use all four modalities. Sequence coverage must be 100%. Missing
   text, structure and PPI arrays remain absent so PFP applies its original
@@ -35,11 +35,18 @@ It has two modality modes:
 - `sequence-only`: require 100% ProtT5 coverage and deliberately mask text,
   structure and PPI. This preserves PFP's own four-branch masked control; it is
   not a newly designed standalone sequence architecture.
+- `sequence-text`: use ProtT5 and text while deliberately masking structure and
+  PPI.
+- `sequence-structure`: use ProtT5 and structure while deliberately masking
+  text and PPI.
+- `sequence-ppi`: use ProtT5 and PPI while deliberately masking text and
+  structure.
 
-The full and sequence-only results should both be reported. Full mode holds
-Zijian's behavior constant, while sequence-only provides a clean comparison
-when modality coverage differs substantially between historical and current
-proteins.
+These modes reproduce Zijian's Table 2 retraining design: every subset is
+trained from scratch with the same four-branch architecture and disabled
+modalities represented by PFP's native zero-vector/mask behavior. Together
+with `full`, they form the five-condition modality-contribution panel. This is
+different from masking a full-model checkpoint only at inference time.
 
 ## Validation contract
 
@@ -290,10 +297,39 @@ qsub hpc_jobs/active/hpc_pfp_benchmark.sh \
   --modality-mode full
 ```
 
-Repeat with a separate result root and `--modality-mode sequence-only` for the
-coverage-robust control. Never point two jobs at the same result directory.
+Repeat with separate result roots and `--modality-mode sequence-only`,
+`sequence-text`, `sequence-structure`, and `sequence-ppi` to complete Zijian's
+modality-contribution panel. Never point two jobs at the same result directory.
 The archive is safely extracted into job-owned scratch before the same strict
 cache/evidence validator runs; directory-backed cache input remains supported.
+
+Add `--capture-predictions` to panel runs that require the separate root-only
+sensitivity. Once all five completed runs are available, the Grid Engine
+analysis wrapper validates their published reports, reruns the sensitivity for
+each mode, and atomically publishes both canonical and sensitivity comparisons:
+
+```bash
+qsub -hold_jid JOBS hpc_jobs/active/hpc_pfp_modality_panel_analysis.sh \
+  --obo-file /SAN/.../go-basic.obo \
+  --output-dir /SAN/.../diagnostics/modality_contribution/RUN \
+  --run full=/SAN/.../full/COMPLETED_RUN \
+  --run sequence-only=/SAN/.../sequence_only/COMPLETED_RUN \
+  --run sequence-text=/SAN/.../sequence_text \
+  --run sequence-structure=/SAN/.../sequence_structure \
+  --run sequence-ppi=/SAN/.../sequence_ppi \
+  --prediction-run full=/SAN/.../full/CAPTURE_RUN \
+  --prediction-run sequence-only=/SAN/.../sequence_only/CAPTURE_RUN \
+  --prediction-run sequence-text=/SAN/.../sequence_text \
+  --prediction-run sequence-structure=/SAN/.../sequence_structure \
+  --prediction-run sequence-ppi=/SAN/.../sequence_ppi \
+  --allow-framework-commit-drift
+```
+
+Every `--run` is a canonical `train-eval` source. Every `--prediction-run` is a
+capture source and may point to the same completed run. Separate legacy capture
+runs are accepted only when exact checkpoint, metric, benchmark, IA, config and
+embedding-content bindings prove that their arrays came from the canonical
+models. The framework-drift flag is needed only after a documented code audit.
 
 ## Homology integration
 

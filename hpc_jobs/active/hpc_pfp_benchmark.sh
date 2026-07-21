@@ -24,7 +24,8 @@ Usage: qsub hpc_jobs/active/hpc_pfp_benchmark.sh \
   --obo-file FILE --results-root DIR \
   --execution-mode eval-only|train-eval \
   [--checkpoint-root DIR] [--config FILE] \
-  [--modality-mode full|sequence-only] [--cache-staging copy|direct] \
+  [--modality-mode full|sequence-only|sequence-text|sequence-structure|sequence-ppi] \
+  [--cache-staging copy|direct] \
   [--aspect BPO|CCO|MFO] [--seed N] [--num-workers N] \
   [--ia-file-dir DIR] [--capture-predictions] [--expected-metrics FILE] \
   [--reference-data-dir DIR] [--reference-source-archive FILE] \
@@ -147,7 +148,8 @@ if [[ -z "$CACHE_ROOT" && -z "$CACHE_ARCHIVE" ]]; then
   die "One of --embedding-cache-root or --embedding-cache-archive is required"
 fi
 [[ "$EXECUTION_MODE" =~ ^(eval-only|train-eval)$ ]] || die "Invalid --execution-mode"
-[[ "$MODALITY_MODE" =~ ^(full|sequence-only)$ ]] || die "Invalid --modality-mode"
+[[ "$MODALITY_MODE" =~ ^(full|sequence-only|sequence-text|sequence-structure|sequence-ppi)$ ]] || \
+  die "Invalid --modality-mode"
 [[ "$CACHE_STAGING" =~ ^(copy|direct)$ ]] || die "Invalid --cache-staging"
 [[ "$NUM_WORKERS" =~ ^[0-9]+$ && "$NUM_WORKERS" -le 8 ]] || \
   die "--num-workers must be an integer from 0 to 8 for this one-GPU wrapper"

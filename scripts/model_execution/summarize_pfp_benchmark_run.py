@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional
 from importlib.metadata import PackageNotFoundError, version
 
 from common import (
+    MODALITY_MODES,
     atomic_write_json,
     atomic_write_text,
     expected_result_dir,
@@ -27,7 +28,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--benchmark-id", required=True)
     parser.add_argument("--execution-mode", choices=("prepare-only", "eval-only", "train-eval"), required=True)
-    parser.add_argument("--modality-mode", choices=("full", "sequence-only"), required=True)
+    parser.add_argument("--modality-mode", choices=MODALITY_MODES, required=True)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--framework-commit", default="unknown")
     parser.add_argument("--pfp-commit", default="unknown")

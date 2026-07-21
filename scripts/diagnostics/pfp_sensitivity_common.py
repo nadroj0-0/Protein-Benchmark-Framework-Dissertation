@@ -24,6 +24,23 @@ from label_space_common import (
 )
 
 
+SUPPORTED_MODALITY_MODES = {
+    "full",
+    "sequence-only",
+    "sequence-text",
+    "sequence-structure",
+    "sequence-ppi",
+}
+
+MODE_MODALITIES = {
+    "full": ("sequence", "text", "structure", "ppi"),
+    "sequence-only": ("sequence",),
+    "sequence-text": ("sequence", "text"),
+    "sequence-structure": ("sequence", "structure"),
+    "sequence-ppi": ("sequence", "ppi"),
+}
+
+
 def sha256_lines(values: Iterable[str]) -> str:
     digest = hashlib.sha256()
     for value in values:
@@ -87,7 +104,7 @@ def verify_artifact_manifest(manifest_path: Path) -> tuple[dict[str, Any], Path]
         or set(selected) != set(manifest.get("aspects", {}))
     ):
         raise ValueError(f"Prediction manifest aspect inventory is inconsistent: {manifest_path}")
-    if manifest.get("mode") not in {"full", "sequence-only"}:
+    if manifest.get("mode") not in SUPPORTED_MODALITY_MODES:
         raise ValueError(f"Prediction manifest has unsupported mode: {manifest_path}")
     provenance = manifest.get("provenance")
     if not isinstance(provenance, dict) or not provenance.get("benchmark_fingerprint"):
@@ -112,8 +129,47 @@ def verify_artifact_manifest(manifest_path: Path) -> tuple[dict[str, Any], Path]
     return manifest, root
 
 
-def global_comparison_contract(manifest: Mapping[str, Any]) -> dict[str, Any]:
+def embedding_content_contract(
+    manifest: Mapping[str, Any], artifact_root: Path
+) -> dict[str, Any]:
+    mode = str(manifest["mode"])
+    specification = manifest["provenance"]["embedding_validation_report"]
+    report_path = artifact_root / specification["artifact_file"]
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    if report.get("status") != "passed" or report.get("mode") != mode:
+        raise ValueError("Prediction embedding report mode/status differs from manifest")
+    expected = set(MODE_MODALITIES[mode])
+    observed = set(report.get("modalities", {}))
+    if observed != expected:
+        raise ValueError(
+            f"Prediction embedding report modalities differ for {mode}: "
+            f"expected {sorted(expected)}, found {sorted(observed)}"
+        )
+    contents = {
+        modality: report["modalities"][modality]["valid_content_sha256"]
+        for modality in MODE_MODALITIES[mode]
+    }
+    if any(not isinstance(value, str) or len(value) != 64 for value in contents.values()):
+        raise ValueError("Prediction embedding report lacks valid content digests")
+    binding = report.get("embedding_evidence_binding", {})
+    return {
+        "active_modalities": list(MODE_MODALITIES[mode]),
+        "valid_content_sha256": contents,
+        "information_accretion": {
+            aspect: value.get("sha256")
+            for aspect, value in report.get("information_accretion", {}).items()
+        },
+        "evidence_contract_sha256": binding.get("contract_sha256"),
+        "target_manifest_sha256": binding.get("target_manifest_sha256"),
+        "pair_status_sha256": binding.get("pair_status_sha256"),
+    }
+
+
+def global_comparison_contract(
+    manifest: Mapping[str, Any], artifact_root: Path
+) -> dict[str, Any]:
     provenance = manifest["provenance"]
+    embedding = embedding_content_contract(manifest, artifact_root)
     value = {
         "benchmark_id": manifest["benchmark_id"],
         "benchmark_fingerprint": provenance["benchmark_fingerprint"],
@@ -122,6 +178,16 @@ def global_comparison_contract(manifest: Mapping[str, Any]) -> dict[str, Any]:
         "config_sha256": manifest["config"]["sha256"],
         "obo_sha256": manifest["obo"]["sha256"],
         "pfp_commit": provenance["pfp_commit"],
+        "sequence_embedding_content_sha256": embedding["valid_content_sha256"][
+            "sequence"
+        ],
+        "embedding_evidence_contract_sha256": embedding[
+            "evidence_contract_sha256"
+        ],
+        "embedding_target_manifest_sha256": embedding[
+            "target_manifest_sha256"
+        ],
+        "embedding_pair_status_sha256": embedding["pair_status_sha256"],
     }
     return {"value": value, "sha256": sha256_json(value)}
 

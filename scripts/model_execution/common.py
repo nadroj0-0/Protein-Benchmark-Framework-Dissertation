@@ -24,6 +24,20 @@ ASPECT_TO_NAMESPACE = {
 CSV_SPLITS = ("training", "validation", "test")
 PFP_SPLITS = {"training": "train", "validation": "valid", "test": "test"}
 MANDATORY_CAFA_METRICS = ("cafa_fmax", "cafa_wfmax", "cafa_smin")
+MODALITY_MODES = (
+    "full",
+    "sequence-only",
+    "sequence-text",
+    "sequence-structure",
+    "sequence-ppi",
+)
+ACTIVE_MODALITIES_BY_MODE = {
+    "full": ("sequence", "text", "structure", "ppi"),
+    "sequence-only": ("sequence",),
+    "sequence-text": ("sequence", "text"),
+    "sequence-structure": ("sequence", "structure"),
+    "sequence-ppi": ("sequence", "ppi"),
+}
 
 
 def load_json(path: Path) -> Any:
@@ -177,6 +191,13 @@ def modality_paths(cache_root: Path, config: Mapping[str, Any]) -> Dict[str, Pat
         path = Path(directory)
         paths[name] = path if path.is_absolute() else cache_root / path
     return paths
+
+
+def active_modalities(mode: str) -> tuple[str, ...]:
+    try:
+        return ACTIVE_MODALITIES_BY_MODE[mode]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported PFP modality mode: {mode}") from exc
 
 
 def expected_result_dir(output_base: Path, aspect: str) -> Path:

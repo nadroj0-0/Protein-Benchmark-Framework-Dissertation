@@ -18,6 +18,8 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from common import (
+    MODALITY_MODES,
+    active_modalities,
     atomic_write_json,
     expected_result_dir,
     file_snapshot,
@@ -80,7 +82,7 @@ def main() -> int:
     parser.add_argument("--checkpoint-root", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--mode", choices=("full", "sequence-only"), required=True)
+    parser.add_argument("--mode", choices=MODALITY_MODES, required=True)
     parser.add_argument("--aspect", action="append", default=[])
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
@@ -245,10 +247,11 @@ def main() -> int:
         "struct": str(paths["structure"]),
         "ppi": str(paths["ppi"]),
     }
-    if args.mode == "sequence-only":
-        embedding_dirs.update(
-            {"text": str(empty_dir), "struct": str(empty_dir), "ppi": str(empty_dir)}
-        )
+    active = set(active_modalities(args.mode))
+    pfp_names = {"text": "text", "structure": "struct", "ppi": "ppi"}
+    for modality, pfp_name in pfp_names.items():
+        if modality not in active:
+            embedding_dirs[pfp_name] = str(empty_dir)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     set_seed(args.seed)
