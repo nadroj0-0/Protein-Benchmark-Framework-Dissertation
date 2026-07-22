@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "run_name": "homology-30-percent",
+  "top_n": 20,
+  "datasets": [
+    {
+      "id": "homology-30-percent",
+      "benchmark_dir": "/path/to/homology/30/csvs",
+      "obo_file": "/path/to/frozen/go-basic.obo",
+      "allow_legacy_singular_protein_header": false,
+      "allow_all_zero_rows": false,
+      "split_overlap_policy": "disallow",
+      "source_annotations": {
+        "type": "pfp-pickle-directory",
+        "path": "/path/to/homology/30/pre_projection",
+        "projection_policy": "DeepGOPlus-compatible min_count=50 label universe"
+      },
+      "taxonomy_sources": [
+        {
+          "type": "uniprot-dat",
+          "path": "/path/to/relevant_uniprot.dat.gz"
+        }
+      ],
+      "modality_inventory": {
+        "type": "embedding-inventory",
+        "path": "/path/to/homology/30/embedding_inventory.tsv.gz"
+      }
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "run_name": "cafa3-published-vs-contemporary",
+  "top_n": 20,
+  "datasets": [
+    {
+      "id": "cafa3-published",
+      "benchmark_dir": "/path/to/cafa3/published/csvs",
+      "obo_file": "/path/to/cafa3/go.obo",
+      "allow_legacy_singular_protein_header": true,
+      "allow_all_zero_rows": false,
+      "split_overlap_policy": "disallow",
+      "source_annotations": {
+        "type": "pfp-pickle-directory",
+        "path": "/path/to/cafa3/generated/pre_projection",
+        "projection_policy": "DeepGOPlus-compatible min_count=50 label universe"
+      },
+      "taxonomy_sources": [
+        {
+          "type": "uniprot-dat",
+          "path": "/path/to/cafa3/relevant_uniprot.dat.gz"
+        },
+        {
+          "type": "tsv",
+          "path": "/path/to/cafa3/target_mapping.tsv",
+          "id_columns": ["protein_id", "target_id"],
+          "taxon_id_column": "taxon_id",
+          "taxon_name_column": "taxon_name"
+        }
+      ],
+      "modality_inventory": {
+        "type": "embedding-inventory",
+        "path": "/path/to/cafa3/embedding_inventory.tsv.gz"
+      }
+    },
+    {
+      "id": "contemporary-2025-2026",
+      "benchmark_dir": "/path/to/contemporary/csvs",
+      "obo_file": "/path/to/contemporary/go-basic.obo",
+      "allow_legacy_singular_protein_header": false,
+      "allow_all_zero_rows": false,
+      "split_overlap_policy": "disallow",
+      "source_annotations": {
+        "type": "pfp-pickle-directory",
+        "path": "/path/to/contemporary/pre_projection",
+        "projection_policy": "DeepGOPlus-compatible min_count=50 label universe"
+      },
+      "taxonomy_sources": [
+        {
+          "type": "uniprot-dat",
+          "path": "/path/to/contemporary/training_uniprot.dat.gz"
+        },
+        {
+          "type": "uniprot-dat",
+          "path": "/path/to/contemporary/target_uniprot.dat.gz"
+        }
+      ],
+      "modality_inventory": {
+        "type": "embedding-inventory",
+        "path": "/path/to/contemporary/embedding_inventory.tsv.gz"
+      },
+      "category_sources": [
+        {
+          "name": "interpro_family",
+          "path": "/optional/path/to/protein_families.tsv",
+          "protein_id_column": "protein_id",
+          "category_id_column": "family_id",
+          "category_name_column": "family_name"
+        }
+      ]
+    }
+  ]
+}
