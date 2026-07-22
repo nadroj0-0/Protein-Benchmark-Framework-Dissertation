@@ -189,7 +189,9 @@ def _load_dataset(config: DatasetConfig) -> Tuple[DatasetResult, Ontology]:
                 )
 
     wanted_ids = set(sequence_by_protein)
-    taxonomy, taxonomy_paths = load_taxonomy(config.taxonomy_sources, wanted_ids)
+    taxonomy, taxonomy_paths, taxonomy_conflicts = load_taxonomy(
+        config.taxonomy_sources, wanted_ids
+    )
     modality_states: Mapping[Tuple[str, str], Mapping[str, bool]] = {}
     modalities: Tuple[str, ...] = tuple()
     modality_paths: Tuple[Path, ...] = tuple()
@@ -219,6 +221,10 @@ def _load_dataset(config: DatasetConfig) -> Tuple[DatasetResult, Ontology]:
         "source_annotations_configured": config.source_annotations is not None,
         "taxonomy_sources_configured": len(config.taxonomy_sources),
         "taxonomy_mapped_unique_proteins": len(taxonomy),
+        "taxonomy_conflict_proteins": len(
+            {item.protein_id for item in taxonomy_conflicts}
+        ),
+        "taxonomy_conflict_observations": len(taxonomy_conflicts),
         "modality_inventory_configured": config.modality_inventory is not None,
         "modality_inventory_extra_pairs": extras,
         "category_sources": sorted(category_maps),
@@ -232,6 +238,7 @@ def _load_dataset(config: DatasetConfig) -> Tuple[DatasetResult, Ontology]:
         sequences=sequence_by_protein,
         source_by_split=source_by_split,
         taxonomy=taxonomy,
+        taxonomy_conflicts=taxonomy_conflicts,
         modality_states=modality_states,
         modalities=modalities,
         category_maps=category_maps,
@@ -454,6 +461,27 @@ def _taxonomy_tables(
     return tuple(distribution), tuple(coverage)
 
 
+def _taxonomy_conflict_table(dataset: DatasetResult) -> Tuple[dict, ...]:
+    return tuple(
+        {
+            "dataset_id": dataset.dataset_id,
+            "protein_id": item.protein_id,
+            "selected_taxon_id": item.selected.taxon_id,
+            "selected_taxon_name": item.selected.taxon_name,
+            "selected_source_name": item.selected.source_name,
+            "selected_source_path": item.selected.source,
+            "selected_source_priority": item.selected.source_priority,
+            "alternative_taxon_id": item.alternative.taxon_id,
+            "alternative_taxon_name": item.alternative.taxon_name,
+            "alternative_source_name": item.alternative.source_name,
+            "alternative_source_path": item.alternative.source,
+            "alternative_source_priority": item.alternative.source_priority,
+            "resolution": item.resolution,
+        }
+        for item in dataset.taxonomy_conflicts
+    )
+
+
 def _category_tables(dataset: DatasetResult) -> Tuple[dict, ...]:
     rows = []
     for source_name, mapping in dataset.category_maps.items():
@@ -576,20 +604,30 @@ def _membership_table(dataset: DatasetResult) -> Tuple[dict, ...]:
     for item in dataset.observations:
         memberships[item.protein_id].add((item.aspect, item.split))
         sequence_sha[item.protein_id] = item.sequence_sha256
-    return tuple(
-        {
-            "dataset_id": dataset.dataset_id,
-            "protein_id": protein_id,
-            "sequence_sha256": sequence_sha[protein_id],
-            "aspects": ";".join(sorted(aspect for aspect, _split in pairs)),
-            "splits": ";".join(sorted({split for _aspect, split in pairs})),
-            "memberships": ";".join(
-                f"{aspect}:{split}" for aspect, split in sorted(pairs)
-            ),
-            "taxonomy_mapped": protein_id in dataset.taxonomy,
-        }
-        for protein_id, pairs in sorted(memberships.items())
-    )
+    conflicted = {item.protein_id for item in dataset.taxonomy_conflicts}
+    rows = []
+    for protein_id, pairs in sorted(memberships.items()):
+        taxon = dataset.taxonomy.get(protein_id)
+        rows.append(
+            {
+                "dataset_id": dataset.dataset_id,
+                "protein_id": protein_id,
+                "sequence_sha256": sequence_sha[protein_id],
+                "aspects": ";".join(sorted(aspect for aspect, _split in pairs)),
+                "splits": ";".join(sorted({split for _aspect, split in pairs})),
+                "memberships": ";".join(
+                    f"{aspect}:{split}" for aspect, split in sorted(pairs)
+                ),
+                "taxonomy_mapped": taxon is not None,
+                "taxon_id": taxon.taxon_id if taxon else "",
+                "taxon_name": taxon.taxon_name if taxon else "",
+                "taxonomy_source_name": taxon.source_name if taxon else "",
+                "taxonomy_source_path": taxon.source if taxon else "",
+                "taxonomy_source_priority": (taxon.source_priority if taxon else ""),
+                "taxonomy_conflict_resolved": protein_id in conflicted,
+            }
+        )
+    return tuple(rows)
 
 
 def _cross_metrics(
@@ -772,6 +810,7 @@ def analyze(config: RunConfig) -> AnalysisBundle:
             "root_only_summary": root_summary,
             "taxonomy_distribution": taxonomy_distribution,
             "taxonomy_coverage": taxonomy_coverage,
+            "taxonomy_conflicts": _taxonomy_conflict_table(dataset),
             "category_distribution": _category_tables(dataset),
             "modality_coverage": modality_coverage,
             "modality_patterns": modality_patterns,
@@ -798,6 +837,7 @@ def analyze(config: RunConfig) -> AnalysisBundle:
         },
         "interpretation_boundaries": [
             "Taxonomy distributions describe organisms, not protein families.",
+            "Taxonomy changes across sources are resolved only by explicit source priority and are retained in taxonomy_conflicts.tsv; equally authoritative disagreements fail closed.",
             "Protein-family claims require an explicit category mapping source.",
             "Projection-created root-only rows are attributed to the configured projection policy only when pre-projection annotations are supplied.",
             "Modality artifact existence, validity, scientific eligibility, and planned reuse are distinct coverage meanings.",

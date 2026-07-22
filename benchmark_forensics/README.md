@@ -9,6 +9,7 @@ It reports:
 - label, root-only, annotation-count, sequence-length, and term-support profiles;
 - exact root-only provenance when pre-projection PFP pickles are supplied;
 - complete organism/taxonomy distributions for every aspect and split;
+- auditable resolution of legitimate taxonomy changes across ordered snapshots;
 - optional real protein-family or other category distributions from explicit maps;
 - per-modality coverage for every aspect and split;
 - modality co-availability patterns;
@@ -34,6 +35,25 @@ replacement only after the new staged report has been generated successfully.
 This is a CPU-only analysis. A GPU does not accelerate CSV parsing, joins,
 counting, OBO traversal, or manifest hashing. Runtime is normally governed by
 the total CSV/DAT bytes and input hashing rather than model computation.
+
+## Taxonomy source resolution
+
+Each taxonomy source may declare a unique `name` and integer `priority`.
+Higher priority wins, independently of configuration order. The supplied HPC
+configuration ranks release recency first and reviewed Swiss-Prot over
+unreviewed TrEMBL within a release. This retains older releases as coverage
+fallbacks without allowing them to overwrite newer mappings.
+
+If lower-priority sources assign a different taxon to the same accession, the
+selected and alternative assignments are written to `taxonomy_conflicts.tsv`,
+and the selected source is recorded in `protein_membership.tsv`. This is an
+audited historical resolution, not a silent overwrite. If sources at the same
+priority disagree, analysis fails closed because the configuration has not
+provided a defensible way to choose between equally authoritative evidence.
+
+When `name` and `priority` are omitted, the source path is used as the name and
+priority defaults to zero. Therefore existing configurations retain strict
+conflict behaviour until an explicit precedence policy is declared.
 
 ## Root-only provenance
 

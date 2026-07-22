@@ -18,7 +18,9 @@
       "taxonomy_sources": [
         {
           "type": "uniprot-dat",
-          "path": "/path/to/relevant_uniprot.dat.gz"
+          "path": "/path/to/relevant_uniprot.dat.gz",
+          "name": "frozen-homology-taxonomy",
+          "priority": 100
         }
       ],
       "modality_inventory": {

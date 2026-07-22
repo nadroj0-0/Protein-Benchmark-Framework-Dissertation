@@ -35,6 +35,16 @@ class Taxon:
     taxon_id: str
     taxon_name: str
     source: str
+    source_name: str
+    source_priority: int
+
+
+@dataclass(frozen=True)
+class TaxonomyConflict:
+    protein_id: str
+    selected: Taxon
+    alternative: Taxon
+    resolution: str
 
 
 @dataclass
@@ -47,6 +57,7 @@ class DatasetResult:
     sequences: Mapping[str, str]
     source_by_split: Mapping[str, Mapping[str, SourceRecord]]
     taxonomy: Mapping[str, Taxon]
+    taxonomy_conflicts: Tuple[TaxonomyConflict, ...]
     modality_states: Mapping[Tuple[str, str], Mapping[str, bool]]
     modalities: Tuple[str, ...]
     category_maps: Mapping[str, Mapping[str, Tuple[Tuple[str, str], ...]]]

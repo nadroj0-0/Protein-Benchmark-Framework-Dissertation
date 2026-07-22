@@ -29,6 +29,8 @@ class SourceAnnotationSpec:
 class TaxonomySourceSpec:
     type: str
     path: Path
+    name: str
+    priority: int
     id_columns: Tuple[str, ...]
     taxon_id_column: str
     taxon_name_column: str
@@ -208,7 +210,13 @@ def _taxonomy_source(raw: Any, label: str, base: Path) -> TaxonomySourceSpec:
         value,
         label,
         required=("type", "path"),
-        optional=("id_columns", "taxon_id_column", "taxon_name_column"),
+        optional=(
+            "name",
+            "priority",
+            "id_columns",
+            "taxon_id_column",
+            "taxon_name_column",
+        ),
     )
     source_type = _text(value["type"], f"{label}.type")
     if source_type not in {"tsv", "uniprot-dat"}:
@@ -217,9 +225,15 @@ def _taxonomy_source(raw: Any, label: str, base: Path) -> TaxonomySourceSpec:
         key in value for key in ("id_columns", "taxon_id_column", "taxon_name_column")
     ):
         raise ConfigError(f"{label} column settings are only valid for TSV sources")
+    priority = value.get("priority", 0)
+    if isinstance(priority, bool) or not isinstance(priority, int):
+        raise ConfigError(f"{label}.priority must be an integer")
+    path = _path(value["path"], f"{label}.path", base)
     return TaxonomySourceSpec(
         type=source_type,
-        path=_path(value["path"], f"{label}.path", base),
+        path=path,
+        name=_text(value.get("name", str(path)), f"{label}.name"),
+        priority=priority,
         id_columns=_string_tuple(
             value.get("id_columns", ["protein_id"]), f"{label}.id_columns"
         ),
@@ -359,6 +373,13 @@ def _dataset(raw: Any, index: int, base: Path) -> DatasetConfig:
     category_names = [source.name for source in category_sources]
     if len(category_names) != len(set(category_names)):
         raise ConfigError(f"{label}.category_sources names must be unique")
+    taxonomy_sources = tuple(
+        _taxonomy_source(item, f"{label}.taxonomy_sources[{number}]", base)
+        for number, item in enumerate(taxonomy_raw)
+    )
+    taxonomy_names = [source.name for source in taxonomy_sources]
+    if len(taxonomy_names) != len(set(taxonomy_names)):
+        raise ConfigError(f"{label}.taxonomy_sources names must be unique")
     return DatasetConfig(
         id=_text(value["id"], f"{label}.id"),
         benchmark_dir=_path(value["benchmark_dir"], f"{label}.benchmark_dir", base),
@@ -379,10 +400,7 @@ def _dataset(raw: Any, index: int, base: Path) -> DatasetConfig:
             if "source_annotations" in value
             else None
         ),
-        taxonomy_sources=tuple(
-            _taxonomy_source(item, f"{label}.taxonomy_sources[{number}]", base)
-            for number, item in enumerate(taxonomy_raw)
-        ),
+        taxonomy_sources=taxonomy_sources,
         modality_inventory=(
             _modality_inventory(
                 value["modality_inventory"], f"{label}.modality_inventory", base

@@ -161,8 +161,18 @@ payload = {
             "projection_policy": "Published DeepGOPlus/PFP min_count=50 label-universe projection",
         },
         "taxonomy_sources": [
-            {"type": "uniprot-dat", "path": path}
-            for path in (t0_sprot, t0_trembl, t1_sprot, t1_trembl)
+            {
+                "type": "uniprot-dat",
+                "path": path,
+                "name": name,
+                "priority": priority,
+            }
+            for name, priority, path in (
+                ("uniprot-2025-01-trembl", 100, t0_trembl),
+                ("uniprot-2025-01-swissprot", 200, t0_sprot),
+                ("uniprot-2026-02-trembl", 300, t1_trembl),
+                ("uniprot-2026-02-swissprot", 400, t1_sprot),
+            )
         ],
         "modality_inventory": {
             "type": "long-table",
@@ -210,8 +220,18 @@ payload = {
             "projection_policy": "Supervisor-profile min_count=50 label-universe projection",
         },
         "taxonomy_sources": [
-            {"type": "uniprot-dat", "path": path}
-            for path in (t0_sprot, t0_trembl, t1_sprot, t1_trembl)
+            {
+                "type": "uniprot-dat",
+                "path": path,
+                "name": name,
+                "priority": priority,
+            }
+            for name, priority, path in (
+                ("uniprot-2025-01-trembl", 100, t0_trembl),
+                ("uniprot-2025-01-swissprot", 200, t0_sprot),
+                ("uniprot-2026-02-trembl", 300, t1_trembl),
+                ("uniprot-2026-02-swissprot", 400, t1_sprot),
+            )
         ],
         "modality_inventory": {
             "type": "long-table",

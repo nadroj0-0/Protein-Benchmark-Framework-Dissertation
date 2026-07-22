@@ -18,11 +18,15 @@
       "taxonomy_sources": [
         {
           "type": "uniprot-dat",
-          "path": "/path/to/cafa3/relevant_uniprot.dat.gz"
+          "path": "/path/to/cafa3/relevant_uniprot.dat.gz",
+          "name": "current-uniprot-primary",
+          "priority": 200
         },
         {
           "type": "tsv",
           "path": "/path/to/cafa3/target_mapping.tsv",
+          "name": "historical-target-fallback",
+          "priority": 100,
           "id_columns": ["protein_id", "target_id"],
           "taxon_id_column": "taxon_id",
           "taxon_name_column": "taxon_name"
@@ -48,11 +52,15 @@
       "taxonomy_sources": [
         {
           "type": "uniprot-dat",
-          "path": "/path/to/contemporary/training_uniprot.dat.gz"
+          "path": "/path/to/contemporary/training_uniprot.dat.gz",
+          "name": "uniprot-t0-fallback",
+          "priority": 100
         },
         {
           "type": "uniprot-dat",
-          "path": "/path/to/contemporary/target_uniprot.dat.gz"
+          "path": "/path/to/contemporary/target_uniprot.dat.gz",
+          "name": "uniprot-t1-primary",
+          "priority": 200
         }
       ],
       "modality_inventory": {

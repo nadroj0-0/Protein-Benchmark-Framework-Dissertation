@@ -111,6 +111,13 @@ def write_taxonomy(path: Path, sequences: dict) -> None:
             writer.writerow([protein, taxon_id, name])
 
 
+def write_taxonomy_rows(path: Path, rows: list) -> None:
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle, delimiter="\t")
+        writer.writerow(["protein_id", "taxon_id", "taxon_name"])
+        writer.writerows(rows)
+
+
 def write_inventory(path: Path, sequences: dict) -> None:
     fields = [
         "protein_id",
@@ -222,6 +229,22 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(ConfigError, "non-empty"):
                 load_config(path)
 
+    def test_taxonomy_source_names_must_be_unique(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dataset = build_dataset(root, "dataset")
+            source = dataset["taxonomy_sources"][0]
+            source["name"] = "duplicate"
+            dataset["taxonomy_sources"].append(dict(source))
+            path = root / "config.json"
+            path.write_text(
+                json.dumps(
+                    {"schema_version": 1, "run_name": "test", "datasets": [dataset]}
+                )
+            )
+            with self.assertRaisesRegex(ConfigError, "names must be unique"):
+                load_config(path)
+
 
 class AnalysisTests(unittest.TestCase):
     def test_complete_analysis_and_atomic_reports(self):
@@ -286,6 +309,7 @@ class AnalysisTests(unittest.TestCase):
             self.assertTrue((output / "benchmark_forensics.md").is_file())
             self.assertTrue((output / "root_only_provenance.tsv").is_file())
             self.assertTrue((output / "taxonomy_distribution.tsv").is_file())
+            self.assertTrue((output / "taxonomy_conflicts.tsv").is_file())
             self.assertTrue((output / "modality_coverage.tsv").is_file())
             manifest = json.loads((output / "output_manifest.json").read_text())
             self.assertTrue(manifest["outputs"])
@@ -341,6 +365,101 @@ class AnalysisTests(unittest.TestCase):
             ]
             human = [row for row in rows if row["taxon_id"] == "9606"]
             self.assertEqual(human[0]["proteins"], 1)
+
+    def test_higher_priority_taxonomy_resolves_and_reports_snapshot_change(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dataset = build_dataset(root, "dataset")
+            old_source = dataset["taxonomy_sources"][0]
+            old_source.update({"name": "uniprot-old", "priority": 100})
+            new_taxonomy = root / "taxonomy-new.tsv"
+            write_taxonomy_rows(
+                new_taxonomy,
+                [["P0A", "11111", "Updated organism assignment"]],
+            )
+            new_source = {
+                "type": "tsv",
+                "path": str(new_taxonomy),
+                "name": "uniprot-new",
+                "priority": 200,
+            }
+            dataset["taxonomy_sources"] = [old_source, new_source]
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {"schema_version": 1, "run_name": "test", "datasets": [dataset]}
+                )
+            )
+
+            bundle = analyze(load_config(config_path))
+            conflicts = bundle.tables["taxonomy_conflicts"]
+            self.assertEqual(len(conflicts), 1)
+            self.assertEqual(conflicts[0]["protein_id"], "P0A")
+            self.assertEqual(conflicts[0]["selected_taxon_id"], "11111")
+            self.assertEqual(conflicts[0]["selected_source_name"], "uniprot-new")
+            self.assertEqual(conflicts[0]["alternative_taxon_id"], "9606")
+            self.assertEqual(
+                bundle.summary["datasets"]["dataset"]["taxonomy_conflict_proteins"],
+                1,
+            )
+            membership = {
+                row["protein_id"]: row for row in bundle.tables["protein_membership"]
+            }
+            self.assertEqual(membership["P0A"]["taxon_id"], "11111")
+            self.assertTrue(membership["P0A"]["taxonomy_conflict_resolved"])
+
+            dataset["taxonomy_sources"] = [new_source, old_source]
+            config_path.write_text(
+                json.dumps(
+                    {"schema_version": 1, "run_name": "test", "datasets": [dataset]}
+                )
+            )
+            reversed_bundle = analyze(load_config(config_path))
+            self.assertEqual(
+                reversed_bundle.tables["taxonomy_conflicts"],
+                conflicts,
+            )
+
+    def test_equal_priority_taxonomy_conflict_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dataset = build_dataset(root, "dataset")
+            first = dataset["taxonomy_sources"][0]
+            first.update({"name": "source-a", "priority": 100})
+            second_path = root / "taxonomy-second.tsv"
+            write_taxonomy_rows(second_path, [["P0A", "11111", "Other organism"]])
+            dataset["taxonomy_sources"].append(
+                {
+                    "type": "tsv",
+                    "path": str(second_path),
+                    "name": "source-b",
+                    "priority": 100,
+                }
+            )
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {"schema_version": 1, "run_name": "test", "datasets": [dataset]}
+                )
+            )
+            with self.assertRaisesRegex(
+                ValueError, "Equal-priority taxonomy sources disagree for P0A"
+            ):
+                analyze(load_config(config_path))
+
+    def test_taxonomy_source_priority_must_be_integer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dataset = build_dataset(root, "dataset")
+            dataset["taxonomy_sources"][0]["priority"] = "latest"
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {"schema_version": 1, "run_name": "test", "datasets": [dataset]}
+                )
+            )
+            with self.assertRaisesRegex(ConfigError, "priority must be an integer"):
+                load_config(config_path)
 
 
 if __name__ == "__main__":

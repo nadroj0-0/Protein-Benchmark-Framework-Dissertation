@@ -18,7 +18,7 @@ from .config import (
     SourceAnnotationSpec,
     TaxonomySourceSpec,
 )
-from .models import Observation, SourceRecord, Taxon
+from .models import Observation, SourceRecord, Taxon, TaxonomyConflict
 
 
 @contextmanager
@@ -301,22 +301,28 @@ def load_source_annotations(
     return by_split, tuple(input_paths)
 
 
-def _merge_taxon(
-    result: MutableMapping[str, Taxon], protein_id: str, taxon: Taxon
+def _record_taxon(
+    result: MutableMapping[str, MutableMapping[str, Taxon]],
+    protein_id: str,
+    taxon: Taxon,
 ) -> None:
     if not protein_id:
         return
-    previous = result.get(protein_id)
-    if previous and previous.taxon_id != taxon.taxon_id:
+    by_source = result.setdefault(protein_id, {})
+    previous = by_source.get(taxon.source_name)
+    if previous is not None and previous.taxon_id != taxon.taxon_id:
         raise ValueError(
-            f"Conflicting taxonomy for {protein_id}: {previous.taxon_id} vs {taxon.taxon_id}"
+            f"Taxonomy source {taxon.source_name!r} assigns conflicting taxa to "
+            f"{protein_id}: {previous.taxon_id} vs {taxon.taxon_id}"
         )
     if previous is None or (not previous.taxon_name and taxon.taxon_name):
-        result[protein_id] = taxon
+        by_source[taxon.source_name] = taxon
 
 
 def _load_taxonomy_tsv(
-    spec: TaxonomySourceSpec, wanted_ids: Set[str], result: MutableMapping[str, Taxon]
+    spec: TaxonomySourceSpec,
+    wanted_ids: Set[str],
+    result: MutableMapping[str, MutableMapping[str, Taxon]],
 ) -> None:
     with open_text(spec.path) as handle:
         reader = csv.DictReader(handle, delimiter="\t")
@@ -333,16 +339,24 @@ def _load_taxonomy_tsv(
             taxon_name = (
                 row[spec.taxon_name_column].strip() if spec.taxon_name_column else ""
             )
-            taxon = Taxon(taxon_id, taxon_name, str(spec.path.resolve()))
+            taxon = Taxon(
+                taxon_id,
+                taxon_name,
+                str(spec.path.resolve()),
+                spec.name,
+                spec.priority,
+            )
             for column in spec.id_columns:
                 for protein_id in re.split(r"[;,]", row[column]):
                     protein_id = protein_id.strip()
                     if protein_id in wanted_ids:
-                        _merge_taxon(result, protein_id, taxon)
+                        _record_taxon(result, protein_id, taxon)
 
 
 def _load_uniprot_dat(
-    spec: TaxonomySourceSpec, wanted_ids: Set[str], result: MutableMapping[str, Taxon]
+    spec: TaxonomySourceSpec,
+    wanted_ids: Set[str],
+    result: MutableMapping[str, MutableMapping[str, Taxon]],
 ) -> None:
     accessions = []
     taxon_id = ""
@@ -352,10 +366,16 @@ def _load_uniprot_dat(
         if not taxon_id:
             return
         organism = " ".join(organism_parts).strip()
-        taxon = Taxon(taxon_id, organism, str(spec.path.resolve()))
+        taxon = Taxon(
+            taxon_id,
+            organism,
+            str(spec.path.resolve()),
+            spec.name,
+            spec.priority,
+        )
         for accession in accessions:
             if accession in wanted_ids:
-                _merge_taxon(result, accession, taxon)
+                _record_taxon(result, accession, taxon)
 
     with open_text(spec.path) as handle:
         for raw in handle:
@@ -377,19 +397,64 @@ def _load_uniprot_dat(
         publish()
 
 
+def _resolve_taxonomy(
+    candidates: Mapping[str, Mapping[str, Taxon]],
+) -> Tuple[Mapping[str, Taxon], Tuple[TaxonomyConflict, ...]]:
+    resolved: Dict[str, Taxon] = {}
+    conflicts = []
+    for protein_id in sorted(candidates):
+        ranked = sorted(
+            candidates[protein_id].values(),
+            key=lambda item: (
+                -item.source_priority,
+                not bool(item.taxon_name),
+                item.source_name,
+                item.source,
+            ),
+        )
+        highest_priority = ranked[0].source_priority
+        highest = [item for item in ranked if item.source_priority == highest_priority]
+        highest_ids = sorted({item.taxon_id for item in highest})
+        if len(highest_ids) > 1:
+            details = ", ".join(
+                f"{item.source_name}={item.taxon_id}" for item in highest
+            )
+            raise ValueError(
+                f"Equal-priority taxonomy sources disagree for {protein_id} "
+                f"at priority {highest_priority}: {details}"
+            )
+        selected = highest[0]
+        resolved[protein_id] = selected
+        for alternative in ranked:
+            if alternative.source_name == selected.source_name:
+                continue
+            if alternative.taxon_id == selected.taxon_id:
+                continue
+            conflicts.append(
+                TaxonomyConflict(
+                    protein_id=protein_id,
+                    selected=selected,
+                    alternative=alternative,
+                    resolution="selected explicitly higher-priority taxonomy source",
+                )
+            )
+    return resolved, tuple(conflicts)
+
+
 def load_taxonomy(
     specs: Iterable[TaxonomySourceSpec], wanted_ids: Set[str]
-) -> Tuple[Mapping[str, Taxon], Tuple[Path, ...]]:
-    result: Dict[str, Taxon] = {}
+) -> Tuple[Mapping[str, Taxon], Tuple[Path, ...], Tuple[TaxonomyConflict, ...]]:
+    candidates: Dict[str, MutableMapping[str, Taxon]] = {}
     paths = []
     for spec in specs:
         _require_file(spec.path, "taxonomy source")
         paths.append(spec.path)
         if spec.type == "tsv":
-            _load_taxonomy_tsv(spec, wanted_ids, result)
+            _load_taxonomy_tsv(spec, wanted_ids, candidates)
         else:
-            _load_uniprot_dat(spec, wanted_ids, result)
-    return result, tuple(paths)
+            _load_uniprot_dat(spec, wanted_ids, candidates)
+    result, conflicts = _resolve_taxonomy(candidates)
+    return result, tuple(paths), conflicts
 
 
 def load_modality_inventory(

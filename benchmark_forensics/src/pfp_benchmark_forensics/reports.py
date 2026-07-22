@@ -135,6 +135,21 @@ TABLE_FIELDS = {
         "unmapped_proteins",
         "mapping_fraction",
     ),
+    "taxonomy_conflicts": (
+        "dataset_id",
+        "protein_id",
+        "selected_taxon_id",
+        "selected_taxon_name",
+        "selected_source_name",
+        "selected_source_path",
+        "selected_source_priority",
+        "alternative_taxon_id",
+        "alternative_taxon_name",
+        "alternative_source_name",
+        "alternative_source_path",
+        "alternative_source_priority",
+        "resolution",
+    ),
     "category_distribution": (
         "dataset_id",
         "category_source",
@@ -177,6 +192,12 @@ TABLE_FIELDS = {
         "splits",
         "memberships",
         "taxonomy_mapped",
+        "taxon_id",
+        "taxon_name",
+        "taxonomy_source_name",
+        "taxonomy_source_path",
+        "taxonomy_source_priority",
+        "taxonomy_conflict_resolved",
     ),
     "cross_benchmark_metrics": (
         "reference_dataset",
@@ -272,8 +293,8 @@ def _markdown(bundle: AnalysisBundle, config: RunConfig) -> str:
         "",
         "## Dataset overview",
         "",
-        "| Dataset | Unique proteins | CSV memberships | Taxonomy mapped | Modalities supplied |",
-        "|---|---:|---:|---:|---|",
+        "| Dataset | Unique proteins | CSV memberships | Taxonomy mapped | Taxonomy conflicts | Modalities supplied |",
+        "|---|---:|---:|---:|---:|---|",
     ]
     for dataset in config.datasets:
         diagnostics = bundle.summary["datasets"][dataset.id]
@@ -281,6 +302,7 @@ def _markdown(bundle: AnalysisBundle, config: RunConfig) -> str:
             f"| {dataset.id} | {diagnostics['unique_proteins']:,} | "
             f"{diagnostics['observation_rows']:,} | "
             f"{diagnostics['taxonomy_mapped_unique_proteins']:,} | "
+            f"{diagnostics['taxonomy_conflict_proteins']:,} | "
             f"{'yes' if diagnostics['modality_inventory_configured'] else 'no'} |"
         )
 
@@ -360,6 +382,30 @@ def _markdown(bundle: AnalysisBundle, config: RunConfig) -> str:
             lines.append(
                 f"| {row['dataset_id']} | {row['aspect']} | {row['split']} | "
                 f"{row['modality']} | {_percent(row['coverage_fraction'])} |"
+            )
+
+    conflict_rows = bundle.tables["taxonomy_conflicts"]
+    if conflict_rows:
+        lines.extend(
+            [
+                "",
+                "## Taxonomy source conflicts",
+                "",
+                "Cross-source disagreements were resolved only where the selected "
+                "source had explicitly higher configured priority. Every resolution "
+                "is retained in `taxonomy_conflicts.tsv`; equal-priority disagreements "
+                "remain fatal.",
+                "",
+                "| Dataset | Proteins with resolved conflicts | Conflict observations |",
+                "|---|---:|---:|",
+            ]
+        )
+        for dataset in config.datasets:
+            diagnostics = bundle.summary["datasets"][dataset.id]
+            lines.append(
+                f"| {dataset.id} | "
+                f"{diagnostics['taxonomy_conflict_proteins']:,} | "
+                f"{diagnostics['taxonomy_conflict_observations']:,} |"
             )
 
     taxonomy_rows = bundle.tables["taxonomy_distribution"]
