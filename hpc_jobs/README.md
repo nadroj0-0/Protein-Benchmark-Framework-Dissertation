@@ -232,6 +232,23 @@ The default persistent state is
 `/SAN/bioinf/bmpfp/embedding_states/cafa3_full_reproduction`; use
 `--embedding-state-root` on both wrappers to select another explicit location.
 
+Hydrate every currently accepted CAFA3 reproduction array into one compact,
+round-trip-validated SAN archive and compare it with Zijian's authenticated
+published cache using a CPU-only job:
+
+```bash
+qsub -q cpu.q hpc_jobs/active/hpc_cafa3_hydrate_compare.sh
+```
+
+This diagnostic does not require every coverage gate to pass. Missing generated
+arrays remain explicit in the comparison rather than being filled from the
+published cache. The resumable state is locked while it is read, its evidence
+files are hashed before and after, and it is neither refreshed nor retired.
+Results are published under
+`/SAN/bioinf/bmpfp/diagnostics/cafa3_embedding_hydration_comparison` with the
+hydrated archive, complete per-protein comparison, summary, checksums, and
+source-state immutability evidence.
+
 The active wrappers clone the full framework into node-local scratch and
 then call the normal entrypoints under `scripts/`.
 
