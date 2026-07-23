@@ -267,6 +267,8 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertNotIn("--allow-framework-commit-drift", workflow)
         self.assertIn("retry_framework_provenance.json", workflow)
         self.assertIn('"framework_commit_policy": "strict" if strict else "permissive"', workflow)
+        self.assertIn('contract_framework_commit="$INITIALIZED_FRAMEWORK_COMMIT"', workflow)
+        self.assertIn('--framework-commit "$contract_framework_commit"', workflow)
         self.assertIn("trap cleanup EXIT", wrapper)
         self.assertIn('WORK="/scratch0/cafa3_embedding_retry_${JOB_TOKEN}"', wrapper)
         self.assertIn('rm -rf "$WORK"', wrapper)

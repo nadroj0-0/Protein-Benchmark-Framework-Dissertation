@@ -131,7 +131,7 @@ validate_mmfp_if1_env "$PYTHON_BIN" "$IF1_NUMPY_OVERLAY" \
 
 pfp_commit="$(git_in_dir "$PFP_ROOT" rev-parse HEAD)"
 framework_commit="$(git_in_dir "$FRAMEWORK_ROOT" rev-parse HEAD)"
-mapfile -t baseline_paths < <(
+mapfile -t state_contract_values < <(
   "$PYTHON_BIN" - "$EMBEDDING_STATE_ROOT/contract.json" <<'PY'
 import json
 import sys
@@ -145,14 +145,23 @@ for key in ("archive", "assembly_report"):
     if not isinstance(entry, dict) or not entry.get("path"):
         raise SystemExit(f"CAFA3 retry state baseline lacks {key} path")
     print(entry["path"])
+initialized_commit = contract.get("framework_commit")
+if not isinstance(initialized_commit, str) or not initialized_commit:
+    raise SystemExit("CAFA3 retry state contract has no framework commit")
+print(initialized_commit)
 PY
 )
-[[ "${#baseline_paths[@]}" == "2" ]] || \
-  die "CAFA3 retry state did not provide both baseline paths"
-BASELINE_ARCHIVE="${baseline_paths[0]}"
-BASELINE_ASSEMBLY_REPORT="${baseline_paths[1]}"
+[[ "${#state_contract_values[@]}" == "3" ]] || \
+  die "CAFA3 retry state did not provide its baseline paths and initialized commit"
+BASELINE_ARCHIVE="${state_contract_values[0]}"
+BASELINE_ASSEMBLY_REPORT="${state_contract_values[1]}"
+INITIALIZED_FRAMEWORK_COMMIT="${state_contract_values[2]}"
 [[ -f "$BASELINE_ARCHIVE" && -f "$BASELINE_ASSEMBLY_REPORT" ]] || \
   die "CAFA3 retry baseline artifacts are missing"
+contract_framework_commit="$framework_commit"
+if [[ "$STRICT_FRAMEWORK_COMMIT" != "1" ]]; then
+  contract_framework_commit="$INITIALIZED_FRAMEWORK_COMMIT"
+fi
 initialize_command=(
   "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/manage_resumable_embedding_state.py"
   initialize \
@@ -162,7 +171,7 @@ initialize_command=(
   --data-dir "$PFP_ROOT/data" \
   --policy "$EMBEDDING_POLICY" \
   --pfp-commit "$pfp_commit" \
-  --framework-commit "$framework_commit" \
+  --framework-commit "$contract_framework_commit" \
   --environment-report "$OUTPUT_DIR/reports/environment_validation.txt" \
   --source-file "go-ontology=$PFP_ROOT/data/go.obo" \
   --source-file "string-alias=$STRING_ALIAS_FILE" \

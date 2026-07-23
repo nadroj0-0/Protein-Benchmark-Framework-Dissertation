@@ -244,7 +244,7 @@ class ResumableEmbeddingStateTest(unittest.TestCase):
         )
 
         accepted = self.run_state(*common_arguments)
-        self.assertIn("every other contract field matched exactly", accepted.stderr)
+        self.assertIn("every scientific contract field matched exactly", accepted.stderr)
         self.assertEqual(contract_path.read_bytes(), original_contract)
         self.assertEqual(
             json.loads(accepted.stdout)["contract_sha256"],
@@ -257,6 +257,7 @@ class ResumableEmbeddingStateTest(unittest.TestCase):
         rejected = self.run_state(*rejected_arguments, check=False)
         self.assertNotEqual(rejected.returncode, 0)
         self.assertIn("contract mismatch", rejected.stderr)
+        self.assertIn("differing_fields=$.benchmark_id:value", rejected.stderr)
 
         strict = self.run_state(
             *common_arguments,

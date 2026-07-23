@@ -360,6 +360,50 @@ def build_contract(args: argparse.Namespace, policy: dict, targets: Mapping[str,
     return contract
 
 
+def contract_comparison_payload(
+    contract: Mapping[str, object], *, strict_framework_commit: bool
+) -> dict:
+    """Return contract content with non-comparable metadata removed."""
+    payload = dict(contract)
+    payload.pop("contract_sha256", None)
+    if not strict_framework_commit:
+        payload.pop("framework_commit", None)
+    return payload
+
+
+def contract_difference_paths(
+    expected: object, observed: object, path: str = "$"
+) -> List[str]:
+    """Describe structural differences without dumping large contract values."""
+    if isinstance(expected, Mapping) and isinstance(observed, Mapping):
+        differences: List[str] = []
+        for key in sorted(set(expected) | set(observed)):
+            child_path = f"{path}.{key}"
+            if key not in expected:
+                differences.append(f"{child_path}:unexpected")
+            elif key not in observed:
+                differences.append(f"{child_path}:missing")
+            else:
+                differences.extend(
+                    contract_difference_paths(expected[key], observed[key], child_path)
+                )
+        return differences
+    if isinstance(expected, list) and isinstance(observed, list):
+        differences = []
+        if len(expected) != len(observed):
+            differences.append(f"{path}.length:{len(expected)}!={len(observed)}")
+        for index, (expected_item, observed_item) in enumerate(zip(expected, observed)):
+            differences.extend(
+                contract_difference_paths(
+                    expected_item, observed_item, f"{path}[{index}]"
+                )
+            )
+        return differences
+    if expected != observed:
+        return [f"{path}:value"]
+    return []
+
+
 def load_contract(state_root: Path) -> dict:
     path = state_root / "contract.json"
     if not path.is_file():
@@ -829,24 +873,28 @@ def command_initialize(args: argparse.Namespace) -> dict:
         targets_path = state_root / "targets.tsv"
         if contract_path.exists() or targets_path.exists():
             existing = load_contract(state_root)
+            existing_payload = contract_comparison_payload(
+                existing, strict_framework_commit=args.strict_framework_commit
+            )
+            requested_payload = contract_comparison_payload(
+                contract, strict_framework_commit=args.strict_framework_commit
+            )
+            if existing_payload != requested_payload:
+                differences = contract_difference_paths(existing_payload, requested_payload)
+                raise ValueError(
+                    "Persistent embedding state contract mismatch; use a new state root. "
+                    f"existing={existing.get('contract_sha256')} "
+                    f"requested={contract.get('contract_sha256')} "
+                    f"differing_fields={','.join(differences[:20])}"
+                )
             if existing != contract:
-                compatible = dict(contract)
-                compatible["framework_commit"] = existing.get("framework_commit")
-                compatible["contract_sha256"] = existing.get("contract_sha256")
-                if not args.strict_framework_commit and compatible == existing:
-                    print(
-                        "WARNING: current framework commit differs from the state "
-                        "initializer; continuing because strict framework commit "
-                        "matching is disabled and every other contract field matched exactly",
-                        file=sys.stderr,
-                    )
-                    contract = existing
-                else:
-                    raise ValueError(
-                        "Persistent embedding state contract mismatch; use a new state root. "
-                        f"existing={existing.get('contract_sha256')} "
-                        f"requested={contract.get('contract_sha256')}"
-                    )
+                print(
+                    "WARNING: current framework commit differs from the state "
+                    "initializer; continuing because framework commit matching is "
+                    "disabled and every scientific contract field matched exactly",
+                    file=sys.stderr,
+                )
+                contract = existing
             existing_targets = load_target_manifest(state_root)
             if existing_targets != targets:
                 raise ValueError("Persistent target manifest changed without a contract change")

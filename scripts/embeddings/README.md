@@ -188,10 +188,11 @@ The wrappers never edit PFP and always remove job-owned scratch.
 
 The state records the framework commit used at initialization. During active
 development, a later retry may run from a newer framework commit without
-invalidating the scientific inputs. The default retry behavior therefore warns
-on a framework-commit difference while still enforcing the exact PFP commit,
-text cutoff, environment fingerprint, and hashes of all PFP extraction and
-framework compatibility scripts recorded by the state. Use
+invalidating the scientific inputs. In the default permissive mode, retries
+authenticate against the state's initialized revision and record the actual
+retry revision separately, so Git drift cannot enter the compatibility
+decision. The exact PFP commit, text cutoff, environment fingerprint, and
+hashes of all extraction and compatibility scripts remain enforced. Use
 `--strict-framework-commit` when a frozen release requires whole-repository
 revision equality.
 

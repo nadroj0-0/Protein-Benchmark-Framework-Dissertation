@@ -18,6 +18,7 @@ ARRAY = WORKSPACE_ROOT / "hpc_jobs" / "active" / "hpc_homology_cluster_runtime_a
 GUARDED_WORKER = (
     WORKSPACE_ROOT / "hpc_jobs" / "active" / "hpc_homology_cluster_benchmark.sh"
 )
+SNAPSHOT = WORKSPACE_ROOT / "hpc_jobs" / "active" / "hpc_homology_progress_snapshot.sh"
 
 
 class RuntimeHPCEntrypointTests(unittest.TestCase):
@@ -152,6 +153,74 @@ class RuntimeHPCEntrypointTests(unittest.TestCase):
         driver = DRIVER.read_text()
         self.assertIn("git_in_dir()", driver)
         self.assertNotIn("git -C", driver)
+
+    def test_progress_snapshot_is_read_only_and_host_guarded(self):
+        snapshot = SNAPSHOT.read_text()
+        self.assertIn('--expected-host', snapshot)
+        self.assertIn('--main-job-id', snapshot)
+        self.assertIn('copy_log', snapshot)
+        self.assertIn('stable_during_copy', snapshot)
+        self.assertIn('homology_runtime_${MAIN_JOB_ID}_${task_id}_${identity}', snapshot)
+        self.assertNotIn('rm -rf', snapshot)
+        self.assertNotIn('qdel', snapshot)
+
+    def test_progress_snapshot_copies_logs_without_modifying_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scratch = root / "scratch"
+            work = scratch / "homology_runtime_123_1_30_runtime-123"
+            artifact_logs = work / "artifacts" / "logs"
+            mmseqs_logs = work / "tmp" / "homology-fixture" / "logs" / "mmseqs"
+            artifact_logs.mkdir(parents=True)
+            mmseqs_logs.mkdir(parents=True)
+            runtime_log = artifact_logs / "runtime.log"
+            cluster_log = mmseqs_logs / "mmseqs_cluster.log"
+            runtime_log.write_text("runtime-stage\n")
+            cluster_log.write_text("cluster-stage\n")
+            destination = root / "snapshots"
+            environment = os.environ.copy()
+            environment["HOMOLOGY_SNAPSHOT_SCRATCH_BASE"] = str(scratch)
+            host = subprocess.check_output(["hostname", "-s"], text=True).strip()
+
+            completed = subprocess.run(
+                [
+                    "bash",
+                    str(SNAPSHOT),
+                    "--main-job-id",
+                    "123",
+                    "--expected-host",
+                    host,
+                    "--task",
+                    "1:30",
+                    "--destination-root",
+                    str(destination),
+                ],
+                env=environment,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stdout)
+            latest = destination / "job_123" / f"host_{host}" / "latest"
+            self.assertTrue(latest.is_symlink())
+            self.assertEqual(
+                (latest / "task_1_identity_30" / "logs" / "runtime.log").read_text(),
+                "runtime-stage\n",
+            )
+            self.assertEqual(
+                (
+                    latest
+                    / "task_1_identity_30"
+                    / "logs"
+                    / "mmseqs"
+                    / "mmseqs_cluster.log"
+                ).read_text(),
+                "cluster-stage\n",
+            )
+            self.assertEqual(runtime_log.read_text(), "runtime-stage\n")
+            self.assertEqual(cluster_log.read_text(), "cluster-stage\n")
 
     def test_runtime_driver_exports_host_verified_git_state_for_singularity(self):
         driver = DRIVER.read_text()
