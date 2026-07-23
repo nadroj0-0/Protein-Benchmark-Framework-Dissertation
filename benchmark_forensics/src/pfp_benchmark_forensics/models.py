@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Mapping, Tuple
+from typing import Dict, Mapping, Optional, Tuple
 
 
 @dataclass(frozen=True)
@@ -37,14 +37,19 @@ class Taxon:
     source: str
     source_name: str
     source_priority: int
+    accession_role: str = "direct"
+    record_primary_accession: str = ""
+    sequence_matches_benchmark: Optional[bool] = None
+    resolution_basis: str = "direct identifier mapping"
 
 
 @dataclass(frozen=True)
 class TaxonomyConflict:
     protein_id: str
-    selected: Taxon
+    selected: Optional[Taxon]
     alternative: Taxon
     resolution: str
+    status: str = "resolved"
 
 
 @dataclass

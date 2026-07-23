@@ -118,6 +118,22 @@ def write_taxonomy_rows(path: Path, rows: list) -> None:
         writer.writerows(rows)
 
 
+def write_uniprot_dat(path: Path, records: list) -> None:
+    with gzip.open(path, "wt", encoding="utf-8") as handle:
+        for primary, secondary, taxon_id, organism, sequence in records:
+            accessions = "; ".join([primary, *secondary]) + ";"
+            handle.write(f"ID   {primary}_TEST\n")
+            handle.write(f"AC   {accessions}\n")
+            handle.write(f"OS   {organism}.\n")
+            handle.write(f"OX   NCBI_TaxID={taxon_id};\n")
+            if sequence is not None:
+                handle.write(
+                    f"SQ   SEQUENCE   {len(sequence)} AA;  0 MW;  000000000000000 R;\n"
+                )
+                handle.write(f"     {sequence}\n")
+            handle.write("//\n")
+
+
 def write_inventory(path: Path, sequences: dict) -> None:
     fields = [
         "protein_id",
@@ -366,6 +382,118 @@ class AnalysisTests(unittest.TestCase):
             human = [row for row in rows if row["taxon_id"] == "9606"]
             self.assertEqual(human[0]["proteins"], 1)
 
+    def test_uniprot_alias_conflict_uses_unique_exact_sequence_match(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dataset = build_dataset(root, "dataset")
+            sequence = pd.read_csv(
+                Path(dataset["benchmark_dir"]) / "bp-training.csv"
+            ).iloc[0]["sequences"]
+            dat = root / "taxonomy.dat.gz"
+            records = [
+                ("QOLD1", ["P0A"], "11111", "Wrong organism", "MBBBBBBBBBB"),
+                ("QOLD2", ["P0A"], "22222", "Matching organism", sequence),
+            ]
+            write_uniprot_dat(dat, records)
+            dataset["taxonomy_sources"] = [
+                {
+                    "type": "uniprot-dat",
+                    "path": str(dat),
+                    "name": "historical-uniprot",
+                    "priority": 100,
+                }
+            ]
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {"schema_version": 1, "run_name": "test", "datasets": [dataset]}
+                )
+            )
+
+            bundle = analyze(load_config(config_path))
+            membership = {
+                row["protein_id"]: row for row in bundle.tables["protein_membership"]
+            }
+            self.assertEqual(membership["P0A"]["taxon_id"], "22222")
+            self.assertEqual(membership["P0A"]["taxonomy_accession_role"], "secondary")
+            self.assertTrue(membership["P0A"]["taxonomy_sequence_matches_benchmark"])
+            self.assertTrue(membership["P0A"]["taxonomy_conflict_resolved"])
+            conflicts = bundle.tables["taxonomy_conflicts"]
+            self.assertEqual(len(conflicts), 1)
+            self.assertEqual(conflicts[0]["status"], "resolved")
+            self.assertEqual(conflicts[0]["alternative_taxon_id"], "11111")
+
+            write_uniprot_dat(dat, list(reversed(records)))
+            reversed_bundle = analyze(load_config(config_path))
+            reversed_membership = {
+                row["protein_id"]: row
+                for row in reversed_bundle.tables["protein_membership"]
+            }
+            self.assertEqual(reversed_membership["P0A"]["taxon_id"], "22222")
+
+    def test_uniprot_alias_ambiguity_is_logged_and_left_unmapped(self):
+        cases = {
+            "zero-match": [
+                ("QOLD1", ["P0A"], "11111", "First organism", "MBBBBBBBBBB"),
+                ("QOLD2", ["P0A"], "22222", "Second organism", "MCCCCCCCCCC"),
+            ],
+            "multiple-match": None,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dataset = build_dataset(root, "dataset")
+            sequence = pd.read_csv(
+                Path(dataset["benchmark_dir"]) / "bp-training.csv"
+            ).iloc[0]["sequences"]
+            cases["multiple-match"] = [
+                ("QOLD1", ["P0A"], "11111", "First organism", sequence),
+                ("QOLD2", ["P0A"], "22222", "Second organism", sequence),
+            ]
+            dat = root / "taxonomy.dat.gz"
+            dataset["taxonomy_sources"] = [
+                {
+                    "type": "uniprot-dat",
+                    "path": str(dat),
+                    "name": "historical-uniprot",
+                    "priority": 100,
+                }
+            ]
+            config_path = root / "config.json"
+            for case, records in cases.items():
+                with self.subTest(case=case):
+                    write_uniprot_dat(dat, records)
+                    config_path.write_text(
+                        json.dumps(
+                            {
+                                "schema_version": 1,
+                                "run_name": "test",
+                                "datasets": [dataset],
+                            }
+                        )
+                    )
+                    bundle = analyze(load_config(config_path))
+                    membership = {
+                        row["protein_id"]: row
+                        for row in bundle.tables["protein_membership"]
+                    }
+                    self.assertFalse(membership["P0A"]["taxonomy_mapped"])
+                    self.assertTrue(membership["P0A"]["taxonomy_conflict_unresolved"])
+                    conflicts = [
+                        row
+                        for row in bundle.tables["taxonomy_conflicts"]
+                        if row["protein_id"] == "P0A"
+                    ]
+                    self.assertEqual(len(conflicts), 2)
+                    self.assertEqual(
+                        {row["status"] for row in conflicts}, {"unresolved"}
+                    )
+                    self.assertEqual(
+                        bundle.summary["datasets"]["dataset"][
+                            "taxonomy_unresolved_conflict_proteins"
+                        ],
+                        1,
+                    )
+
     def test_higher_priority_taxonomy_resolves_and_reports_snapshot_change(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -420,7 +548,7 @@ class AnalysisTests(unittest.TestCase):
                 conflicts,
             )
 
-    def test_equal_priority_taxonomy_conflict_fails_closed(self):
+    def test_equal_priority_taxonomy_conflict_is_logged_and_left_unmapped(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             dataset = build_dataset(root, "dataset")
@@ -442,10 +570,19 @@ class AnalysisTests(unittest.TestCase):
                     {"schema_version": 1, "run_name": "test", "datasets": [dataset]}
                 )
             )
-            with self.assertRaisesRegex(
-                ValueError, "Equal-priority taxonomy sources disagree for P0A"
-            ):
-                analyze(load_config(config_path))
+            bundle = analyze(load_config(config_path))
+            membership = {
+                row["protein_id"]: row for row in bundle.tables["protein_membership"]
+            }
+            self.assertFalse(membership["P0A"]["taxonomy_mapped"])
+            self.assertTrue(membership["P0A"]["taxonomy_conflict_unresolved"])
+            conflicts = [
+                row
+                for row in bundle.tables["taxonomy_conflicts"]
+                if row["protein_id"] == "P0A"
+            ]
+            self.assertEqual(len(conflicts), 2)
+            self.assertEqual({row["status"] for row in conflicts}, {"unresolved"})
 
     def test_taxonomy_source_priority_must_be_integer(self):
         with tempfile.TemporaryDirectory() as tmp:

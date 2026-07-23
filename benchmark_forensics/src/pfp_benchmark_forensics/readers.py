@@ -8,8 +8,20 @@ import hashlib
 import re
 from collections import defaultdict
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
-from typing import Dict, Iterable, Iterator, Mapping, MutableMapping, Set, TextIO, Tuple
+from typing import (
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Mapping,
+    MutableMapping,
+    Optional,
+    Set,
+    TextIO,
+    Tuple,
+)
 
 from .config import (
     CategorySourceSpec,
@@ -302,27 +314,21 @@ def load_source_annotations(
 
 
 def _record_taxon(
-    result: MutableMapping[str, MutableMapping[str, Taxon]],
+    result: MutableMapping[str, List[Taxon]],
     protein_id: str,
     taxon: Taxon,
 ) -> None:
     if not protein_id:
         return
-    by_source = result.setdefault(protein_id, {})
-    previous = by_source.get(taxon.source_name)
-    if previous is not None and previous.taxon_id != taxon.taxon_id:
-        raise ValueError(
-            f"Taxonomy source {taxon.source_name!r} assigns conflicting taxa to "
-            f"{protein_id}: {previous.taxon_id} vs {taxon.taxon_id}"
-        )
-    if previous is None or (not previous.taxon_name and taxon.taxon_name):
-        by_source[taxon.source_name] = taxon
+    values = result.setdefault(protein_id, [])
+    if taxon not in values:
+        values.append(taxon)
 
 
 def _load_taxonomy_tsv(
     spec: TaxonomySourceSpec,
     wanted_ids: Set[str],
-    result: MutableMapping[str, MutableMapping[str, Taxon]],
+    result: MutableMapping[str, List[Taxon]],
 ) -> None:
     with open_text(spec.path) as handle:
         reader = csv.DictReader(handle, delimiter="\t")
@@ -355,26 +361,44 @@ def _load_taxonomy_tsv(
 
 def _load_uniprot_dat(
     spec: TaxonomySourceSpec,
-    wanted_ids: Set[str],
-    result: MutableMapping[str, MutableMapping[str, Taxon]],
+    wanted_sequences: Mapping[str, str],
+    result: MutableMapping[str, List[Taxon]],
 ) -> None:
     accessions = []
     taxon_id = ""
     organism_parts = []
+    sequence_parts = []
+    in_sequence = False
+
+    def normalize_sequence(value: str) -> str:
+        return re.sub(r"[^A-Z]", "", value.upper())
 
     def publish() -> None:
-        if not taxon_id:
+        if not taxon_id or not accessions:
             return
         organism = " ".join(organism_parts).strip()
-        taxon = Taxon(
-            taxon_id,
-            organism,
-            str(spec.path.resolve()),
-            spec.name,
-            spec.priority,
-        )
+        primary_accession = accessions[0]
+        record_sequence = normalize_sequence("".join(sequence_parts))
         for accession in accessions:
-            if accession in wanted_ids:
+            benchmark_sequence = wanted_sequences.get(accession)
+            if benchmark_sequence is not None:
+                taxon = Taxon(
+                    taxon_id,
+                    organism,
+                    str(spec.path.resolve()),
+                    spec.name,
+                    spec.priority,
+                    accession_role=(
+                        "primary" if accession == primary_accession else "secondary"
+                    ),
+                    record_primary_accession=primary_accession,
+                    sequence_matches_benchmark=(
+                        record_sequence == normalize_sequence(benchmark_sequence)
+                        if record_sequence
+                        else None
+                    ),
+                    resolution_basis="unresolved UniProt accession candidate",
+                )
                 _record_taxon(result, accession, taxon)
 
     with open_text(spec.path) as handle:
@@ -389,45 +413,133 @@ def _load_uniprot_dat(
                     taxon_id = match.group(1)
             elif raw.startswith("OS   "):
                 organism_parts.append(raw[5:].strip())
+            elif raw.startswith("SQ   "):
+                in_sequence = True
             elif raw.startswith("//"):
                 publish()
                 accessions = []
                 taxon_id = ""
                 organism_parts = []
+                sequence_parts = []
+                in_sequence = False
+            elif in_sequence:
+                sequence_parts.append(re.sub(r"[^A-Z]", "", raw))
         publish()
 
 
+def _candidate_order(item: Taxon) -> tuple:
+    role_rank = {"primary": 0, "direct": 1, "secondary": 2}
+    return (
+        item.sequence_matches_benchmark is not True,
+        role_rank.get(item.accession_role, 3),
+        not bool(item.taxon_name),
+        item.record_primary_accession,
+        item.taxon_id,
+        item.source,
+    )
+
+
+def _unresolved_conflicts(
+    protein_id: str, candidates: Iterable[Taxon], reason: str
+) -> Tuple[TaxonomyConflict, ...]:
+    return tuple(
+        TaxonomyConflict(
+            protein_id=protein_id,
+            selected=None,
+            alternative=item,
+            resolution=reason,
+            status="unresolved",
+        )
+        for item in sorted(candidates, key=_candidate_order)
+    )
+
+
+def _select_within_source(
+    protein_id: str, source_name: str, candidates: Iterable[Taxon]
+) -> Tuple[Optional[Taxon], Tuple[TaxonomyConflict, ...]]:
+    options = sorted(candidates, key=_candidate_order)
+    taxon_ids = {item.taxon_id for item in options}
+    if len(taxon_ids) == 1:
+        selected = options[0]
+        basis = (
+            "exact benchmark-sequence match within taxonomy source"
+            if selected.sequence_matches_benchmark is True
+            else "unambiguous accession mapping within taxonomy source"
+        )
+        return replace(selected, resolution_basis=basis), tuple()
+
+    exact = [item for item in options if item.sequence_matches_benchmark is True]
+    exact_ids = {item.taxon_id for item in exact}
+    if len(exact_ids) == 1:
+        selected = replace(
+            exact[0],
+            resolution_basis="unique taxon identified by exact benchmark sequence",
+        )
+        conflicts = tuple(
+            TaxonomyConflict(
+                protein_id=protein_id,
+                selected=selected,
+                alternative=item,
+                resolution=selected.resolution_basis,
+            )
+            for item in options
+            if item.taxon_id != selected.taxon_id
+        )
+        return selected, conflicts
+
+    if exact:
+        reason = (
+            f"multiple taxa in taxonomy source {source_name!r} exactly match the "
+            "benchmark sequence"
+        )
+    else:
+        reason = (
+            f"conflicting aliases in taxonomy source {source_name!r} have no exact "
+            "benchmark-sequence match"
+        )
+    return None, _unresolved_conflicts(protein_id, options, reason)
+
+
 def _resolve_taxonomy(
-    candidates: Mapping[str, Mapping[str, Taxon]],
+    candidates: Mapping[str, Iterable[Taxon]],
 ) -> Tuple[Mapping[str, Taxon], Tuple[TaxonomyConflict, ...]]:
     resolved: Dict[str, Taxon] = {}
     conflicts = []
     for protein_id in sorted(candidates):
+        by_source: MutableMapping[str, List[Taxon]] = {}
+        for item in candidates[protein_id]:
+            by_source.setdefault(item.source_name, []).append(item)
+        source_winners = []
+        for source_name, items in sorted(by_source.items()):
+            winner, source_conflicts = _select_within_source(
+                protein_id, source_name, items
+            )
+            conflicts.extend(source_conflicts)
+            if winner is not None:
+                source_winners.append(winner)
+        if not source_winners:
+            continue
         ranked = sorted(
-            candidates[protein_id].values(),
+            source_winners,
             key=lambda item: (
                 -item.source_priority,
-                not bool(item.taxon_name),
+                *_candidate_order(item),
                 item.source_name,
-                item.source,
             ),
         )
         highest_priority = ranked[0].source_priority
         highest = [item for item in ranked if item.source_priority == highest_priority]
         highest_ids = sorted({item.taxon_id for item in highest})
         if len(highest_ids) > 1:
-            details = ", ".join(
-                f"{item.source_name}={item.taxon_id}" for item in highest
+            reason = (
+                f"equal-priority taxonomy sources disagree at priority "
+                f"{highest_priority}"
             )
-            raise ValueError(
-                f"Equal-priority taxonomy sources disagree for {protein_id} "
-                f"at priority {highest_priority}: {details}"
-            )
+            conflicts.extend(_unresolved_conflicts(protein_id, highest, reason))
+            continue
         selected = highest[0]
         resolved[protein_id] = selected
         for alternative in ranked:
-            if alternative.source_name == selected.source_name:
-                continue
             if alternative.taxon_id == selected.taxon_id:
                 continue
             conflicts.append(
@@ -442,9 +554,10 @@ def _resolve_taxonomy(
 
 
 def load_taxonomy(
-    specs: Iterable[TaxonomySourceSpec], wanted_ids: Set[str]
+    specs: Iterable[TaxonomySourceSpec], wanted_sequences: Mapping[str, str]
 ) -> Tuple[Mapping[str, Taxon], Tuple[Path, ...], Tuple[TaxonomyConflict, ...]]:
-    candidates: Dict[str, MutableMapping[str, Taxon]] = {}
+    candidates: Dict[str, List[Taxon]] = {}
+    wanted_ids = set(wanted_sequences)
     paths = []
     for spec in specs:
         _require_file(spec.path, "taxonomy source")
@@ -452,7 +565,7 @@ def load_taxonomy(
         if spec.type == "tsv":
             _load_taxonomy_tsv(spec, wanted_ids, candidates)
         else:
-            _load_uniprot_dat(spec, wanted_ids, candidates)
+            _load_uniprot_dat(spec, wanted_sequences, candidates)
     result, conflicts = _resolve_taxonomy(candidates)
     return result, tuple(paths), conflicts
 

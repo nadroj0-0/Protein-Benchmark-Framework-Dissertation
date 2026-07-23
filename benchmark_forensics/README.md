@@ -47,13 +47,20 @@ fallbacks without allowing them to overwrite newer mappings.
 If lower-priority sources assign a different taxon to the same accession, the
 selected and alternative assignments are written to `taxonomy_conflicts.tsv`,
 and the selected source is recorded in `protein_membership.tsv`. This is an
-audited historical resolution, not a silent overwrite. If sources at the same
-priority disagree, analysis fails closed because the configuration has not
-provided a defensible way to choose between equally authoritative evidence.
+audited historical resolution, not a silent overwrite.
+
+UniProt DAT inputs distinguish each record's primary accession from secondary
+historical aliases. When one alias occurs on records with different taxa, the
+benchmark sequence is compared with those records. A unique matching taxon is
+selected and audited. Zero-match, multi-taxon exact-match, and equal-priority
+cross-source conflicts are written as `unresolved`, left taxonomically unmapped,
+and do not abort the remaining descriptive analysis. This avoids guessing while
+preventing one historical alias from discarding an otherwise valid benchmark
+report.
 
 When `name` and `priority` are omitted, the source path is used as the name and
-priority defaults to zero. Therefore existing configurations retain strict
-conflict behaviour until an explicit precedence policy is declared.
+priority defaults to zero. Equal-priority disagreements are retained as
+unresolved rather than resolved by file or configuration order.
 
 ## Root-only provenance
 

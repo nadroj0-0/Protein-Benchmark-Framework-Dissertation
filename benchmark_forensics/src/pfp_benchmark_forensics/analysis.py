@@ -190,7 +190,7 @@ def _load_dataset(config: DatasetConfig) -> Tuple[DatasetResult, Ontology]:
 
     wanted_ids = set(sequence_by_protein)
     taxonomy, taxonomy_paths, taxonomy_conflicts = load_taxonomy(
-        config.taxonomy_sources, wanted_ids
+        config.taxonomy_sources, sequence_by_protein
     )
     modality_states: Mapping[Tuple[str, str], Mapping[str, bool]] = {}
     modalities: Tuple[str, ...] = tuple()
@@ -225,6 +225,21 @@ def _load_dataset(config: DatasetConfig) -> Tuple[DatasetResult, Ontology]:
             {item.protein_id for item in taxonomy_conflicts}
         ),
         "taxonomy_conflict_observations": len(taxonomy_conflicts),
+        "taxonomy_unresolved_conflict_proteins": len(
+            {
+                item.protein_id
+                for item in taxonomy_conflicts
+                if item.status == "unresolved"
+            }
+        ),
+        "taxonomy_sequence_resolved_proteins": sum(
+            item.resolution_basis
+            == "unique taxon identified by exact benchmark sequence"
+            for item in taxonomy.values()
+        ),
+        "taxonomy_secondary_alias_proteins": sum(
+            item.accession_role == "secondary" for item in taxonomy.values()
+        ),
         "modality_inventory_configured": config.modality_inventory is not None,
         "modality_inventory_extra_pairs": extras,
         "category_sources": sorted(category_maps),
@@ -466,16 +481,38 @@ def _taxonomy_conflict_table(dataset: DatasetResult) -> Tuple[dict, ...]:
         {
             "dataset_id": dataset.dataset_id,
             "protein_id": item.protein_id,
-            "selected_taxon_id": item.selected.taxon_id,
-            "selected_taxon_name": item.selected.taxon_name,
-            "selected_source_name": item.selected.source_name,
-            "selected_source_path": item.selected.source,
-            "selected_source_priority": item.selected.source_priority,
+            "status": item.status,
+            "selected_taxon_id": item.selected.taxon_id if item.selected else "",
+            "selected_taxon_name": item.selected.taxon_name if item.selected else "",
+            "selected_source_name": item.selected.source_name if item.selected else "",
+            "selected_source_path": item.selected.source if item.selected else "",
+            "selected_source_priority": (
+                item.selected.source_priority if item.selected else ""
+            ),
+            "selected_accession_role": (
+                item.selected.accession_role if item.selected else ""
+            ),
+            "selected_record_primary_accession": (
+                item.selected.record_primary_accession if item.selected else ""
+            ),
+            "selected_sequence_matches_benchmark": (
+                item.selected.sequence_matches_benchmark if item.selected else ""
+            ),
+            "selected_resolution_basis": (
+                item.selected.resolution_basis if item.selected else ""
+            ),
             "alternative_taxon_id": item.alternative.taxon_id,
             "alternative_taxon_name": item.alternative.taxon_name,
             "alternative_source_name": item.alternative.source_name,
             "alternative_source_path": item.alternative.source,
             "alternative_source_priority": item.alternative.source_priority,
+            "alternative_accession_role": item.alternative.accession_role,
+            "alternative_record_primary_accession": (
+                item.alternative.record_primary_accession
+            ),
+            "alternative_sequence_matches_benchmark": (
+                item.alternative.sequence_matches_benchmark
+            ),
             "resolution": item.resolution,
         }
         for item in dataset.taxonomy_conflicts
@@ -604,7 +641,16 @@ def _membership_table(dataset: DatasetResult) -> Tuple[dict, ...]:
     for item in dataset.observations:
         memberships[item.protein_id].add((item.aspect, item.split))
         sequence_sha[item.protein_id] = item.sequence_sha256
-    conflicted = {item.protein_id for item in dataset.taxonomy_conflicts}
+    resolved_conflicts = {
+        item.protein_id
+        for item in dataset.taxonomy_conflicts
+        if item.status == "resolved"
+    }
+    unresolved_conflicts = {
+        item.protein_id
+        for item in dataset.taxonomy_conflicts
+        if item.status == "unresolved"
+    }
     rows = []
     for protein_id, pairs in sorted(memberships.items()):
         taxon = dataset.taxonomy.get(protein_id)
@@ -624,7 +670,16 @@ def _membership_table(dataset: DatasetResult) -> Tuple[dict, ...]:
                 "taxonomy_source_name": taxon.source_name if taxon else "",
                 "taxonomy_source_path": taxon.source if taxon else "",
                 "taxonomy_source_priority": (taxon.source_priority if taxon else ""),
-                "taxonomy_conflict_resolved": protein_id in conflicted,
+                "taxonomy_accession_role": taxon.accession_role if taxon else "",
+                "taxonomy_record_primary_accession": (
+                    taxon.record_primary_accession if taxon else ""
+                ),
+                "taxonomy_sequence_matches_benchmark": (
+                    taxon.sequence_matches_benchmark if taxon else ""
+                ),
+                "taxonomy_resolution_basis": taxon.resolution_basis if taxon else "",
+                "taxonomy_conflict_resolved": protein_id in resolved_conflicts,
+                "taxonomy_conflict_unresolved": protein_id in unresolved_conflicts,
             }
         )
     return tuple(rows)
@@ -837,7 +892,7 @@ def analyze(config: RunConfig) -> AnalysisBundle:
         },
         "interpretation_boundaries": [
             "Taxonomy distributions describe organisms, not protein families.",
-            "Taxonomy changes across sources are resolved only by explicit source priority and are retained in taxonomy_conflicts.tsv; equally authoritative disagreements fail closed.",
+            "UniProt alias conflicts are resolved only by a unique benchmark-sequence taxon; cross-source changes use explicit source priority. Zero-match, multi-match, and equally authoritative conflicts are retained as unresolved and left taxonomically unmapped without aborting the benchmark analysis.",
             "Protein-family claims require an explicit category mapping source.",
             "Projection-created root-only rows are attributed to the configured projection policy only when pre-projection annotations are supplied.",
             "Modality artifact existence, validity, scientific eligibility, and planned reuse are distinct coverage meanings.",

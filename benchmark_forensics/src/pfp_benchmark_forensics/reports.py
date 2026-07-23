@@ -138,16 +138,24 @@ TABLE_FIELDS = {
     "taxonomy_conflicts": (
         "dataset_id",
         "protein_id",
+        "status",
         "selected_taxon_id",
         "selected_taxon_name",
         "selected_source_name",
         "selected_source_path",
         "selected_source_priority",
+        "selected_accession_role",
+        "selected_record_primary_accession",
+        "selected_sequence_matches_benchmark",
+        "selected_resolution_basis",
         "alternative_taxon_id",
         "alternative_taxon_name",
         "alternative_source_name",
         "alternative_source_path",
         "alternative_source_priority",
+        "alternative_accession_role",
+        "alternative_record_primary_accession",
+        "alternative_sequence_matches_benchmark",
         "resolution",
     ),
     "category_distribution": (
@@ -197,7 +205,12 @@ TABLE_FIELDS = {
         "taxonomy_source_name",
         "taxonomy_source_path",
         "taxonomy_source_priority",
+        "taxonomy_accession_role",
+        "taxonomy_record_primary_accession",
+        "taxonomy_sequence_matches_benchmark",
+        "taxonomy_resolution_basis",
         "taxonomy_conflict_resolved",
+        "taxonomy_conflict_unresolved",
     ),
     "cross_benchmark_metrics": (
         "reference_dataset",
@@ -391,13 +404,13 @@ def _markdown(bundle: AnalysisBundle, config: RunConfig) -> str:
                 "",
                 "## Taxonomy source conflicts",
                 "",
-                "Cross-source disagreements were resolved only where the selected "
-                "source had explicitly higher configured priority. Every resolution "
-                "is retained in `taxonomy_conflicts.tsv`; equal-priority disagreements "
-                "remain fatal.",
+                "UniProt alias conflicts use exact benchmark-sequence evidence; "
+                "cross-source disagreements use configured priority. Every resolved "
+                "or unresolved case is retained in `taxonomy_conflicts.tsv`. Ambiguous "
+                "proteins remain taxonomically unmapped without aborting the analysis.",
                 "",
-                "| Dataset | Proteins with resolved conflicts | Conflict observations |",
-                "|---|---:|---:|",
+                "| Dataset | Proteins with conflicts | Unresolved proteins | Conflict observations |",
+                "|---|---:|---:|---:|",
             ]
         )
         for dataset in config.datasets:
@@ -405,6 +418,7 @@ def _markdown(bundle: AnalysisBundle, config: RunConfig) -> str:
             lines.append(
                 f"| {dataset.id} | "
                 f"{diagnostics['taxonomy_conflict_proteins']:,} | "
+                f"{diagnostics['taxonomy_unresolved_conflict_proteins']:,} | "
                 f"{diagnostics['taxonomy_conflict_observations']:,} |"
             )
 
