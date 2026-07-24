@@ -4,6 +4,7 @@ import csv
 import hashlib
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -251,6 +252,52 @@ class PpiCompatibilityTests(unittest.TestCase):
             self.assertEqual(source.read_text(encoding="utf-8"), original)
             self.assertIn("max(1, len(cafa3_ids))", output.read_text(encoding="utf-8"))
             self.assertFalse(json.loads(report.read_text())["upstream_source_modified"])
+
+    def test_generation_wrapper_passes_explicit_cafa3_mapping(self) -> None:
+        wrapper = SCRIPT_DIR / "generate_embeddings_ppi.sh"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            extractor = root / "extractor.py"
+            capture = root / "captured.json"
+            string_h5 = root / "string.h5"
+            string_alias = root / "aliases.txt"
+            assessment = root / "assessment"
+            mapping = root / "cafa3_id_mapping.json"
+            assessment.mkdir()
+            string_h5.touch()
+            string_alias.touch()
+            mapping.write_text('{"T1": "ENTRY_SPECIES"}\n', encoding="utf-8")
+            extractor.write_text(
+                "import json, os, sys\n"
+                "from pathlib import Path\n"
+                "Path(os.environ['CAPTURE_ARGS']).write_text(json.dumps(sys.argv[1:]))\n",
+                encoding="utf-8",
+            )
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "PPI_EXTRACT_SCRIPT": str(extractor),
+                    "STRING_H5_FILE": str(string_h5),
+                    "STRING_ALIAS_FILE": str(string_alias),
+                    "CAFA_ASSESSMENT_DIR": str(assessment),
+                    "CAFA3_ID_MAPPING": str(mapping),
+                    "CAPTURE_ARGS": str(capture),
+                    "PYTHON_BIN": sys.executable,
+                }
+            )
+            result = subprocess.run(
+                ["bash", str(wrapper)],
+                cwd=root,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            arguments = json.loads(capture.read_text(encoding="utf-8"))
+            option = arguments.index("--cafa3-id-mapping")
+            self.assertEqual(arguments[option + 1], str(mapping))
+            self.assertIn(str(mapping), result.stdout)
 
 
 class If1CompatibilityTests(unittest.TestCase):

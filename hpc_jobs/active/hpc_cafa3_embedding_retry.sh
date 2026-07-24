@@ -17,6 +17,7 @@ usage() {
   cat <<'EOF'
 Usage: qsub hpc_jobs/active/hpc_cafa3_embedding_retry.sh \
   --modality sequence|text|structure|ppi \
+  [--cafa3-id-mapping PATH --cafa3-id-mapping-sha256 SHA256] \
   [--embedding-state-root /SAN/bioinf/bmpfp/embedding_states/cafa3_full_reproduction] \
   [--results-root /absolute/path] \
   [--text-cutoff-date YYYY-MM-DD] [--artifact-catalog PATH] \
@@ -36,9 +37,13 @@ CLI_RESULTS_ROOT=""
 TEXT_CUTOFF_DATE="2016-02-17"
 CLI_ARTIFACT_CATALOG="${ARTIFACT_CATALOG:-}"
 STRICT_FRAMEWORK_COMMIT=0
+CAFA3_ID_MAPPING=""
+CAFA3_ID_MAPPING_SHA256=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --modality) MODALITY="$2"; shift 2 ;;
+    --cafa3-id-mapping) CAFA3_ID_MAPPING="$2"; shift 2 ;;
+    --cafa3-id-mapping-sha256) CAFA3_ID_MAPPING_SHA256="$2"; shift 2 ;;
     --embedding-state-root) EMBEDDING_STATE_ROOT="$2"; shift 2 ;;
     --results-root) CLI_RESULTS_ROOT="$2"; shift 2 ;;
     --text-cutoff-date) TEXT_CUTOFF_DATE="$2"; shift 2 ;;
@@ -49,6 +54,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 case "$MODALITY" in sequence|text|structure|ppi) ;; *) usage >&2; die "--modality is required" ;; esac
+if [[ "$MODALITY" == "ppi" ]]; then
+  [[ -f "$CAFA3_ID_MAPPING" ]] || die "PPI retry requires --cafa3-id-mapping"
+  [[ "$CAFA3_ID_MAPPING_SHA256" =~ ^[0-9a-fA-F]{64}$ ]] || \
+    die "PPI retry requires --cafa3-id-mapping-sha256"
+  CAFA3_ID_MAPPING="$(cd "$(dirname "$CAFA3_ID_MAPPING")" && pwd)/$(basename "$CAFA3_ID_MAPPING")"
+fi
 [[ -d "$EMBEDDING_STATE_ROOT" ]] || die "Embedding state does not exist: $EMBEDDING_STATE_ROOT"
 
 JOB_TOKEN="${JOB_ID:-manual_$$}"
@@ -152,6 +163,10 @@ echo "Persistent state  : $EMBEDDING_STATE_ROOT"
 echo "Scratch           : $WORK"
 echo "Final report      : $FINAL_RUN_ROOT"
 echo "Framework policy  : $([[ "$STRICT_FRAMEWORK_COMMIT" == "1" ]] && echo strict || echo permissive)"
+if [[ "$MODALITY" == "ppi" ]]; then
+  echo "CAFA3 ID mapping  : $CAFA3_ID_MAPPING"
+  echo "Mapping SHA-256   : ${CAFA3_ID_MAPPING_SHA256,,}"
+fi
 
 git clone --no-checkout "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"
 git_in_dir "$FRAMEWORK_DIR" checkout --detach "$FRAMEWORK_COMMIT"
@@ -163,6 +178,9 @@ source scripts/reproduction_common.sh
 export ARTIFACT_CATALOG="$CLI_ARTIFACT_CATALOG"
 load_framework_paths "$FRAMEWORK_DIR"
 artifact_catalog_bind_parent string_embeddings "${STRING_H5_FILE:-}"
+if [[ "$MODALITY" == "ppi" ]]; then
+  add_mmfp_singularity_bind "$(dirname "$CAFA3_ID_MAPPING")"
+fi
 add_mmfp_singularity_bind "$(dirname "$EMBEDDING_STATE_ROOT")"
 activate_or_create_mmfp_env
 PYTHON_BIN="$(command -v python)"
@@ -176,6 +194,12 @@ command=(
   --modality "$MODALITY"
   --text-cutoff-date "$TEXT_CUTOFF_DATE"
 )
+if [[ "$MODALITY" == "ppi" ]]; then
+  command+=(
+    --cafa3-id-mapping "$CAFA3_ID_MAPPING"
+    --cafa3-id-mapping-sha256 "${CAFA3_ID_MAPPING_SHA256,,}"
+  )
+fi
 if [[ -n "${ARTIFACT_CATALOG:-}" ]]; then
   command+=(--artifact-catalog "$ARTIFACT_CATALOG")
 fi

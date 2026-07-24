@@ -20,6 +20,8 @@ MODALITY=""
 TEXT_CUTOFF_DATE="2016-02-17"
 EMBEDDING_POLICY="$FRAMEWORK_ROOT/configs/cafa3_embedding_resume.json"
 STRICT_FRAMEWORK_COMMIT=0
+CAFA3_ID_MAPPING=""
+CAFA3_ID_MAPPING_SHA256=""
 
 usage() {
   cat <<'EOF'
@@ -29,6 +31,7 @@ Usage: run_cafa3_embedding_retry.sh \
   --output-dir PATH \
   --embedding-state-root PATH \
   --modality sequence|text|structure|ppi \
+  [--cafa3-id-mapping PATH --cafa3-id-mapping-sha256 SHA256] \
   [--text-cutoff-date YYYY-MM-DD] \
   [--embedding-policy PATH] [--artifact-catalog PATH] \
   [--strict-framework-commit]
@@ -57,6 +60,8 @@ while [[ $# -gt 0 ]]; do
     --output-dir) OUTPUT_DIR="$2"; shift 2 ;;
     --embedding-state-root) EMBEDDING_STATE_ROOT="$2"; shift 2 ;;
     --modality) MODALITY="$2"; shift 2 ;;
+    --cafa3-id-mapping) CAFA3_ID_MAPPING="$2"; shift 2 ;;
+    --cafa3-id-mapping-sha256) CAFA3_ID_MAPPING_SHA256="$2"; shift 2 ;;
     --text-cutoff-date) TEXT_CUTOFF_DATE="$2"; shift 2 ;;
     --embedding-policy) EMBEDDING_POLICY="$2"; shift 2 ;;
     --artifact-catalog) ARTIFACT_CATALOG="$2"; export ARTIFACT_CATALOG; shift 2 ;;
@@ -74,6 +79,12 @@ artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 [[ -f "$EMBEDDING_STATE_ROOT/contract.json" ]] || \
   die "CAFA3 retry requires an initialized embedding state"
 case "$MODALITY" in sequence|text|structure|ppi) ;; *) die "Invalid --modality: $MODALITY" ;; esac
+if [[ "$MODALITY" == "ppi" ]]; then
+  [[ -f "$CAFA3_ID_MAPPING" ]] || \
+    die "PPI retry requires --cafa3-id-mapping"
+  [[ "$CAFA3_ID_MAPPING_SHA256" =~ ^[0-9a-fA-F]{64}$ ]] || \
+    die "PPI retry requires --cafa3-id-mapping-sha256"
+fi
 [[ "$CONTROL_COUNT" =~ ^[1-9][0-9]*$ ]] || die "CONTROL_COUNT must be positive"
 [[ "$EQUIVALENCE_MINIMUM" =~ ^[1-9][0-9]*$ ]] || die "EQUIVALENCE_MINIMUM must be positive"
 [[ "$EQUIVALENCE_MINIMUM" -le "$CONTROL_COUNT" ]] || \
@@ -85,6 +96,9 @@ EMBEDDING_POLICY="$(cd "$(dirname "$EMBEDDING_POLICY")" && pwd)/$(basename "$EMB
 
 PFP_ROOT="$(cd "$PFP_ROOT" && pwd)"
 EMBEDDING_STATE_ROOT="$(cd "$EMBEDDING_STATE_ROOT" && pwd)"
+if [[ -n "$CAFA3_ID_MAPPING" ]]; then
+  CAFA3_ID_MAPPING="$(cd "$(dirname "$CAFA3_ID_MAPPING")" && pwd)/$(basename "$CAFA3_ID_MAPPING")"
+fi
 mkdir -p "$WORK_DIR" "$OUTPUT_DIR/logs" "$OUTPUT_DIR/reports/embedding_state"
 WORK_DIR="$(cd "$WORK_DIR" && pwd)"
 OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
@@ -102,6 +116,55 @@ printf 'phase\tmodality\texit_status\n' > "$MODALITY_STATUS"
 
 echo "==> [1/7] Validate the author-supplied environment"
 validate_mmfp_env "$PYTHON_BIN" > "$OUTPUT_DIR/reports/environment_validation.txt"
+
+if [[ "$MODALITY" == "ppi" ]]; then
+  "$PYTHON_BIN" - \
+    "$CAFA3_ID_MAPPING" \
+    "${CAFA3_ID_MAPPING_SHA256,,}" \
+    "$OUTPUT_DIR/reports/cafa3_id_mapping_provenance.json" <<'PY'
+import hashlib
+import json
+import re
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+expected_sha256 = sys.argv[2]
+report_path = Path(sys.argv[3])
+raw = source.read_bytes()
+observed_sha256 = hashlib.sha256(raw).hexdigest()
+if observed_sha256 != expected_sha256:
+    raise SystemExit(
+        f"CAFA3 ID mapping SHA-256 mismatch: {observed_sha256} != {expected_sha256}"
+    )
+mapping = json.loads(raw)
+if not isinstance(mapping, dict) or not mapping:
+    raise SystemExit("CAFA3 ID mapping must be a non-empty JSON object")
+bad_keys = [key for key in mapping if not isinstance(key, str) or not re.fullmatch(r"T\d+", key)]
+bad_values = [
+    key for key, value in mapping.items()
+    if not isinstance(value, str) or not value.strip()
+]
+if bad_keys or bad_values:
+    raise SystemExit(
+        f"Invalid CAFA3 ID mapping entries: bad_keys={len(bad_keys)};"
+        f"bad_values={len(bad_values)}"
+    )
+values = list(mapping.values())
+report = {
+    "schema_version": 1,
+    "role": "cafa3-internal-target-id-to-uniprot-entry-name",
+    "source_path": str(source.resolve()),
+    "sha256": observed_sha256,
+    "size_bytes": len(raw),
+    "entry_count": len(mapping),
+    "unique_entry_name_count": len(set(values)),
+    "duplicate_entry_name_count": len(values) - len(set(values)),
+}
+report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+print(json.dumps(report, indent=2, sort_keys=True))
+PY
+fi
 
 echo "==> [2/7] Stage canonical CAFA3 and embedding dependencies"
 cd "$PFP_ROOT"
@@ -255,6 +318,7 @@ fi
   --report "$OUTPUT_DIR/reports/control_materialization.json"
 
 export PPI_EXTRACT_SCRIPT="$RUNTIME_COMPAT/extract_ppi_embeddings.py"
+export CAFA3_ID_MAPPING
 export IF1_EXTRACT_SCRIPT="$RUNTIME_COMPAT/extract_esm_if1_embeddings.py"
 export IF1_PYTHON_BIN="$PYTHON_BIN"
 export IF1_PYTHONPATH="$IF1_NUMPY_OVERLAY"
@@ -299,6 +363,9 @@ echo "==> [6/7] Enforce subset-equivalence before accepting retry outputs"
 
 echo "==> [7/7] Atomically merge validated successes and retain every failure"
 attempt_id="${JOB_ID:-local}_$(date -u +%Y%m%dT%H%M%SZ)_${MODALITY}"
+if [[ "$MODALITY" == "ppi" ]]; then
+  attempt_id="${attempt_id}_map-${CAFA3_ID_MAPPING_SHA256:0:12}"
+fi
 merge_command=(
   "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/manage_resumable_embedding_state.py"
   merge

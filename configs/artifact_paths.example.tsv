@@ -2,6 +2,7 @@
 # catalogue with populate_san_frozen_inputs.sh. Paths must be absolute.
 artifact_id	path
 cafa3_bp_training	/absolute/path/to/canonical_cafa3/bp-training.csv
+cafa3_id_mapping	/absolute/path/to/canonical_cafa3/cafa3_id_mapping.json
 string_embeddings	/absolute/path/to/string/protein.network.embeddings.v12.0.h5
 string_aliases	/absolute/path/to/string/protein.aliases.v12.0.txt.gz
 goa_t1	/absolute/path/to/goa_uniprot_all.gaf.234.gz
