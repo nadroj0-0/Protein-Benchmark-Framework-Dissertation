@@ -1399,6 +1399,7 @@ def command_materialize(args: argparse.Namespace) -> dict:
 def command_hydrate(args: argparse.Namespace) -> dict:
     state_root = Path(args.state_root)
     output_root = Path(args.output_cache_root)
+    excluded_modalities = set(args.exclude_modality or [])
     with state_lock(state_root):
         contract = load_contract(state_root)
         targets = load_target_manifest(state_root)
@@ -1406,11 +1407,13 @@ def command_hydrate(args: argparse.Namespace) -> dict:
         pairs = {
             (protein_id, modality)
             for modality, specification in policies.items()
+            if modality not in excluded_modalities
             for protein_id in accepted_ids(
                 state_root, targets, specification, modality
             )
         }
         result = materialize_pairs(state_root, output_root, pairs)
+        result["excluded_modalities"] = sorted(excluded_modalities)
         if args.preserve_evidence:
             coverage_path = state_root / "coverage.json"
             if not coverage_path.is_file():
@@ -1651,6 +1654,16 @@ def parse_args() -> argparse.Namespace:
     add_state_root(hydrate)
     hydrate.add_argument("--output-cache-root", type=Path, required=True)
     hydrate.add_argument("--report", type=Path)
+    hydrate.add_argument(
+        "--exclude-modality",
+        action="append",
+        choices=("sequence", "text", "structure", "ppi"),
+        default=[],
+        help=(
+            "omit an accepted modality from the hydrated destination so a fresh "
+            "version can be installed without mutating the source state"
+        ),
+    )
     hydrate.add_argument(
         "--preserve-evidence",
         action="store_true",

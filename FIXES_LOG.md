@@ -455,3 +455,38 @@ later snapshot, so the strict GO/OBO contract correctly rejected them.
 No benchmark row, label, embedding, PFP source file or model behavior is
 changed. This correction restores the ontology contract recorded by the
 successful benchmark build.
+
+## 2026-07-25 - `[fix]` Make the configured historical text cutoff effective
+
+### Observed failure
+
+The framework reassigned PFP's module-level `CUTOFF_DATE`, but PFP had already
+bound its original `2016-02-17` value as the default argument of
+`find_historical_version`. A contemporary run could therefore report the
+requested `2025-03-08` cutoff while selecting UniSave versions with the older
+date. PFP's fixed historical raw-record and checkpoint paths could also carry
+records between differently configured cutoffs.
+
+### Correctness change
+
+- Wrap PFP's historical selector without editing the pinned checkout and pass
+  the requested cutoff explicitly on every implicit call.
+- Prove the binding with a synthetic before/after-cutoff probe before network
+  extraction and record both requested and effective dates.
+- Namespace historical TSVs, checkpoints, raw records and recipe outputs by
+  cutoff date.
+- Bind each resume state to the target-ID set, PFP extractor source and
+  revision, and CAFA mapping-input digest; reject uncontracted legacy state.
+- Record and audit each selected UniSave entry version, refusing raw records or
+  successful descriptions that lack version provenance.
+- Allow a fresh hydration to exclude the old text modality so validated
+  sequence, structure and PPI arrays can be retained while text is replaced
+  one-for-one in a new versioned cache.
+
+### Scientific behavior
+
+The pinned PFP source, PubMedBERT model and CLS pooling rule are unchanged. The
+correction changes contemporary temporal text inputs from the accidentally
+effective 2016 cutoff to the declared 2025 cutoff, so every contemporary model
+that consumes text must be retrained and reevaluated. Existing text artefacts
+remain immutable evidence and must not be merged with their replacements.

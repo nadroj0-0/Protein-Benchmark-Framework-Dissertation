@@ -9,6 +9,7 @@ CAFA_ASSESSMENT_DIR="${CAFA_ASSESSMENT_DIR:-external/CAFA_assessment_tool}"
 TEXT_CUTOFF_DATE="${TEXT_CUTOFF_DATE:?Set TEXT_CUTOFF_DATE to YYYY-MM-DD}"
 TEXT_HISTORY_WORKERS="${TEXT_HISTORY_WORKERS:-5}"
 TEXT_REPORT_DIR="${TEXT_REPORT_DIR:-results/embedding_reports/text}"
+PYTHON_BIN="${PYTHON_BIN:-python}"
 CURRENT_CACHE="data/embedding_cache/exp_text_embeddings"
 TEMPORAL_CACHE="data/embedding_cache/exp_text_embeddings_temporal"
 
@@ -34,15 +35,15 @@ if [[ -d "$TEMPORAL_CACHE" ]]; then
   mv "$TEMPORAL_CACHE" "$CURRENT_CACHE"
 fi
 
-python "${REPO_ROOT}/scripts/embeddings/run_pfp_temporal_text.py" \
+"$PYTHON_BIN" "${REPO_ROOT}/scripts/embeddings/run_pfp_temporal_text.py" \
   --pfp-root "$PWD" \
   --cafa-assessment-dir "$CAFA_ASSESSMENT_DIR" \
   --cutoff-date "$TEXT_CUTOFF_DATE" \
   --workers "$TEXT_HISTORY_WORKERS"
 
-python scripts/embed_uniprot_descriptions.py --data-dir data &
+"$PYTHON_BIN" scripts/embed_uniprot_descriptions.py --data-dir data &
 EMBED_PID=$!
-python "${REPO_ROOT}/scripts/embeddings/reduce_text_embeddings_to_cls.py" \
+"$PYTHON_BIN" "${REPO_ROOT}/scripts/embeddings/reduce_text_embeddings_to_cls.py" \
   --directory "$CURRENT_CACHE" \
   --watch-pid "$EMBED_PID" \
   --report "$TEXT_REPORT_DIR/cls_reduction.json" &
@@ -65,9 +66,33 @@ fi
 # Restore the current-description source afterwards so a preflight checkpoint
 # can resume into a clean full run rather than appending to the mixed TSV.
 CURRENT_DESCRIPTION="data/embedding_cache/uniprot_text/protein_descriptions.tsv"
-CURRENT_BACKUP="data/embedding_cache/uniprot_text/temporal_recipe/protein_descriptions_current_before_mixed.tsv"
+TEXT_RUN_REPORT="data/embedding_cache/uniprot_text/temporal_recipe/framework_temporal_text_run.json"
+[[ -f "$TEXT_RUN_REPORT" ]] || {
+  echo "Missing temporal text run report: $TEXT_RUN_REPORT" >&2
+  exit 1
+}
+CURRENT_BACKUP="$($PYTHON_BIN - "$TEXT_RUN_REPORT" <<'PY'
+import json
+import sys
+
+report = json.load(open(sys.argv[1], encoding="utf-8"))
+requested = report.get("requested_cutoff")
+effective = report.get("effective_cutoff")
+if not requested or requested != effective:
+    raise SystemExit(
+        f"Temporal text cutoff mismatch in run report: {requested!r} != {effective!r}"
+    )
+backup = report.get("current_backup")
+if not backup:
+    raise SystemExit("Temporal text run report has no current_backup")
+print(backup)
+PY
+)"
 if [[ -f "$CURRENT_BACKUP" ]]; then
   cp -p "$CURRENT_BACKUP" "$CURRENT_DESCRIPTION"
+else
+  echo "Missing cutoff-scoped current-description backup: $CURRENT_BACKUP" >&2
+  exit 1
 fi
 
 [[ "$EMBED_STATUS" == "0" ]] || {

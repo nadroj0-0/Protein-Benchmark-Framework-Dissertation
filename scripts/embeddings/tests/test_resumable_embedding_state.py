@@ -544,6 +544,33 @@ class ResumableEmbeddingStateTest(unittest.TestCase):
             (self.state / "EVIDENCE_HASHES_COMPLETE.json").is_file()
         )
 
+        replacement_base = self.root / "replacement-base"
+        replacement_report = self.root / "replacement-hydrate.json"
+        result = self.run_state(
+            "hydrate",
+            "--state-root",
+            str(self.state),
+            "--output-cache-root",
+            str(replacement_base),
+            "--exclude-modality",
+            "text",
+            "--preserve-evidence",
+            "--report",
+            str(replacement_report),
+        )
+        replacement = json.loads(result.stdout)
+        self.assertEqual(replacement["excluded_modalities"], ["text"])
+        self.assertFalse(
+            (replacement_base / "exp_text_embeddings_temporal").exists()
+        )
+        self.assertTrue((replacement_base / "prott5/P1.npy").is_file())
+        self.assertEqual(
+            json.loads(replacement_report.read_text(encoding="utf-8"))[
+                "excluded_modalities"
+            ],
+            ["text"],
+        )
+
     def test_retry_workspace_and_equivalence_use_only_selected_ids(self) -> None:
         self.initialize()
         for aspect in ("BPO", "CCO", "MFO"):

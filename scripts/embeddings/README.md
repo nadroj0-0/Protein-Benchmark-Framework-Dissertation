@@ -64,6 +64,14 @@ normal mask and zero vector.
 
 PFP's text extraction functions are called directly by
 `run_pfp_temporal_text.py`, with the benchmark's t0 date supplied at runtime.
+The framework passes that date into PFP's historical version selector explicitly;
+changing the module-level `CUTOFF_DATE` is insufficient because PFP bound its
+original value as a Python default argument. Historical TSVs, checkpoints and
+raw UniSave records live under a cutoff-specific state directory whose contract
+also binds the test-protein set and PFP extractor hash. A run may therefore
+resume the same cutoff safely but cannot reuse historical records from another
+cutoff. Requested and effective cutoffs are both recorded and must agree.
+
 The PFP source file is not edited. `generate_embeddings_text_temporal_cls.sh`
 runs PFP's PubMedBERT embedder and simultaneously invokes
 `reduce_text_embeddings_to_cls.py`. Each completed `(1, L, 768)` hidden-state
@@ -71,6 +79,31 @@ array is atomically replaced by `array[0, 0, :].astype(float32)`, the exact
 `(768,)` CLS vector selected by PFP's flatten-and-truncate loader behavior and
 confirmed by Zijian. This streaming reduction is required to keep scratch use
 bounded.
+
+PFP's documentation lists both `exp_text_embeddings/` and
+`exp_text_embeddings_temporal/` as outputs of
+`embed_uniprot_descriptions.py`, but that script physically writes only the
+former. The hardened wrapper intentionally uses that fixed directory as a
+staging name: it embeds the mixed current-train/validation plus historical-test
+TSV, performs CLS reduction, and then renames the completed directory to
+`exp_text_embeddings_temporal/`. The current-only embedding cache is not needed
+by the published full-model route and is not generated as a duplicate.
+
+Hydration never combines an old and corrected text vector for the same protein.
+The resumable state manager rejects a pair that exists in both its immutable
+baseline and retry delta, and it rejects conflicting files already present in a
+hydration destination. A future corrected-cutoff text refresh must therefore
+publish a new versioned combined cache: retain validated non-text modalities,
+replace the complete text layer one-for-one, validate it exhaustively, and only
+then atomically publish the new archive. The old archive remains immutable
+evidence rather than being edited in place.
+
+`manage_resumable_embedding_state.py hydrate --exclude-modality text` provides
+the first half of that transaction: it materializes every accepted non-text
+array into a fresh destination while proving that no old text array entered it.
+The corrected text run must cover the complete contemporary target population,
+not merely pairs currently marked missing, before that destination can become a
+new authenticated baseline.
 
 ### PPI compatibility
 
