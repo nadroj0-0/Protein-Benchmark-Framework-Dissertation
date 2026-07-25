@@ -21,6 +21,7 @@ MODALITY=""
 TEXT_CUTOFF_DATE="2025-03-08"
 STRICT_FRAMEWORK_COMMIT=0
 REFRESH_ALL_TEXT=0
+GENERATE_ALL_TEXT_ONLY=0
 
 usage() {
   cat <<'EOF'
@@ -29,7 +30,7 @@ Usage: run_contemporary_embedding_retry.sh \
   --benchmark-dir PATH --plan-dir PATH --state-root PATH \
   --modality sequence|text|structure|ppi \
   [--text-cutoff-date YYYY-MM-DD] [--artifact-catalog PATH] \
-  [--strict-framework-commit] [--refresh-all-text]
+  [--strict-framework-commit] [--refresh-all-text|--generate-all-text-only]
 
 Only currently missing pairs for one modality are generated. Accepted control
 arrays are materialized from the immutable baseline archive or retry delta into
@@ -39,6 +40,10 @@ scratch and must reproduce before new arrays are merged.
 text for every target, hydrates accepted non-text arrays into a fresh cache,
 installs only the new text layer, and writes a new validated baseline archive.
 It never merges into or edits the existing state.
+
+`--generate-all-text-only` regenerates and validates text for every target,
+publishes a text-only archive with cutoff provenance, and stops. It performs
+no hydration and never merges into or edits the existing state.
 EOF
 }
 
@@ -58,6 +63,7 @@ while [[ $# -gt 0 ]]; do
     --artifact-catalog) ARTIFACT_CATALOG="$2"; export ARTIFACT_CATALOG; shift 2 ;;
     --strict-framework-commit) STRICT_FRAMEWORK_COMMIT=1; shift ;;
     --refresh-all-text) REFRESH_ALL_TEXT=1; shift ;;
+    --generate-all-text-only) GENERATE_ALL_TEXT_ONLY=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; die "Unknown argument: $1" ;;
   esac
@@ -71,9 +77,13 @@ artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 [[ -d "$PLAN_DIR" ]] || die "Missing reuse plan: $PLAN_DIR"
 [[ -f "$STATE_ROOT/contract.json" ]] || die "State is not initialized: $STATE_ROOT"
 case "$MODALITY" in sequence|text|structure|ppi) ;; *) die "Invalid modality: $MODALITY" ;; esac
-if [[ "$REFRESH_ALL_TEXT" == "1" && "$MODALITY" != "text" ]]; then
-  die "--refresh-all-text requires --modality text"
+if [[ "$REFRESH_ALL_TEXT" == "1" && "$GENERATE_ALL_TEXT_ONLY" == "1" ]]; then
+  die "--refresh-all-text and --generate-all-text-only are mutually exclusive"
 fi
+if [[ "$REFRESH_ALL_TEXT" == "1" || "$GENERATE_ALL_TEXT_ONLY" == "1" ]]; then
+  [[ "$MODALITY" == "text" ]] || die "Full text modes require --modality text"
+fi
+FULL_TEXT_SELECTION=$((REFRESH_ALL_TEXT || GENERATE_ALL_TEXT_ONLY))
 [[ "$CONTROL_COUNT" =~ ^[1-9][0-9]*$ ]] || die "CONTROL_COUNT must be positive"
 [[ "$EQUIVALENCE_MINIMUM" =~ ^[1-9][0-9]*$ ]] || die "EQUIVALENCE_MINIMUM must be positive"
 [[ "$EQUIVALENCE_MINIMUM" -le "$CONTROL_COUNT" ]] || \
@@ -193,7 +203,7 @@ validate_mmfp_if1_env "$PYTHON_BIN" "$IF1_NUMPY_OVERLAY" \
   --report "$OUTPUT_DIR/reports/pfp_if1_compatibility.json"
 
 echo "==> [4/9] Select requested pairs and controls"
-if [[ "$REFRESH_ALL_TEXT" == "1" ]]; then
+if [[ "$FULL_TEXT_SELECTION" == "1" ]]; then
   "$PYTHON_BIN" "$HERE/manage_resumable_embedding_state.py" all-pairs \
     --state-root "$STATE_ROOT" --modality text --output "$REQUESTED" \
     > "$OUTPUT_DIR/reports/full_text_selection.json"
@@ -204,7 +214,7 @@ else
     > "$OUTPUT_DIR/reports/pending_selection.json"
 fi
 requested_count="$(($(wc -l < "$REQUESTED") - 1))"
-if [[ "$requested_count" == "0" && "$REFRESH_ALL_TEXT" == "0" ]]; then
+if [[ "$requested_count" == "0" && "$FULL_TEXT_SELECTION" == "0" ]]; then
   "$PYTHON_BIN" "$HERE/manage_resumable_embedding_state.py" summary \
     --state-root "$STATE_ROOT" --report-dir "$OUTPUT_DIR/reports/embedding_state" \
     > "$OUTPUT_DIR/reports/embedding_state_summary.json"
@@ -213,7 +223,7 @@ if [[ "$requested_count" == "0" && "$REFRESH_ALL_TEXT" == "0" ]]; then
   echo "No $MODALITY pairs need retrying"
   exit 0
 fi
-if [[ "$REFRESH_ALL_TEXT" == "0" ]]; then
+if [[ "$FULL_TEXT_SELECTION" == "0" ]]; then
   "$PYTHON_BIN" "$HERE/manage_resumable_embedding_state.py" controls \
     --state-root "$STATE_ROOT" --modality "$MODALITY" --count "$CONTROL_COUNT" \
     --output "$CONTROLS" > "$OUTPUT_DIR/reports/control_selection.json"
@@ -225,7 +235,7 @@ echo "==> [5/9] Build the exact contemporary retry workspace"
   --data-dir "$PFP_ROOT/data" --requested-pairs "$REQUESTED" \
   --control-pairs "$CONTROLS" --modality "$MODALITY" \
   --report "$OUTPUT_DIR/reports/retry_workspace.json"
-if [[ "$REFRESH_ALL_TEXT" == "0" ]]; then
+if [[ "$FULL_TEXT_SELECTION" == "0" ]]; then
   "$PYTHON_BIN" "$HERE/manage_resumable_embedding_state.py" materialize \
     --state-root "$STATE_ROOT" --pairs "$CONTROLS" \
     --output-cache-root "$REFERENCE_CONTROLS" \
@@ -247,7 +257,7 @@ export ALPHAFOLD_DOWNLOAD_WORKERS="${ALPHAFOLD_DOWNLOAD_WORKERS:-8}"
 export ALPHAFOLD_PREFETCH_REPORT="$OUTPUT_DIR/reports/alphafold_prefetch_retry.json"
 mkdir -p "$HF_HOME" "$TORCH_HOME"
 
-echo "==> [6/9] Generate only missing $MODALITY pairs"
+echo "==> [6/9] Generate selected $MODALITY pairs"
 generation_status=0
 case "$MODALITY" in
   sequence)
@@ -266,9 +276,9 @@ esac
 printf 'retry\t%s\t%s\n' "$MODALITY" "$generation_status" >> "$MODALITY_STATUS"
 
 echo "==> [7/9] Prove subset generation matches accepted controls"
-if [[ "$REFRESH_ALL_TEXT" == "1" ]]; then
+if [[ "$FULL_TEXT_SELECTION" == "1" ]]; then
   [[ "$generation_status" == "0" ]] || \
-    die "Full text refresh generator failed with status $generation_status"
+    die "Full text generator failed with status $generation_status"
   printf '{"skipped":true,"reason":"old text used an incorrect effective cutoff"}\n' \
     > "$OUTPUT_DIR/reports/subset_equivalence.json"
 else
@@ -280,7 +290,56 @@ else
     --report "$OUTPUT_DIR/reports/subset_equivalence.json"
 fi
 
-if [[ "$REFRESH_ALL_TEXT" == "1" ]]; then
+if [[ "$GENERATE_ALL_TEXT_ONLY" == "1" ]]; then
+  echo "==> [8/9] Validate and archive corrected text without hydration"
+  replacement_policy="$WORK_DIR/replacement_policy.json"
+  text_source="$PFP_ROOT/data/embedding_cache/exp_text_embeddings_temporal"
+  [[ -d "$text_source" ]] || die "Corrected temporal text cache is missing"
+  "$PYTHON_BIN" - "$STATE_ROOT/contract.json" "$replacement_policy" <<'PY'
+import json
+import sys
+contract = json.load(open(sys.argv[1], encoding="utf-8"))
+with open(sys.argv[2], "w", encoding="utf-8") as handle:
+    json.dump(contract["policy"], handle, indent=2, sort_keys=True)
+    handle.write("\n")
+PY
+  mkdir -p "$OUTPUT_DIR/artifacts" "$OUTPUT_DIR/reports/text_provenance"
+  archive="$OUTPUT_DIR/artifacts/contemporary_text_embeddings_cutoff_${TEXT_CUTOFF_DATE}.tar.gz"
+  assembly="$OUTPUT_DIR/artifacts/contemporary_text_embeddings_cutoff_${TEXT_CUTOFF_DATE}_assembly.tsv.gz"
+  text_archive_report="$OUTPUT_DIR/reports/text_only_archive.json"
+  "$PYTHON_BIN" "$HERE/build_embedding_baseline_archive.py" \
+    --generated-cache-root "$PFP_ROOT/data/embedding_cache" \
+    --data-dir "$PFP_ROOT/data" --policy "$replacement_policy" \
+    --only-modality text --archive "$archive" \
+    --assembly-report "$assembly" --report "$text_archive_report"
+  "$PYTHON_BIN" - "$text_archive_report" <<'PY'
+import json
+import sys
+report = json.load(open(sys.argv[1], encoding="utf-8"))
+if report.get("modalities") != ["text"]:
+    raise SystemExit(f"Unexpected archived modalities: {report.get('modalities')}")
+if report.get("available_pairs", 0) <= 0:
+    raise SystemExit("Corrected text archive contains no embeddings")
+PY
+  text_run_report="$PFP_ROOT/data/embedding_cache/uniprot_text/temporal_recipe/framework_temporal_text_run.json"
+  cp -p "$text_run_report" "$OUTPUT_DIR/reports/text_provenance/"
+  "$PYTHON_BIN" - "$text_run_report" "$OUTPUT_DIR/reports/text_provenance" <<'PY'
+import json
+import shutil
+import sys
+from pathlib import Path
+report = json.load(open(sys.argv[1], encoding="utf-8"))
+destination = Path(sys.argv[2])
+for key in ("historical_state_contract", "selected_unisave_versions"):
+    source = report.get(key)
+    if source:
+        path = Path(source)
+        if path.is_file():
+            shutil.copy2(path, destination / path.name)
+PY
+  [[ ! -f "$TEXT_REPORT_DIR/cls_reduction.json" ]] || \
+    cp -p "$TEXT_REPORT_DIR/cls_reduction.json" "$OUTPUT_DIR/reports/text_provenance/"
+elif [[ "$REFRESH_ALL_TEXT" == "1" ]]; then
   echo "==> [8/9] Build a fresh cache with corrected text"
   replacement_cache="$WORK_DIR/corrected_combined_cache"
   replacement_policy="$WORK_DIR/replacement_policy.json"
@@ -334,9 +393,9 @@ fi
 
 echo "==> [9/9] Publish compact retry status"
 printf '%s\n' "$generation_status" > "$OUTPUT_DIR/reports/generator_exit_status.txt"
-if [[ "$REFRESH_ALL_TEXT" == "1" ]]; then
+if [[ "$FULL_TEXT_SELECTION" == "1" ]]; then
   "$PYTHON_BIN" - "$OUTPUT_DIR" "$STATE_ROOT/contract.json" "$TEXT_CUTOFF_DATE" \
-    "$framework_commit" "$pfp_commit" <<'PY'
+    "$framework_commit" "$pfp_commit" "$GENERATE_ALL_TEXT_ONLY" <<'PY'
 import hashlib
 import json
 import sys
@@ -346,28 +405,55 @@ contract = Path(sys.argv[2])
 cutoff = sys.argv[3]
 framework_commit = sys.argv[4]
 pfp_commit = sys.argv[5]
-archive = root / "artifacts" / f"contemporary_embeddings_text_cutoff_{cutoff}.tar.gz"
-assembly = root / "artifacts" / f"contemporary_embeddings_text_cutoff_{cutoff}_assembly.tsv.gz"
+text_only = sys.argv[6] == "1"
+prefix = "contemporary_text_embeddings" if text_only else "contemporary_embeddings_text"
+archive_relative = Path("artifacts") / f"{prefix}_cutoff_{cutoff}.tar.gz"
+assembly_relative = Path("artifacts") / f"{prefix}_cutoff_{cutoff}_assembly.tsv.gz"
+archive = root / archive_relative
+assembly = root / assembly_relative
 def sha(path):
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+run_report = json.loads(
+    (root / "reports" / "text_provenance" / "framework_temporal_text_run.json").read_text(
+        encoding="utf-8"
+    )
+) if text_only else json.loads(
+    (root / "reports" / "framework_temporal_text_run.json").read_text(encoding="utf-8")
+)
+if run_report.get("requested_cutoff") != cutoff or run_report.get("effective_cutoff") != cutoff:
+    raise SystemExit("Published text cutoff provenance does not match the requested cutoff")
 payload = {
     "complete": True,
-    "mode": "full-text-replacement",
+    "mode": "full-text-generation-only" if text_only else "full-text-replacement",
     "requested_cutoff": cutoff,
+    "effective_cutoff": run_report["effective_cutoff"],
     "source_state_contract_sha256": sha(contract),
-    "archive": str(archive),
+    "archive": str(archive_relative),
     "archive_sha256": sha(archive),
-    "assembly_report": str(assembly),
+    "assembly_report": str(assembly_relative),
     "assembly_report_sha256": sha(assembly),
     "framework_commit": framework_commit,
     "pfp_commit": pfp_commit,
     "old_text_carried_forward": False,
+    "hydration_performed": not text_only,
+    "state_modified": False,
 }
-(root / "TEXT_REFRESH_COMPLETE.json").write_text(
+if text_only:
+    archive_report_relative = Path("reports") / "text_only_archive.json"
+    archive_report_path = root / archive_report_relative
+    archive_report = json.loads(archive_report_path.read_text(encoding="utf-8"))
+    payload.update({
+        "text_archive_report": str(archive_report_relative),
+        "text_archive_report_sha256": sha(archive_report_path),
+        "target_count": archive_report["target_count"],
+        "text_available": archive_report["available_pairs"],
+        "text_missing": archive_report["missing_pairs"],
+    })
+(root / ("TEXT_GENERATION_COMPLETE.json" if text_only else "TEXT_REFRESH_COMPLETE.json")).write_text(
     json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
 )
 PY
@@ -376,9 +462,12 @@ elif [[ -f "$STATE_ROOT/EMBEDDING_GATE_PASSED.json" ]]; then
 else
   cp -p "$STATE_ROOT/GENERATION_INCOMPLETE.json" "$OUTPUT_DIR/"
 fi
-printf '{"complete":true,"no_work":false,"modality":"%s","generator_exit_status":%s,"refresh_all_text":%s}\n' \
-  "$MODALITY" "$generation_status" "$REFRESH_ALL_TEXT" > "$OUTPUT_DIR/RETRY_COMPLETE.json"
-if [[ "$REFRESH_ALL_TEXT" == "1" ]]; then
+printf '{"complete":true,"no_work":false,"modality":"%s","generator_exit_status":%s,"refresh_all_text":%s,"generate_all_text_only":%s}\n' \
+  "$MODALITY" "$generation_status" "$REFRESH_ALL_TEXT" "$GENERATE_ALL_TEXT_ONLY" \
+  > "$OUTPUT_DIR/RETRY_COMPLETE.json"
+if [[ "$GENERATE_ALL_TEXT_ONLY" == "1" ]]; then
+  echo "Full corrected text-only archive complete. No hydration or state merge was performed."
+elif [[ "$REFRESH_ALL_TEXT" == "1" ]]; then
   echo "Full corrected text archive complete. Existing state was not modified."
 else
   echo "Retry complete. Valid arrays were retained; missing pairs remain pending."

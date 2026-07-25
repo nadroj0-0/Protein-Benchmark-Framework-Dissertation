@@ -494,7 +494,24 @@ class WorkflowScriptTests(unittest.TestCase):
         self.assertIn("--exclude-modality text", workflow)
         self.assertIn("old_text_carried_forward", workflow)
         self.assertIn("Full corrected text archive complete", workflow)
-        self.assertIn("Full text refresh results must publish to SAN", wrapper)
+        self.assertIn("Full text mode results must publish to SAN", wrapper)
+
+    def test_full_text_generation_only_stops_before_hydration_or_state_merge(self) -> None:
+        workflow = (SCRIPT_DIR / "run_contemporary_embedding_retry.sh").read_text(
+            encoding="utf-8"
+        )
+        wrapper = (
+            SCRIPT_DIR.parents[1]
+            / "hpc_jobs/active/hpc_contemporary_embedding_retry.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("--generate-all-text-only", workflow)
+        self.assertIn("--only-modality text", workflow)
+        self.assertIn('"hydration_performed": not text_only', workflow)
+        self.assertIn('"state_modified": False', workflow)
+        self.assertIn('"text_available": archive_report["available_pairs"]', workflow)
+        self.assertIn('archive_relative = Path("artifacts")', workflow)
+        self.assertIn("No hydration or state merge was performed", workflow)
+        self.assertIn("Full text mode results must publish to SAN", wrapper)
 
 
 if __name__ == "__main__":

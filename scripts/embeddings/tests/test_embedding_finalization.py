@@ -150,6 +150,53 @@ class EmbeddingFinalizationTests(unittest.TestCase):
             "data/embedding_cache/uniprot_text/descriptions.tsv", names
         )
 
+    def test_archive_can_be_restricted_to_text_without_hydrating_other_modalities(self) -> None:
+        data = self.root / "data"
+        data.mkdir()
+        (data / "BPO_train_sequences.json").write_text(
+            json.dumps({"P1": "ACDE", "P2": "FGHI"}), encoding="utf-8"
+        )
+        policy = self.root / "policy.json"
+        policy.write_text(json.dumps({
+            "schema_version": 1,
+            "modalities": {
+                "sequence": {"cache_directory": "prott5", "dimension": 2,
+                             "min_accepted_count": 1},
+                "text": {"cache_directory": "exp_text_embeddings_temporal", "dimension": 2,
+                         "min_accepted_count": 1},
+                "structure": {"cache_directory": "IF1", "dimension": 2,
+                              "min_accepted_count": 1},
+                "ppi": {"cache_directory": "ppi", "dimension": 2,
+                        "min_accepted_count": 1},
+            },
+        }))
+        cache = self.root / "generated"
+        (cache / "exp_text_embeddings_temporal").mkdir(parents=True)
+        for protein_id in ("P1", "P2"):
+            np.save(
+                cache / "exp_text_embeddings_temporal" / f"{protein_id}.npy",
+                np.ones(2, dtype=np.float32),
+            )
+
+        archive = self.root / "text-only/text.tar.gz"
+        assembly = self.root / "text-only/assembly.tsv.gz"
+        summary = build_baseline(
+            cache, data, policy, archive, assembly, only_modality="text"
+        )
+
+        self.assertEqual(summary["modalities"], ["text"])
+        self.assertEqual(summary["available_pairs"], 2)
+        self.assertEqual(summary["missing_pairs"], 0)
+        with tarfile.open(archive, "r:gz") as handle:
+            names = {member.name for member in handle if member.isfile()}
+        self.assertEqual(
+            names,
+            {
+                "data/embedding_cache/exp_text_embeddings_temporal/P1.npy",
+                "data/embedding_cache/exp_text_embeddings_temporal/P2.npy",
+            },
+        )
+
     def test_baseline_rejects_unreduced_text_hidden_state(self) -> None:
         data = self.root / "data"
         data.mkdir()

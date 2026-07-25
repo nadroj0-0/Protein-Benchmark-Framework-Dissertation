@@ -20,7 +20,7 @@ Usage: qsub hpc_jobs/active/hpc_contemporary_embedding_retry.sh \
   --modality sequence|text|structure|ppi \
   [--benchmark-dir PATH] [--baseline-root PATH] [--plan-dir PATH] \
   [--state-root PATH] [--artifact-catalog PATH] [--results-root PATH] \
-  [--strict-framework-commit] [--refresh-all-text]
+  [--strict-framework-commit] [--refresh-all-text|--generate-all-text-only]
 
 The wrapper retries only pending pairs for one modality on animal-206-2.local,
 merges valid arrays into the one archive-backed SAN state, copies compact
@@ -29,6 +29,8 @@ job.
 
 `--refresh-all-text` requires `--modality text` and an explicit SAN
 `--results-root`; it publishes a new archive and never modifies the old state.
+`--generate-all-text-only` has the same SAN requirement but stops after
+publishing validated corrected text; it performs no hydration or state merge.
 EOF
 }
 
@@ -44,6 +46,7 @@ CLI_RESULTS_ROOT=""
 TEXT_CUTOFF_DATE="2025-03-08"
 STRICT_FRAMEWORK_COMMIT=0
 REFRESH_ALL_TEXT=0
+GENERATE_ALL_TEXT_ONLY=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --modality) MODALITY="$2"; shift 2 ;;
@@ -56,15 +59,19 @@ while [[ $# -gt 0 ]]; do
     --text-cutoff-date) TEXT_CUTOFF_DATE="$2"; shift 2 ;;
     --strict-framework-commit) STRICT_FRAMEWORK_COMMIT=1; shift ;;
     --refresh-all-text) REFRESH_ALL_TEXT=1; shift ;;
+    --generate-all-text-only) GENERATE_ALL_TEXT_ONLY=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; die "Unknown argument: $1" ;;
   esac
 done
 case "$MODALITY" in sequence|text|structure|ppi) ;; *) usage >&2; die "--modality is required" ;; esac
-if [[ "$REFRESH_ALL_TEXT" == "1" ]]; then
-  [[ "$MODALITY" == "text" ]] || die "--refresh-all-text requires --modality text"
-  [[ -n "$CLI_RESULTS_ROOT" ]] || die "Full text refresh requires explicit --results-root"
-  case "$CLI_RESULTS_ROOT" in /SAN/*) ;; *) die "Full text refresh results must publish to SAN" ;; esac
+if [[ "$REFRESH_ALL_TEXT" == "1" && "$GENERATE_ALL_TEXT_ONLY" == "1" ]]; then
+  die "--refresh-all-text and --generate-all-text-only are mutually exclusive"
+fi
+if [[ "$REFRESH_ALL_TEXT" == "1" || "$GENERATE_ALL_TEXT_ONLY" == "1" ]]; then
+  [[ "$MODALITY" == "text" ]] || die "Full text modes require --modality text"
+  [[ -n "$CLI_RESULTS_ROOT" ]] || die "Full text modes require explicit --results-root"
+  case "$CLI_RESULTS_ROOT" in /SAN/*) ;; *) die "Full text mode results must publish to SAN" ;; esac
 fi
 PLAN_DIR="${PLAN_DIR:-$BASELINE_ROOT/reuse_plan}"
 STATE_ROOT="${STATE_ROOT:-$BASELINE_ROOT/retry_state}"
@@ -206,6 +213,9 @@ if [[ "$STRICT_FRAMEWORK_COMMIT" == "1" ]]; then
 fi
 if [[ "$REFRESH_ALL_TEXT" == "1" ]]; then
   command+=(--refresh-all-text)
+fi
+if [[ "$GENERATE_ALL_TEXT_ONLY" == "1" ]]; then
+  command+=(--generate-all-text-only)
 fi
 printf 'Command:'; printf ' %q' "${command[@]}"; printf '\n'
 set +e

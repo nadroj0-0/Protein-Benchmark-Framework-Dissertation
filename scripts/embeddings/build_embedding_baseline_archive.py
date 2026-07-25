@@ -71,11 +71,16 @@ def build_baseline(
     policy_path: Path,
     archive_path: Path,
     assembly_report: Path,
+    only_modality: str | None = None,
 ) -> dict:
     if archive_path.exists() or assembly_report.exists():
         raise ValueError("Baseline archive outputs must not already exist")
     targets = load_targets(data_dir)
     policies = load_policy(policy_path)["modalities"]
+    if only_modality is not None:
+        if only_modality not in policies:
+            raise ValueError(f"Policy has no modality: {only_modality}")
+        policies = {only_modality: policies[only_modality]}
     available: dict[str, set[str]] = {}
     counts: Counter[str] = Counter()
 
@@ -114,6 +119,7 @@ def build_baseline(
 
     return {
         "schema_version": 1,
+        "modalities": sorted(policies),
         "target_count": len(targets),
         "available_by_modality": dict(sorted(counts.items())),
         "available_pairs": sum(counts.values()),
@@ -134,6 +140,11 @@ def main() -> int:
     parser.add_argument("--policy", type=Path, required=True)
     parser.add_argument("--archive", type=Path, required=True)
     parser.add_argument("--assembly-report", type=Path, required=True)
+    parser.add_argument(
+        "--only-modality",
+        choices=sorted(REPORT_MODALITIES),
+        help="Validate and archive only one policy modality",
+    )
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
     try:
@@ -143,6 +154,7 @@ def main() -> int:
             args.policy,
             args.archive,
             args.assembly_report,
+            args.only_modality,
         )
         if args.report:
             args.report.parent.mkdir(parents=True, exist_ok=True)
