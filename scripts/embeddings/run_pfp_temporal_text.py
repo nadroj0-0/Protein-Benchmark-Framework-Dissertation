@@ -316,6 +316,7 @@ def main() -> int:
     mixed = historical_state / "protein_descriptions_mixed.tsv"
 
     script = pfp_root / "scripts" / "extract_uniprot_text.py"
+    framework_wrapper = Path(__file__).resolve()
     if not script.is_file():
         raise SystemExit(f"Missing PFP text extractor: {script}")
     if not args.cafa_assessment_dir.is_dir():
@@ -337,6 +338,8 @@ def main() -> int:
         "pfp_text_script": str(script),
         "pfp_text_script_sha256": sha256_file(script),
         "pfp_revision": git_revision(pfp_root),
+        "framework_wrapper": str(framework_wrapper),
+        "framework_wrapper_sha256": sha256_file(framework_wrapper),
         "mapping_inputs": mapping_contract,
         "data_dir": str(data_dir),
         "cafa_assessment_dir": str(args.cafa_assessment_dir.resolve()),
@@ -392,6 +395,8 @@ def main() -> int:
         "schema_version": 2,
         "pfp_text_script": str(script),
         "pfp_text_script_sha256": sha256_file(script),
+        "framework_wrapper": str(framework_wrapper),
+        "framework_wrapper_sha256": sha256_file(framework_wrapper),
         "historical_cutoff": cutoff_date,
         "requested_cutoff": cutoff_date,
         "effective_cutoff": cutoff_contract["effective_cutoff"],

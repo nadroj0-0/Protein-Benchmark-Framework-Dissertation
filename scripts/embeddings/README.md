@@ -105,6 +105,20 @@ The corrected text run must cover the complete contemporary target population,
 not merely pairs currently marked missing, before that destination can become a
 new authenticated baseline.
 
+The guarded production entry point for this transaction is:
+
+```bash
+qsub hpc_jobs/active/hpc_contemporary_embedding_retry.sh \
+  --modality text --refresh-all-text \
+  --results-root /SAN/bioinf/bmpfp/embeddings/contemporary/<new-release>
+```
+
+The mode requires an explicit SAN destination. It selects every state target,
+does not run old-versus-new subset equivalence because the old cutoff is known
+to be wrong, and never invokes the state merge command. Its completion marker
+binds the new archive to the requested/effective cutoff and exact framework and
+PFP revisions. Do not use the ordinary missing-pair text retry for this repair.
+
 ### PPI compatibility
 
 PFP's PPI extractor divides a diagnostic mapped-CAFA count by the number of

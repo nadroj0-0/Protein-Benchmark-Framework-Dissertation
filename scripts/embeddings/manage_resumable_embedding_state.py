@@ -1144,6 +1144,27 @@ def command_pending(args: argparse.Namespace) -> dict:
         }
 
 
+def command_all_pairs(args: argparse.Namespace) -> dict:
+    state_root = Path(args.state_root)
+    with state_lock(state_root):
+        contract = load_contract(state_root)
+        targets = load_target_manifest(state_root)
+        policies = modality_policy(contract)
+        if args.modality not in policies:
+            raise ValueError(f"State has no modality policy for {args.modality}")
+        lines = ["protein_id\tmodality"]
+        lines.extend(
+            f"{protein_id}\t{args.modality}" for protein_id in sorted(targets)
+        )
+        atomic_write_text(Path(args.output), "\n".join(lines) + "\n")
+        return {
+            "output": str(Path(args.output).resolve()),
+            "modality": args.modality,
+            "pair_count": len(targets),
+            "contract_sha256": contract["contract_sha256"],
+        }
+
+
 def load_planner_global_splits(plan_dir: Path) -> Dict[str, str]:
     split_by_id: Dict[str, str] = {}
     for action in ("reuse", "regenerate"):
@@ -1636,6 +1657,13 @@ def parse_args() -> argparse.Namespace:
     pending.add_argument("--modality", choices=("sequence", "text", "structure", "ppi"))
     pending.add_argument("--output", type=Path, required=True)
 
+    all_pairs = subparsers.add_parser("all-pairs")
+    add_state_root(all_pairs)
+    all_pairs.add_argument(
+        "--modality", choices=("sequence", "text", "structure", "ppi"), required=True
+    )
+    all_pairs.add_argument("--output", type=Path, required=True)
+
     controls = subparsers.add_parser("controls")
     add_state_root(controls)
     controls.add_argument("--modality", choices=("sequence", "text", "structure", "ppi"), required=True)
@@ -1686,6 +1714,7 @@ def main() -> int:
         "initialize": command_initialize,
         "merge": command_merge,
         "pending": command_pending,
+        "all-pairs": command_all_pairs,
         "controls": command_controls,
         "materialize": command_materialize,
         "hydrate": command_hydrate,

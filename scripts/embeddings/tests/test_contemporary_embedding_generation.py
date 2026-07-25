@@ -481,6 +481,21 @@ class WorkflowScriptTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("#$ -l hostname=animal-206-2.local", wrapper)
 
+    def test_full_text_refresh_replaces_text_without_merging_old_state(self) -> None:
+        workflow = (SCRIPT_DIR / "run_contemporary_embedding_retry.sh").read_text(
+            encoding="utf-8"
+        )
+        wrapper = (
+            SCRIPT_DIR.parents[1]
+            / "hpc_jobs/active/hpc_contemporary_embedding_retry.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("--refresh-all-text", workflow)
+        self.assertIn("all-pairs", workflow)
+        self.assertIn("--exclude-modality text", workflow)
+        self.assertIn("old_text_carried_forward", workflow)
+        self.assertIn("Full corrected text archive complete", workflow)
+        self.assertIn("Full text refresh results must publish to SAN", wrapper)
+
 
 if __name__ == "__main__":
     unittest.main()

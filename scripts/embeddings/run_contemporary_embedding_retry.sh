@@ -20,6 +20,7 @@ STATE_ROOT=""
 MODALITY=""
 TEXT_CUTOFF_DATE="2025-03-08"
 STRICT_FRAMEWORK_COMMIT=0
+REFRESH_ALL_TEXT=0
 
 usage() {
   cat <<'EOF'
@@ -28,11 +29,16 @@ Usage: run_contemporary_embedding_retry.sh \
   --benchmark-dir PATH --plan-dir PATH --state-root PATH \
   --modality sequence|text|structure|ppi \
   [--text-cutoff-date YYYY-MM-DD] [--artifact-catalog PATH] \
-  [--strict-framework-commit]
+  [--strict-framework-commit] [--refresh-all-text]
 
 Only currently missing pairs for one modality are generated. Accepted control
 arrays are materialized from the immutable baseline archive or retry delta into
 scratch and must reproduce before new arrays are merged.
+
+`--refresh-all-text` is a separate replacement transaction. It regenerates
+text for every target, hydrates accepted non-text arrays into a fresh cache,
+installs only the new text layer, and writes a new validated baseline archive.
+It never merges into or edits the existing state.
 EOF
 }
 
@@ -51,6 +57,7 @@ while [[ $# -gt 0 ]]; do
     --text-cutoff-date) TEXT_CUTOFF_DATE="$2"; shift 2 ;;
     --artifact-catalog) ARTIFACT_CATALOG="$2"; export ARTIFACT_CATALOG; shift 2 ;;
     --strict-framework-commit) STRICT_FRAMEWORK_COMMIT=1; shift ;;
+    --refresh-all-text) REFRESH_ALL_TEXT=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; die "Unknown argument: $1" ;;
   esac
@@ -64,6 +71,9 @@ artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 [[ -d "$PLAN_DIR" ]] || die "Missing reuse plan: $PLAN_DIR"
 [[ -f "$STATE_ROOT/contract.json" ]] || die "State is not initialized: $STATE_ROOT"
 case "$MODALITY" in sequence|text|structure|ppi) ;; *) die "Invalid modality: $MODALITY" ;; esac
+if [[ "$REFRESH_ALL_TEXT" == "1" && "$MODALITY" != "text" ]]; then
+  die "--refresh-all-text requires --modality text"
+fi
 [[ "$CONTROL_COUNT" =~ ^[1-9][0-9]*$ ]] || die "CONTROL_COUNT must be positive"
 [[ "$EQUIVALENCE_MINIMUM" =~ ^[1-9][0-9]*$ ]] || die "EQUIVALENCE_MINIMUM must be positive"
 [[ "$EQUIVALENCE_MINIMUM" -le "$CONTROL_COUNT" ]] || \
@@ -182,12 +192,19 @@ validate_mmfp_if1_env "$PYTHON_BIN" "$IF1_NUMPY_OVERLAY" \
   --output "$RUNTIME_COMPAT/extract_esm_if1_embeddings.py" \
   --report "$OUTPUT_DIR/reports/pfp_if1_compatibility.json"
 
-echo "==> [4/9] Select pending pairs and accepted controls"
-"$PYTHON_BIN" "$HERE/manage_resumable_embedding_state.py" pending \
-  --state-root "$STATE_ROOT" --modality "$MODALITY" --output "$REQUESTED" \
-  > "$OUTPUT_DIR/reports/pending_selection.json"
+echo "==> [4/9] Select requested pairs and controls"
+if [[ "$REFRESH_ALL_TEXT" == "1" ]]; then
+  "$PYTHON_BIN" "$HERE/manage_resumable_embedding_state.py" all-pairs \
+    --state-root "$STATE_ROOT" --modality text --output "$REQUESTED" \
+    > "$OUTPUT_DIR/reports/full_text_selection.json"
+  printf 'protein_id\tmodality\n' > "$CONTROLS"
+else
+  "$PYTHON_BIN" "$HERE/manage_resumable_embedding_state.py" pending \
+    --state-root "$STATE_ROOT" --modality "$MODALITY" --output "$REQUESTED" \
+    > "$OUTPUT_DIR/reports/pending_selection.json"
+fi
 requested_count="$(($(wc -l < "$REQUESTED") - 1))"
-if [[ "$requested_count" == "0" ]]; then
+if [[ "$requested_count" == "0" && "$REFRESH_ALL_TEXT" == "0" ]]; then
   "$PYTHON_BIN" "$HERE/manage_resumable_embedding_state.py" summary \
     --state-root "$STATE_ROOT" --report-dir "$OUTPUT_DIR/reports/embedding_state" \
     > "$OUTPUT_DIR/reports/embedding_state_summary.json"
@@ -196,9 +213,11 @@ if [[ "$requested_count" == "0" ]]; then
   echo "No $MODALITY pairs need retrying"
   exit 0
 fi
-"$PYTHON_BIN" "$HERE/manage_resumable_embedding_state.py" controls \
-  --state-root "$STATE_ROOT" --modality "$MODALITY" --count "$CONTROL_COUNT" \
-  --output "$CONTROLS" > "$OUTPUT_DIR/reports/control_selection.json"
+if [[ "$REFRESH_ALL_TEXT" == "0" ]]; then
+  "$PYTHON_BIN" "$HERE/manage_resumable_embedding_state.py" controls \
+    --state-root "$STATE_ROOT" --modality "$MODALITY" --count "$CONTROL_COUNT" \
+    --output "$CONTROLS" > "$OUTPUT_DIR/reports/control_selection.json"
+fi
 
 echo "==> [5/9] Build the exact contemporary retry workspace"
 "$PYTHON_BIN" "$HERE/prepare_contemporary_retry_workspace.py" \
@@ -206,10 +225,12 @@ echo "==> [5/9] Build the exact contemporary retry workspace"
   --data-dir "$PFP_ROOT/data" --requested-pairs "$REQUESTED" \
   --control-pairs "$CONTROLS" --modality "$MODALITY" \
   --report "$OUTPUT_DIR/reports/retry_workspace.json"
-"$PYTHON_BIN" "$HERE/manage_resumable_embedding_state.py" materialize \
-  --state-root "$STATE_ROOT" --pairs "$CONTROLS" \
-  --output-cache-root "$REFERENCE_CONTROLS" \
-  --report "$OUTPUT_DIR/reports/control_materialization.json"
+if [[ "$REFRESH_ALL_TEXT" == "0" ]]; then
+  "$PYTHON_BIN" "$HERE/manage_resumable_embedding_state.py" materialize \
+    --state-root "$STATE_ROOT" --pairs "$CONTROLS" \
+    --output-cache-root "$REFERENCE_CONTROLS" \
+    --report "$OUTPUT_DIR/reports/control_materialization.json"
+fi
 
 export PPI_EXTRACT_SCRIPT="$RUNTIME_COMPAT/extract_ppi_embeddings.py"
 export IF1_EXTRACT_SCRIPT="$RUNTIME_COMPAT/extract_esm_if1_embeddings.py"
@@ -245,38 +266,120 @@ esac
 printf 'retry\t%s\t%s\n' "$MODALITY" "$generation_status" >> "$MODALITY_STATUS"
 
 echo "==> [7/9] Prove subset generation matches accepted controls"
-"$PYTHON_BIN" "$HERE/verify_embedding_subset_equivalence.py" \
-  --state-root "$STATE_ROOT" --reference-cache-root "$REFERENCE_CONTROLS" \
-  --generated-cache-root "$PFP_ROOT/data/embedding_cache" \
-  --control-pairs "$CONTROLS" --modality "$MODALITY" \
-  --minimum-compared "$EQUIVALENCE_MINIMUM" \
-  --report "$OUTPUT_DIR/reports/subset_equivalence.json"
+if [[ "$REFRESH_ALL_TEXT" == "1" ]]; then
+  [[ "$generation_status" == "0" ]] || \
+    die "Full text refresh generator failed with status $generation_status"
+  printf '{"skipped":true,"reason":"old text used an incorrect effective cutoff"}\n' \
+    > "$OUTPUT_DIR/reports/subset_equivalence.json"
+else
+  "$PYTHON_BIN" "$HERE/verify_embedding_subset_equivalence.py" \
+    --state-root "$STATE_ROOT" --reference-cache-root "$REFERENCE_CONTROLS" \
+    --generated-cache-root "$PFP_ROOT/data/embedding_cache" \
+    --control-pairs "$CONTROLS" --modality "$MODALITY" \
+    --minimum-compared "$EQUIVALENCE_MINIMUM" \
+    --report "$OUTPUT_DIR/reports/subset_equivalence.json"
+fi
 
-echo "==> [8/9] Atomically merge valid retry outputs"
-attempt_id="${JOB_ID:-local}_$(date -u +%Y%m%dT%H%M%SZ)_${MODALITY}"
-merge_command=(
-  "$PYTHON_BIN" "$HERE/manage_resumable_embedding_state.py" merge
-  --state-root "$STATE_ROOT"
-  --generated-cache-root "$PFP_ROOT/data/embedding_cache"
-  --attempt-id "$attempt_id"
-  --requested-pairs "$REQUESTED"
-  --allowed-extra-pairs "$CONTROLS"
-  --modality-status "$MODALITY_STATUS"
-  --report-dir "$OUTPUT_DIR/reports/embedding_state"
-)
-[[ ! -f "$PFP_ROOT/data/alphafold_coverage_results.txt" ]] || \
-  merge_command+=(--alphafold-report "$PFP_ROOT/data/alphafold_coverage_results.txt")
-[[ ! -f "$ALPHAFOLD_PREFETCH_REPORT" ]] || \
-  merge_command+=(--alphafold-prefetch-report "$ALPHAFOLD_PREFETCH_REPORT")
-"${merge_command[@]}" > "$OUTPUT_DIR/reports/embedding_state_merge.json"
+if [[ "$REFRESH_ALL_TEXT" == "1" ]]; then
+  echo "==> [8/9] Build a fresh cache with corrected text"
+  replacement_cache="$WORK_DIR/corrected_combined_cache"
+  replacement_policy="$WORK_DIR/replacement_policy.json"
+  text_source="$PFP_ROOT/data/embedding_cache/exp_text_embeddings_temporal"
+  [[ -d "$text_source" ]] || die "Corrected temporal text cache is missing"
+  "$PYTHON_BIN" "$HERE/manage_resumable_embedding_state.py" hydrate \
+    --state-root "$STATE_ROOT" --output-cache-root "$replacement_cache" \
+    --exclude-modality text --preserve-evidence \
+    --report "$OUTPUT_DIR/reports/non_text_hydration.json"
+  [[ ! -e "$replacement_cache/exp_text_embeddings_temporal" ]] || \
+    die "Old text entered the replacement cache"
+  cp -a "$text_source" "$replacement_cache/exp_text_embeddings_temporal"
+  "$PYTHON_BIN" - "$STATE_ROOT/contract.json" "$replacement_policy" <<'PY'
+import json
+import sys
+contract = json.load(open(sys.argv[1], encoding="utf-8"))
+with open(sys.argv[2], "w", encoding="utf-8") as handle:
+    json.dump(contract["policy"], handle, indent=2, sort_keys=True)
+    handle.write("\n")
+PY
+  mkdir -p "$OUTPUT_DIR/artifacts"
+  archive="$OUTPUT_DIR/artifacts/contemporary_embeddings_text_cutoff_${TEXT_CUTOFF_DATE}.tar.gz"
+  assembly="$OUTPUT_DIR/artifacts/contemporary_embeddings_text_cutoff_${TEXT_CUTOFF_DATE}_assembly.tsv.gz"
+  "$PYTHON_BIN" "$HERE/build_embedding_baseline_archive.py" \
+    --generated-cache-root "$replacement_cache" --data-dir "$PFP_ROOT/data" \
+    --policy "$replacement_policy" --archive "$archive" \
+    --assembly-report "$assembly" \
+    --report "$OUTPUT_DIR/reports/replacement_baseline.json"
+  cp -p \
+    "$PFP_ROOT/data/embedding_cache/uniprot_text/temporal_recipe/framework_temporal_text_run.json" \
+    "$OUTPUT_DIR/reports/"
+else
+  echo "==> [8/9] Atomically merge valid retry outputs"
+  attempt_id="${JOB_ID:-local}_$(date -u +%Y%m%dT%H%M%SZ)_${MODALITY}"
+  merge_command=(
+    "$PYTHON_BIN" "$HERE/manage_resumable_embedding_state.py" merge
+    --state-root "$STATE_ROOT"
+    --generated-cache-root "$PFP_ROOT/data/embedding_cache"
+    --attempt-id "$attempt_id"
+    --requested-pairs "$REQUESTED"
+    --allowed-extra-pairs "$CONTROLS"
+    --modality-status "$MODALITY_STATUS"
+    --report-dir "$OUTPUT_DIR/reports/embedding_state"
+  )
+  [[ ! -f "$PFP_ROOT/data/alphafold_coverage_results.txt" ]] || \
+    merge_command+=(--alphafold-report "$PFP_ROOT/data/alphafold_coverage_results.txt")
+  [[ ! -f "$ALPHAFOLD_PREFETCH_REPORT" ]] || \
+    merge_command+=(--alphafold-prefetch-report "$ALPHAFOLD_PREFETCH_REPORT")
+  "${merge_command[@]}" > "$OUTPUT_DIR/reports/embedding_state_merge.json"
+fi
 
 echo "==> [9/9] Publish compact retry status"
 printf '%s\n' "$generation_status" > "$OUTPUT_DIR/reports/generator_exit_status.txt"
-if [[ -f "$STATE_ROOT/EMBEDDING_GATE_PASSED.json" ]]; then
+if [[ "$REFRESH_ALL_TEXT" == "1" ]]; then
+  "$PYTHON_BIN" - "$OUTPUT_DIR" "$STATE_ROOT/contract.json" "$TEXT_CUTOFF_DATE" \
+    "$framework_commit" "$pfp_commit" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+root = Path(sys.argv[1])
+contract = Path(sys.argv[2])
+cutoff = sys.argv[3]
+framework_commit = sys.argv[4]
+pfp_commit = sys.argv[5]
+archive = root / "artifacts" / f"contemporary_embeddings_text_cutoff_{cutoff}.tar.gz"
+assembly = root / "artifacts" / f"contemporary_embeddings_text_cutoff_{cutoff}_assembly.tsv.gz"
+def sha(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+payload = {
+    "complete": True,
+    "mode": "full-text-replacement",
+    "requested_cutoff": cutoff,
+    "source_state_contract_sha256": sha(contract),
+    "archive": str(archive),
+    "archive_sha256": sha(archive),
+    "assembly_report": str(assembly),
+    "assembly_report_sha256": sha(assembly),
+    "framework_commit": framework_commit,
+    "pfp_commit": pfp_commit,
+    "old_text_carried_forward": False,
+}
+(root / "TEXT_REFRESH_COMPLETE.json").write_text(
+    json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+)
+PY
+elif [[ -f "$STATE_ROOT/EMBEDDING_GATE_PASSED.json" ]]; then
   cp -p "$STATE_ROOT/EMBEDDING_GATE_PASSED.json" "$OUTPUT_DIR/"
 else
   cp -p "$STATE_ROOT/GENERATION_INCOMPLETE.json" "$OUTPUT_DIR/"
 fi
-printf '{"complete":true,"no_work":false,"modality":"%s","generator_exit_status":%s}\n' \
-  "$MODALITY" "$generation_status" > "$OUTPUT_DIR/RETRY_COMPLETE.json"
-echo "Retry complete. Valid arrays were retained; missing pairs remain pending."
+printf '{"complete":true,"no_work":false,"modality":"%s","generator_exit_status":%s,"refresh_all_text":%s}\n' \
+  "$MODALITY" "$generation_status" "$REFRESH_ALL_TEXT" > "$OUTPUT_DIR/RETRY_COMPLETE.json"
+if [[ "$REFRESH_ALL_TEXT" == "1" ]]; then
+  echo "Full corrected text archive complete. Existing state was not modified."
+else
+  echo "Retry complete. Valid arrays were retained; missing pairs remain pending."
+fi

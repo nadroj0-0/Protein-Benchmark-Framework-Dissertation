@@ -132,6 +132,27 @@ class ResumableEmbeddingStateTest(unittest.TestCase):
 
     def test_partial_merge_retry_and_gate_preserve_one_cumulative_cache(self) -> None:
         self.initialize()
+        all_text = self.root / "all-text.tsv"
+        result = self.run_state(
+            "all-pairs",
+            "--state-root",
+            str(self.state),
+            "--modality",
+            "text",
+            "--output",
+            str(all_text),
+        )
+        self.assertEqual(json.loads(result.stdout)["pair_count"], 3)
+        with all_text.open(encoding="utf-8", newline="") as handle:
+            all_text_rows = list(csv.DictReader(handle, delimiter="\t"))
+        self.assertEqual(
+            all_text_rows,
+            [
+                {"protein_id": "P1", "modality": "text"},
+                {"protein_id": "P2", "modality": "text"},
+                {"protein_id": "P3", "modality": "text"},
+            ],
+        )
         first = self.root / "generated-first"
         self.save(first, "prott5", "P1", 4, 1)
         self.save(first, "prott5", "P2", 4, 2)

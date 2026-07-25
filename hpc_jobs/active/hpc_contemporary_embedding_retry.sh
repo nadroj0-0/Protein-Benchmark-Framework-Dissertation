@@ -20,12 +20,15 @@ Usage: qsub hpc_jobs/active/hpc_contemporary_embedding_retry.sh \
   --modality sequence|text|structure|ppi \
   [--benchmark-dir PATH] [--baseline-root PATH] [--plan-dir PATH] \
   [--state-root PATH] [--artifact-catalog PATH] [--results-root PATH] \
-  [--strict-framework-commit]
+  [--strict-framework-commit] [--refresh-all-text]
 
 The wrapper retries only pending pairs for one modality on animal-206-2.local,
 merges valid arrays into the one archive-backed SAN state, copies compact
 reports home, and always removes job-owned scratch. It never submits another
 job.
+
+`--refresh-all-text` requires `--modality text` and an explicit SAN
+`--results-root`; it publishes a new archive and never modifies the old state.
 EOF
 }
 
@@ -40,6 +43,7 @@ CLI_ARTIFACT_CATALOG="${ARTIFACT_CATALOG:-}"
 CLI_RESULTS_ROOT=""
 TEXT_CUTOFF_DATE="2025-03-08"
 STRICT_FRAMEWORK_COMMIT=0
+REFRESH_ALL_TEXT=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --modality) MODALITY="$2"; shift 2 ;;
@@ -51,11 +55,17 @@ while [[ $# -gt 0 ]]; do
     --results-root) CLI_RESULTS_ROOT="$2"; shift 2 ;;
     --text-cutoff-date) TEXT_CUTOFF_DATE="$2"; shift 2 ;;
     --strict-framework-commit) STRICT_FRAMEWORK_COMMIT=1; shift ;;
+    --refresh-all-text) REFRESH_ALL_TEXT=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; die "Unknown argument: $1" ;;
   esac
 done
 case "$MODALITY" in sequence|text|structure|ppi) ;; *) usage >&2; die "--modality is required" ;; esac
+if [[ "$REFRESH_ALL_TEXT" == "1" ]]; then
+  [[ "$MODALITY" == "text" ]] || die "--refresh-all-text requires --modality text"
+  [[ -n "$CLI_RESULTS_ROOT" ]] || die "Full text refresh requires explicit --results-root"
+  case "$CLI_RESULTS_ROOT" in /SAN/*) ;; *) die "Full text refresh results must publish to SAN" ;; esac
+fi
 PLAN_DIR="${PLAN_DIR:-$BASELINE_ROOT/reuse_plan}"
 STATE_ROOT="${STATE_ROOT:-$BASELINE_ROOT/retry_state}"
 [[ -f "$STATE_ROOT/contract.json" ]] || die "State is not initialized: $STATE_ROOT"
@@ -193,6 +203,9 @@ if [[ -n "${ARTIFACT_CATALOG:-}" ]]; then
 fi
 if [[ "$STRICT_FRAMEWORK_COMMIT" == "1" ]]; then
   command+=(--strict-framework-commit)
+fi
+if [[ "$REFRESH_ALL_TEXT" == "1" ]]; then
+  command+=(--refresh-all-text)
 fi
 printf 'Command:'; printf ' %q' "${command[@]}"; printf '\n'
 set +e
