@@ -88,6 +88,7 @@ printf 'protein_id\tmodality\tsequence_sha256\n' > "$EMPTY_CONTROLS"
 
 pfp_commit="$(git_in_dir "$PFP_ROOT" rev-parse HEAD)"
 framework_commit="${FRAMEWORK_COMMIT:-$(git_in_dir "$FRAMEWORK_ROOT" rev-parse HEAD)}"
+export PFP_COMMIT="$pfp_commit"
 "$PYTHON_BIN" - "$STATE_ROOT/contract.json" "$pfp_commit" "$TEXT_CUTOFF_DATE" \
   "pfp-text-extract=$PFP_ROOT/scripts/extract_uniprot_text.py" \
   "pfp-text-embed=$PFP_ROOT/scripts/embed_uniprot_descriptions.py" \

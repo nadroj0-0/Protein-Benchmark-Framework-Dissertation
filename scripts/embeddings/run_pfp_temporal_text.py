@@ -9,8 +9,8 @@ import functools
 import hashlib
 import importlib.util
 import json
+import os
 import shutil
-import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -78,18 +78,17 @@ def sha256_tree(paths: list[Path]) -> dict[str, object]:
     return {"file_count": len(files), "sha256": digest.hexdigest()}
 
 
-def git_revision(path: Path) -> str | None:
-    result = subprocess.run(
-        ["git", "-C", str(path), "rev-parse", "HEAD"],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=10,
-    )
-    if result.returncode != 0:
+def supplied_revision(variable: str) -> str | None:
+    """Read revision metadata already verified by the host workflow."""
+    value = os.environ.get(variable)
+    if value is None:
         return None
-    revision = result.stdout.strip()
-    return revision if len(revision) == 40 else None
+    revision = value.strip().lower()
+    if len(revision) != 40 or any(
+        character not in "0123456789abcdef" for character in revision
+    ):
+        raise ValueError(f"{variable} must be a 40-character hexadecimal revision")
+    return revision
 
 
 def configure_historical_cutoff(module, cutoff_date: str) -> dict[str, object]:
@@ -337,7 +336,7 @@ def main() -> int:
         "test_protein_ids_sha256": sha256_ids(test_ids),
         "pfp_text_script": str(script),
         "pfp_text_script_sha256": sha256_file(script),
-        "pfp_revision": git_revision(pfp_root),
+        "pfp_revision": supplied_revision("PFP_COMMIT"),
         "framework_wrapper": str(framework_wrapper),
         "framework_wrapper_sha256": sha256_file(framework_wrapper),
         "mapping_inputs": mapping_contract,

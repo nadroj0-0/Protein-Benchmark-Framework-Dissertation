@@ -463,6 +463,7 @@ class WorkflowScriptTests(unittest.TestCase):
         self.assertIn("strict framework revision ", workflow)
         self.assertIn('"matching is disabled. Critical source hashes remain enforced."', workflow)
         self.assertIn("Critical source hashes remain enforced", workflow)
+        self.assertIn('export PFP_COMMIT="$pfp_commit"', workflow)
         for label in (
             "pfp-prott5",
             "pfp-text-extract",

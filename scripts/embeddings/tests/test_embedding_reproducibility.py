@@ -195,6 +195,14 @@ class ReproducibilityWorkflowContractTest(unittest.TestCase):
         self.assertIn("if not historical.exists():", source)
         self.assertIn("historical.touch()", source)
 
+    def test_text_recipe_uses_supplied_revision_without_invoking_git(self) -> None:
+        source = TEXT_RECIPE.read_text(encoding="utf-8")
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertNotIn("import subprocess", source)
+        self.assertNotIn('"git", "-C"', source)
+        self.assertIn('supplied_revision("PFP_COMMIT")', source)
+        self.assertIn('export PFP_COMMIT="$pfp_commit"', workflow)
+
     def test_text_recipe_passes_requested_cutoff_to_pfp_selector(self) -> None:
         module = load_text_recipe()
 

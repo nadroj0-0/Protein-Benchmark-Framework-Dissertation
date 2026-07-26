@@ -112,6 +112,7 @@ printf 'phase\tmodality\texit_status\n' > "$MODALITY_STATUS"
 
 pfp_commit="$(git_in_dir "$PFP_ROOT" rev-parse HEAD)"
 framework_commit="${FRAMEWORK_COMMIT:-$(git_in_dir "$FRAMEWORK_ROOT" rev-parse HEAD)}"
+export PFP_COMMIT="$pfp_commit"
 "$PYTHON_BIN" - "$STATE_ROOT/contract.json" "$pfp_commit" "$framework_commit" \
   "$TEXT_CUTOFF_DATE" "$STRICT_FRAMEWORK_COMMIT" \
   "pfp-prott5=$PFP_ROOT/scripts/extract_prott5_embeddings.py" \
