@@ -40,6 +40,25 @@ SPLITS = ("training", "validation", "test")
 SPLIT_POLICIES = ("cluster-count-random", "sequence-balanced")
 TRAINING_POPULATIONS = ("annotated-only", "all-cluster-members")
 UNIPROT_SOURCE_SCOPES = ("sprot-only", "trembl-only", "sprot-and-trembl")
+MMSEQS_PROFILE_LEGACY = "legacy-calibrated"
+MMSEQS_PROFILE_DANIEL = "daniel-aligned-defaults"
+MMSEQS_PROFILES = (MMSEQS_PROFILE_LEGACY, MMSEQS_PROFILE_DANIEL)
+MMSEQS_PROFILE_POLICIES = {
+    MMSEQS_PROFILE_LEGACY: {
+        "createdb_shuffle": 0,
+        "cluster_reassign": 1,
+        "evalue": 1e-4,
+        "export_alignment_statistics": False,
+        "export_cluster_fasta": False,
+    },
+    MMSEQS_PROFILE_DANIEL: {
+        "createdb_shuffle": None,
+        "cluster_reassign": 0,
+        "evalue": None,
+        "export_alignment_statistics": False,
+        "export_cluster_fasta": False,
+    },
+}
 FRAMEWORK_REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -98,9 +117,13 @@ class BuildConfig:
     cov_mode: int = 0
     cluster_mode: int = 0
     alignment_mode: int = 3
+    mmseqs_profile: str = MMSEQS_PROFILE_LEGACY
+    createdb_shuffle: int | None = 0
     cluster_reassign: int = 1
     sensitivity: float = 7.5
-    evalue: float = 1e-4
+    evalue: float | None = 1e-4
+    export_alignment_statistics: bool = False
+    export_cluster_fasta: bool = False
     include_relationships: bool = True
     evidence_codes: frozenset[str] = field(default_factory=lambda: SUPERVISOR_EVIDENCE_CODES)
     allow_downloads: bool = True
@@ -147,8 +170,24 @@ class BuildConfig:
             raise ValueError("Coverage is methodologically locked to exactly 0.80")
         if self.cov_mode != 0:
             raise ValueError("The frozen UniRef longest-sequence overlap policy requires --cov-mode 0")
-        if self.cluster_mode != 0 or self.alignment_mode != 3 or self.cluster_reassign != 1:
-            raise ValueError("MMseqs2 clustering/alignment/reassignment modes are fixed by this implementation")
+        if self.cluster_mode != 0 or self.alignment_mode != 3:
+            raise ValueError("MMseqs2 clustering and alignment modes are fixed by this implementation")
+        if self.mmseqs_profile not in MMSEQS_PROFILES:
+            raise ValueError(f"Unsupported MMseqs2 profile: {self.mmseqs_profile}")
+        profile_policy = MMSEQS_PROFILE_POLICIES[self.mmseqs_profile]
+        observed_profile_policy = {
+            "createdb_shuffle": self.createdb_shuffle,
+            "cluster_reassign": self.cluster_reassign,
+            "evalue": self.evalue,
+            "export_alignment_statistics": self.export_alignment_statistics,
+            "export_cluster_fasta": self.export_cluster_fasta,
+        }
+        if observed_profile_policy != profile_policy:
+            raise ValueError(
+                f"MMseqs2 profile E-value/shuffle/reassignment/export policy "
+                f"{self.mmseqs_profile!r} requires exactly "
+                f"{profile_policy}; observed {observed_profile_policy}"
+            )
         if self.development_fraction != 0.80:
             raise ValueError("Daniel's development/test policy is locked to exactly 0.80/0.20")
         if self.training_fraction_within_development != 0.90:
@@ -158,8 +197,11 @@ class BuildConfig:
             )
         if self.sensitivity != 7.5:
             raise ValueError("MMseqs2 sensitivity is methodologically locked to exactly 7.5")
-        if self.evalue != 1e-4:
-            raise ValueError("MMseqs2 E-value is methodologically locked to exactly 1e-4")
+        if self.mmseqs_profile == MMSEQS_PROFILE_DANIEL and self.cluster_cache_root is None:
+            raise ValueError(
+                "The Daniel-aligned MMseqs2 profile requires --cluster-cache-root so its "
+                "validated cluster assignments survive scratch cleanup"
+            )
         if self.threads < 1:
             raise ValueError("threads must be positive")
         if self.requested_slots is not None and self.requested_slots < 1:
@@ -323,10 +365,11 @@ class BuildConfig:
             f"framework_{self.framework_revision[:12]}"
             if self.framework_revision else "framework_fixture"
         )
+        root = Path(f"source_{self.uniprot_source_scope}") / revision_component
+        if self.mmseqs_profile != MMSEQS_PROFILE_LEGACY:
+            root /= f"mmseqs_{self.mmseqs_profile}"
         return (
-            Path(f"source_{self.uniprot_source_scope}")
-            / revision_component
-            / self.identity_directory
+            root / self.identity_directory
             / self.split_policy
             / self.training_population
             / f"seed_{self.seed}"

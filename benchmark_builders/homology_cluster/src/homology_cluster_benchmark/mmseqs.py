@@ -59,29 +59,68 @@ def build_mmseqs_commands(config: BuildConfig, fasta: Path, work_dir: Path) -> t
     cluster_database = work_dir / "clusters_db"
     temporary = work_dir / "mmseqs_tmp"
     cluster_tsv = work_dir / "uniref90_clusters.tsv"
-    return (
-        CommandSpec("createdb", (
-            config.mmseqs_bin, "createdb", str(fasta), str(database),
-            "--dbtype", "1", "--shuffle", "0",
-        )),
-        CommandSpec("cluster", (
-            config.mmseqs_bin, "cluster", str(database), str(cluster_database), str(temporary),
-            "--min-seq-id", f"{config.identity:.2f}",
-            "-c", f"{config.coverage:.1f}",
-            "--cov-mode", str(config.cov_mode),
-            "--cluster-mode", str(config.cluster_mode),
-            "--alignment-mode", str(config.alignment_mode),
-            "--seq-id-mode", "0",
-            "--cluster-reassign", str(config.cluster_reassign),
-            "-s", "7.5",
-            "-e", "1e-4",
-            "--threads", str(config.threads),
-        )),
+    alignment_database = work_dir / "cluster_alignments_db"
+    alignment_statistics = work_dir / "cluster_alignment_statistics.tsv"
+    cluster_fasta_database = work_dir / "cluster_fasta_db"
+    cluster_fasta = work_dir / "clusters.faa"
+
+    createdb = [
+        config.mmseqs_bin, "createdb", str(fasta), str(database), "--dbtype", "1",
+    ]
+    if config.createdb_shuffle is not None:
+        createdb.extend(("--shuffle", str(config.createdb_shuffle)))
+
+    cluster = [
+        config.mmseqs_bin, "cluster", str(database), str(cluster_database), str(temporary),
+        "--min-seq-id", f"{config.identity:.2f}",
+        "-c", f"{config.coverage:.1f}",
+        "--cov-mode", str(config.cov_mode),
+        "--cluster-mode", str(config.cluster_mode),
+        "--alignment-mode", str(config.alignment_mode),
+        "--seq-id-mode", "0",
+    ]
+    if config.cluster_reassign:
+        cluster.extend(("--cluster-reassign", str(config.cluster_reassign)))
+    cluster.extend(("-s", f"{config.sensitivity:g}"))
+    if config.evalue is not None:
+        cluster.extend(("-e", "1e-4"))
+    cluster.extend(("--threads", str(config.threads)))
+
+    commands = [
+        CommandSpec("createdb", tuple(createdb)),
+        CommandSpec("cluster", tuple(cluster)),
         CommandSpec("createtsv", (
             config.mmseqs_bin, "createtsv", str(database), str(database),
             str(cluster_database), str(cluster_tsv),
         )),
-    )
+    ]
+    if config.export_alignment_statistics:
+        commands.extend((
+            CommandSpec("align", (
+                config.mmseqs_bin, "align", str(database), str(database),
+                str(cluster_database), str(alignment_database),
+                "--alignment-mode", str(config.alignment_mode),
+                "--threads", str(config.threads),
+            )),
+            CommandSpec("convertalis", (
+                config.mmseqs_bin, "convertalis", str(database), str(database),
+                str(alignment_database), str(alignment_statistics),
+                "--format-mode", "4",
+                "--format-output", "query,target,evalue,bits,raw,pident",
+            )),
+        ))
+    if config.export_cluster_fasta:
+        commands.extend((
+            CommandSpec("createseqfiledb", (
+                config.mmseqs_bin, "createseqfiledb", str(database),
+                str(cluster_database), str(cluster_fasta_database),
+            )),
+            CommandSpec("result2flat", (
+                config.mmseqs_bin, "result2flat", str(database), str(database),
+                str(cluster_fasta_database), str(cluster_fasta),
+            )),
+        ))
+    return tuple(commands)
 
 
 def _version_token(version_text: str) -> str:

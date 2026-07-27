@@ -378,10 +378,12 @@ def validate_outputs(
         "--cluster-mode": "0",
         "--alignment-mode": "3",
         "--seq-id-mode": "0",
-        "--cluster-reassign": "1",
         "-s": "7.5",
-        "-e": "1e-4",
     }
+    if config.cluster_reassign:
+        required_fragments["--cluster-reassign"] = str(config.cluster_reassign)
+    if config.evalue is not None:
+        required_fragments["-e"] = "1e-4"
     command_valid = cluster_command is not None
     for flag, expected in required_fragments.items():
         if flag not in command_text:
@@ -395,15 +397,59 @@ def validate_outputs(
         "and E-value policy",
         required=required_fragments,
     )
-    createdb_command = next((item for item in commands if item.stage == "createdb"), None)
-    createdb_text = createdb_command.argv if createdb_command else ()
-    deterministic_createdb = (
-        "--shuffle" in createdb_text
-        and createdb_text[createdb_text.index("--shuffle") + 1] == "0"
+    default_policy_omissions = (
+        (config.evalue is not None or "-e" not in command_text)
+        and (config.cluster_reassign != 0 or "--cluster-reassign" not in command_text)
     )
     _check(
-        report, "deterministic_mmseqs_input_order", deterministic_createdb,
-        "MMseqs2 createdb has input shuffling explicitly disabled",
+        report, "mmseqs_default_policy_omissions", default_policy_omissions,
+        "Parameters assigned to MMseqs2 defaults are omitted rather than replaced by guessed values",
+        evalue=config.evalue,
+        cluster_reassign=config.cluster_reassign,
+    )
+    createdb_command = next((item for item in commands if item.stage == "createdb"), None)
+    createdb_text = createdb_command.argv if createdb_command else ()
+    if config.createdb_shuffle is None:
+        createdb_policy_valid = "--shuffle" not in createdb_text
+        createdb_detail = "MMseqs2 createdb uses the program's default input-shuffle policy"
+    else:
+        createdb_policy_valid = (
+            "--shuffle" in createdb_text
+            and createdb_text[createdb_text.index("--shuffle") + 1]
+            == str(config.createdb_shuffle)
+        )
+        createdb_detail = "MMseqs2 createdb records the profile's explicit input-shuffle policy"
+    _check(
+        report, "mmseqs_input_shuffle_policy", createdb_policy_valid,
+        createdb_detail,
+    )
+
+    expected_export_stages: set[str] = set()
+    if config.export_alignment_statistics:
+        expected_export_stages.update(("align", "convertalis"))
+    if config.export_cluster_fasta:
+        expected_export_stages.update(("createseqfiledb", "result2flat"))
+    observed_stages = {item.stage for item in commands}
+    exports_valid = expected_export_stages.issubset(observed_stages)
+    no_backtrace = all("-a" not in item.argv for item in commands)
+    align_command = next((item for item in commands if item.stage == "align"), None)
+    if config.export_alignment_statistics:
+        align_mode_valid = bool(
+            align_command
+            and "--alignment-mode" in align_command.argv
+            and align_command.argv[align_command.argv.index("--alignment-mode") + 1]
+            == str(config.alignment_mode)
+        )
+    else:
+        align_mode_valid = align_command is None
+    _check(
+        report, "mmseqs_post_cluster_exports",
+        exports_valid and no_backtrace and align_mode_valid,
+        "Profile-requested alignment statistics and cluster FASTA commands are recorded without -a backtraces",
+        expected_stages=sorted(expected_export_stages),
+        observed_stages=sorted(observed_stages),
+        backtrace_disabled=no_backtrace,
+        alignment_mode_valid=align_mode_valid,
     )
 
     csv_errors = _BoundedErrors(50)

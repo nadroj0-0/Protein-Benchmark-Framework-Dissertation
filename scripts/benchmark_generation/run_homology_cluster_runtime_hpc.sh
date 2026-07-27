@@ -312,6 +312,7 @@ echo "Task ID          : $TASK_ID"
 echo "Run kind         : $RUNTIME_KIND"
 echo "Identity         : $IDENTITY%"
 echo "UniProt scope    : $UNIPROT_SOURCE_SCOPE"
+echo "MMseqs profile   : ${MMSEQS_PROFILE:-legacy-calibrated}"
 echo "Framework commit : $FRAMEWORK_REVISION"
 echo "Scratch          : $WORK"
 echo "Final output     : $FINAL_ROOT"
@@ -459,6 +460,16 @@ else
         goa_t1 \
         "$PINNED_GOA_SHA256"
 fi
+REQUIRE_HOMOLOGY_COMMON_CACHE="${REQUIRE_HOMOLOGY_COMMON_CACHE:-0}"
+case "$REQUIRE_HOMOLOGY_COMMON_CACHE" in
+    0|1) ;;
+    *) echo "REQUIRE_HOMOLOGY_COMMON_CACHE must be 0 or 1" >&2; exit 2 ;;
+esac
+if [[ "$REQUIRE_HOMOLOGY_COMMON_CACHE" == "1" \
+      && -z "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then
+    echo "The validated shared homology preprocessing cache is required but unavailable" >&2
+    exit 1
+fi
 
 resolve_runtime_cluster_cache_root() {
     local explicit="${1:-}"
@@ -482,6 +493,13 @@ resolve_runtime_cluster_cache_root() {
     fi
     return 1
 }
+if [[ -n "${HOMOLOGY_CLUSTER_CACHE_ROOT:-}" \
+      && ! -s "${HOMOLOGY_CLUSTER_CACHE_ROOT%/}/CLUSTER_CACHE_ROOT.json" \
+      && "${MMSEQS_PROFILE:-legacy-calibrated}" == "daniel-aligned-defaults" ]]; then
+    PYTHONPATH="$FRAMEWORK_DIR/benchmark_builders/homology_cluster/src" \
+        "$PYTHON_BIN" -m homology_cluster_benchmark.cluster_cache init-root \
+        --cache-root "$HOMOLOGY_CLUSTER_CACHE_ROOT"
+fi
 HOMOLOGY_CLUSTER_CACHE_ROOT="$(
     resolve_runtime_cluster_cache_root "${HOMOLOGY_CLUSTER_CACHE_ROOT:-}" || true
 )"
@@ -499,6 +517,27 @@ if [[ -n "$HOMOLOGY_CLUSTER_CACHE_ROOT" ]]; then
     echo "Using persistent homology cluster cache: $HOMOLOGY_CLUSTER_CACHE_ROOT"
 else
     echo "No persistent homology cluster cache is configured; clustering output will not be reusable"
+fi
+if [[ "${MMSEQS_PROFILE:-legacy-calibrated}" == "daniel-aligned-defaults" \
+      && -z "$HOMOLOGY_CLUSTER_CACHE_ROOT" ]]; then
+    echo "MMSEQS_PROFILE=daniel-aligned-defaults requires a persistent cluster-cache root" >&2
+    echo "The validated cluster assignments must survive scratch cleanup" >&2
+    exit 1
+fi
+MINIMUM_CLUSTER_CACHE_FREE_GB="${MINIMUM_CLUSTER_CACHE_FREE_GB:-0}"
+[[ "$MINIMUM_CLUSTER_CACHE_FREE_GB" =~ ^[0-9]+$ ]] || {
+    echo "MINIMUM_CLUSTER_CACHE_FREE_GB must be a non-negative integer" >&2
+    exit 2
+}
+if [[ -n "$HOMOLOGY_CLUSTER_CACHE_ROOT" \
+      && "$MINIMUM_CLUSTER_CACHE_FREE_GB" != "0" ]]; then
+    cluster_cache_free_kb="$(df -Pk "$HOMOLOGY_CLUSTER_CACHE_ROOT" | awk 'NR==2 {print $4}')"
+    cluster_cache_required_kb="$((MINIMUM_CLUSTER_CACHE_FREE_GB * 1024 * 1024))"
+    if (( cluster_cache_free_kb < cluster_cache_required_kb )); then
+        echo "Persistent cluster-cache filesystem has ${cluster_cache_free_kb} KiB free; " \
+             "${cluster_cache_required_kb} KiB is required" >&2
+        exit 1
+    fi
 fi
 
 download_file() {
@@ -745,6 +784,7 @@ builder_environment=(
     SEED="$SEED"
     MIN_COUNT="$MIN_COUNT"
     MMSEQS_BIN="$MMSEQS_BIN"
+    MMSEQS_PROFILE="${MMSEQS_PROFILE:-legacy-calibrated}"
     EXPECTED_MMSEQS_VERSION="$EXPECTED_MMSEQS_VERSION"
     FROZEN_INPUT_MANIFEST="$MANIFEST"
     ATTRITION_POLICY="$ATTRITION_POLICY"
@@ -848,6 +888,7 @@ framework_revision=$FRAMEWORK_REVISION
 pilot_required_for_array=false
 publication_directory=$RUN_DIR
 cluster_cache_root=${HOMOLOGY_CLUSTER_CACHE_ROOT:-disabled}
+mmseqs_profile=${MMSEQS_PROFILE:-legacy-calibrated}
 EOF
 
 echo "Homology runtime task completed and passed automatic review"

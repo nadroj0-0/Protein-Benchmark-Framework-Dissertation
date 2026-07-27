@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from homology_cluster_benchmark.inputs import resolve_input
+from homology_cluster_benchmark.config import MMSEQS_PROFILE_DANIEL
 from homology_cluster_benchmark.frozen_inputs import (
     bind_frozen_inputs,
     load_frozen_input_manifest,
@@ -23,6 +24,33 @@ from tests.helpers import FIXTURES, fixture_config
 
 
 class ConfigAndInputTests(unittest.TestCase):
+    def test_daniel_profile_requires_persistent_cache_and_exact_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            overrides = {
+                "mmseqs_profile": MMSEQS_PROFILE_DANIEL,
+                "cluster_assignments": None,
+                "createdb_shuffle": None,
+                "cluster_reassign": 0,
+                "evalue": None,
+                "export_alignment_statistics": False,
+                "export_cluster_fasta": False,
+            }
+            with self.assertRaisesRegex(ValueError, "cluster-cache-root"):
+                fixture_config(root / "out", root / "temp", **overrides).validate(
+                    require_pinned_inputs=False
+                )
+            fixture_config(
+                root / "out", root / "temp",
+                cluster_cache_root=root / "cache", **overrides,
+            ).validate(require_pinned_inputs=False)
+            with self.assertRaisesRegex(ValueError, "requires exactly"):
+                fixture_config(
+                    root / "out", root / "temp",
+                    cluster_cache_root=root / "cache",
+                    **{**overrides, "evalue": 1e-4},
+                ).validate(require_pinned_inputs=False)
+
     def test_binding_80_20_fraction_and_frozen_releases_are_locked(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

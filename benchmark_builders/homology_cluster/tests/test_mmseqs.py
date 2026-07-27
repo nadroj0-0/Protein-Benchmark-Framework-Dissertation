@@ -12,7 +12,11 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from homology_cluster_benchmark.config import SUPPORTED_IDENTITIES, parse_identity
+from homology_cluster_benchmark.config import (
+    MMSEQS_PROFILE_DANIEL,
+    SUPPORTED_IDENTITIES,
+    parse_identity,
+)
 from homology_cluster_benchmark.mmseqs import (
     ClusterIndex,
     CommandSpec,
@@ -91,6 +95,41 @@ class MMseqsTests(unittest.TestCase):
                 self.assertEqual(cluster[cluster.index("-e") + 1], "1e-4")
                 createdb = commands[0].argv
                 self.assertEqual(createdb[createdb.index("--shuffle") + 1], "0")
+
+    def test_daniel_aligned_profile_uses_defaults_without_redundant_exports(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = fixture_config(
+                root / "out",
+                root / "temp",
+                mmseqs_profile=MMSEQS_PROFILE_DANIEL,
+                createdb_shuffle=None,
+                cluster_reassign=0,
+                evalue=None,
+                export_alignment_statistics=False,
+                export_cluster_fasta=False,
+                cluster_assignments=None,
+                cluster_cache_root=root / "cache",
+                threads=24,
+            )
+            config.validate(require_pinned_inputs=False)
+            commands = build_mmseqs_commands(
+                config, FIXTURES / "uniref90.fasta", root / "work"
+            )
+            by_stage = {command.stage: command.argv for command in commands}
+
+            self.assertNotIn("--shuffle", by_stage["createdb"])
+            self.assertNotIn("-e", by_stage["cluster"])
+            self.assertNotIn("--cluster-reassign", by_stage["cluster"])
+            self.assertEqual(
+                by_stage["cluster"][by_stage["cluster"].index("-s") + 1], "7.5"
+            )
+            self.assertEqual(
+                by_stage["cluster"][by_stage["cluster"].index("--threads") + 1],
+                "24",
+            )
+            self.assertEqual(set(by_stage), {"createdb", "cluster", "createtsv"})
+            self.assertTrue(all("-a" not in argv for argv in by_stage.values()))
 
     def test_mmseqs_release_with_reassign_fix_is_required(self):
         self.assertEqual(validate_mmseqs_version("MMseqs2 Version: 15-6f452"), 15)

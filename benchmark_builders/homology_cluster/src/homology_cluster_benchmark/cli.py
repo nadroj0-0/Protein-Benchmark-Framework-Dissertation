@@ -12,6 +12,8 @@ import pandas as pd
 from .attrition import load_attrition_policy
 from .authorization import validate_pilot_approval
 from .config import (
+    MMSEQS_PROFILE_POLICIES,
+    MMSEQS_PROFILES,
     SUPPORTED_IDENTITIES,
     UNIPROT_SOURCE_SCOPES,
     BuildConfig,
@@ -129,8 +131,19 @@ def _parser() -> argparse.ArgumentParser:
         help="Locked at 7.5 by the reviewed MMseqs2 contract",
     )
     build.add_argument(
-        "--evalue", type=float, default=1e-4,
-        help="Locked at 1e-4 by the reviewed MMseqs2 contract",
+        "--mmseqs-profile", choices=MMSEQS_PROFILES, default=MMSEQS_PROFILES[0],
+        help=(
+            "Locked MMseqs2 command/export profile. The Daniel-aligned profile uses "
+            "MMseqs2's default E-value and input shuffle, disables reassignment, and "
+            "persists alignment statistics plus cluster FASTA in the cluster cache."
+        ),
+    )
+    build.add_argument(
+        "--evalue", type=float,
+        help=(
+            "Compatibility override checked against --mmseqs-profile; omit to use the "
+            "profile's locked explicit or MMseqs-default policy"
+        ),
     )
     build.add_argument("--scratch-safety-multiplier", type=float, default=1.0)
     build.add_argument("--minimum-free-disk-gb", type=float, default=0.0)
@@ -212,6 +225,8 @@ def _config(args: argparse.Namespace, identity: float) -> BuildConfig:
     source_scope = args.uniprot_source_scope or (
         "sprot-only" if args.fixture_mode else ""
     )
+    profile_policy = MMSEQS_PROFILE_POLICIES[args.mmseqs_profile]
+    evalue = args.evalue if args.evalue is not None else profile_policy["evalue"]
     return BuildConfig(
         identity=identity,
         output_dir=args.output_dir,
@@ -254,8 +269,13 @@ def _config(args: argparse.Namespace, identity: float) -> BuildConfig:
         min_count=args.min_count,
         development_fraction=args.development_fraction,
         training_fraction_within_development=args.training_fraction_within_development,
+        mmseqs_profile=args.mmseqs_profile,
+        createdb_shuffle=profile_policy["createdb_shuffle"],
+        cluster_reassign=profile_policy["cluster_reassign"],
         sensitivity=args.sensitivity,
-        evalue=args.evalue,
+        evalue=evalue,
+        export_alignment_statistics=profile_policy["export_alignment_statistics"],
+        export_cluster_fasta=profile_policy["export_cluster_fasta"],
         include_relationships=not args.no_relationships,
         allow_downloads=not args.no_downloads,
         strict_qc=not args.no_strict_qc,
@@ -296,6 +316,7 @@ def _preview(config: BuildConfig) -> dict[str, object]:
         "requested_slots": config.requested_slots,
         "allocated_slots": config.allocated_slots,
         "mmseqs_threads": config.threads,
+        "mmseqs_profile": config.mmseqs_profile,
         "final_output": str(
             config.output_dir / config.publication_relative_path
         ),
@@ -605,8 +626,10 @@ def _cross_threshold_reports(
             "split_policy", "development_fraction", "training_fraction_within_development",
             "training_population", "seed", "min_count", "evidence_codes",
             "include_relationships", "root_policy", "coverage", "cov_mode", "cluster_mode",
-            "alignment_mode", "seq_id_mode", "createdb_shuffle", "cluster_reassign",
-            "sensitivity", "evalue", "uniprot_release", "goa_release", "ontology_release",
+            "alignment_mode", "seq_id_mode", "mmseqs_profile", "createdb_shuffle",
+            "cluster_reassign", "sensitivity", "evalue", "export_alignment_statistics",
+            "export_cluster_fasta", "alignment_export_backtrace", "uniprot_release",
+            "goa_release", "ontology_release",
             "uniprot_source_scope",
         )
         parameters = {key: fingerprint_payload[key] for key in parameter_keys}

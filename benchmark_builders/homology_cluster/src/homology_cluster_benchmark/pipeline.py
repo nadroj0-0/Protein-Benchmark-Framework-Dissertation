@@ -34,9 +34,12 @@ from .clustering import (
 from .cluster_cache import (
     CACHE_MARKER as CLUSTER_CACHE_MARKER,
     cluster_cache_contract,
+    load_cluster_checkpoint,
     load_cluster_cache,
     prepare_cluster_cache_destination,
+    publish_cluster_checkpoint,
     publish_cluster_cache,
+    remove_cluster_checkpoint,
     verify_loaded_cluster_cache,
 )
 from .common_cache import (
@@ -136,10 +139,14 @@ def _parameters(config: BuildConfig) -> dict[str, object]:
         "cluster_mode": config.cluster_mode,
         "alignment_mode": config.alignment_mode,
         "seq_id_mode": 0,
-        "createdb_shuffle": 0,
+        "mmseqs_profile": config.mmseqs_profile,
+        "createdb_shuffle": config.createdb_shuffle,
         "cluster_reassign": config.cluster_reassign,
         "sensitivity": config.sensitivity,
         "evalue": config.evalue,
+        "export_alignment_statistics": config.export_alignment_statistics,
+        "export_cluster_fasta": config.export_cluster_fasta,
+        "alignment_export_backtrace": False,
         "threads": config.threads,
         "requested_slots": config.requested_slots,
         "allocated_slots": config.allocated_slots,
@@ -203,10 +210,14 @@ def _scientific_fingerprint_payload(
         "cluster_mode": config.cluster_mode,
         "alignment_mode": config.alignment_mode,
         "seq_id_mode": 0,
-        "createdb_shuffle": 0,
+        "mmseqs_profile": config.mmseqs_profile,
+        "createdb_shuffle": config.createdb_shuffle,
         "cluster_reassign": config.cluster_reassign,
         "sensitivity": config.sensitivity,
         "evalue": config.evalue,
+        "export_alignment_statistics": config.export_alignment_statistics,
+        "export_cluster_fasta": config.export_cluster_fasta,
+        "alignment_export_backtrace": False,
         "expected_mmseqs_version": config.expected_mmseqs_version,
         "observed_mmseqs_version": mmseqs_runtime.version_token,
         "mmseqs_executable_sha256": mmseqs_runtime.executable_sha256,
@@ -1527,6 +1538,7 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
         disk_preflight = _disk_preflight(config, work, inputs)
         loaded_common_cache = None
         loaded_cluster_cache = None
+        loaded_cluster_checkpoint = None
         cluster_cache_action = "disabled"
         LOGGER.info(
             "Stage completed: resolve and hash frozen inputs elapsed_seconds=%.1f",
@@ -1634,7 +1646,26 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
             )
             write_command_manifest(stage / "mmseqs_commands.tsv", commands)
             write_command_manifest(work / "logs" / "mmseqs_commands.tsv", commands)
+            core_commands = tuple(
+                command for command in commands
+                if command.stage in {"createdb", "cluster", "createtsv"}
+            )
+            post_commands = tuple(
+                command for command in commands
+                if command.stage not in {"createdb", "cluster", "createtsv"}
+            )
+            mmseqs_core_executed = False
             cache_contract = None
+            derived_cluster_artifacts: dict[str, Path] = {}
+            producer = {
+                "framework_revision": config.framework_revision,
+                "repository_commit": repository_commit,
+                "run_id": config.run_id,
+                "benchmark_scope": config.benchmark_scope,
+                "threads": config.threads,
+                "requested_slots": config.requested_slots,
+                "allocated_slots": config.allocated_slots,
+            }
             if config.cluster_cache_root is not None:
                 cache_contract = cluster_cache_contract(
                     runtime_config,
@@ -1653,6 +1684,10 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                     raise ValueError(
                         "Required validated cluster cache is absent: "
                         f"{expected_cache}"
+                    )
+                else:
+                    loaded_cluster_checkpoint = load_cluster_checkpoint(
+                        config.cluster_cache_root, cache_contract
                     )
             if config.cluster_assignments:
                 source_clusters = config.cluster_assignments.expanduser().resolve()
@@ -1694,9 +1729,47 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                         f"MMseqs2 executable is unavailable: {config.mmseqs_bin}; "
                         "supply --mmseqs-bin or use --cluster-assignments only for a validated fixture"
                     )
-                execute_commands(commands, work / "logs" / "mmseqs")
-                shutil.copytree(work / "logs" / "mmseqs", stage / "logs" / "mmseqs")
-                source_clusters = mmseqs_work / "uniref90_clusters.tsv"
+                if loaded_cluster_checkpoint is not None:
+                    if post_commands:
+                        raise ValueError(
+                            "A saved assignment checkpoint cannot reconstruct profile-locked "
+                            "post-cluster MMseqs2 databases; use an assignment-only profile"
+                        )
+                    source_clusters = loaded_cluster_checkpoint.assignments
+                    cluster_cache_action = "checkpoint-resumed"
+                    checkpoint_log_dir = stage / "logs" / "mmseqs"
+                    checkpoint_log_dir.mkdir(parents=True)
+                    _json(checkpoint_log_dir / "CHECKPOINT_REUSED.json", {
+                        "mmseqs_execution": "cluster stage not repeated",
+                        "checkpoint_directory": str(loaded_cluster_checkpoint.root),
+                        "checkpoint_marker_sha256": loaded_cluster_checkpoint.marker_sha256,
+                        "assignment_sha256": loaded_cluster_checkpoint.payload[
+                            "assignment_sha256"
+                        ],
+                        "contract_sha256": loaded_cluster_checkpoint.payload[
+                            "contract_sha256"
+                        ],
+                        "runtime_mmseqs_probe": mmseqs_runtime.as_dict(
+                            config.expected_mmseqs_version
+                        ),
+                    })
+                else:
+                    execute_commands(core_commands, work / "logs" / "mmseqs")
+                    mmseqs_core_executed = True
+                    source_clusters = mmseqs_work / "uniref90_clusters.tsv"
+                    if (
+                        config.cluster_cache_root is not None
+                        and cache_contract is not None
+                    ):
+                        loaded_cluster_checkpoint = publish_cluster_checkpoint(
+                            config.cluster_cache_root,
+                            cache_contract,
+                            source_clusters,
+                            stage / "mmseqs_commands.tsv",
+                            producer=producer,
+                            log_dir=work / "logs" / "mmseqs",
+                        )
+                        cluster_cache_action = "checkpointed"
             cluster_index = ClusterIndex.build(
                 source_clusters,
                 uniref,
@@ -1708,28 +1781,59 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 and loaded_cluster_cache is None
                 and cache_contract is not None
             ):
+                if post_commands:
+                    if not mmseqs_core_executed:
+                        raise ValueError(
+                            "Post-cluster exports require the MMseqs2 databases from this run"
+                        )
+                    execute_commands(post_commands, work / "logs" / "mmseqs")
+                    if config.export_alignment_statistics:
+                        derived_cluster_artifacts["alignment_statistics"] = (
+                            mmseqs_work / "cluster_alignment_statistics.tsv"
+                        )
+                    if config.export_cluster_fasta:
+                        derived_cluster_artifacts["cluster_fasta"] = (
+                            mmseqs_work / "clusters.faa"
+                        )
+                runtime_mmseqs_logs = work / "logs" / "mmseqs"
+                if runtime_mmseqs_logs.is_dir():
+                    shutil.copytree(
+                        runtime_mmseqs_logs,
+                        stage / "logs" / "mmseqs",
+                        dirs_exist_ok=True,
+                    )
+                else:
+                    runtime_mmseqs_logs = stage / "logs" / "mmseqs"
                 loaded_cluster_cache = publish_cluster_cache(
                     config.cluster_cache_root,
                     cache_contract,
                     cluster_index,
                     stage / "mmseqs_commands.tsv",
-                    producer={
-                        "framework_revision": config.framework_revision,
-                        "repository_commit": repository_commit,
-                        "run_id": config.run_id,
-                        "benchmark_scope": config.benchmark_scope,
-                        "threads": config.threads,
-                        "requested_slots": config.requested_slots,
-                        "allocated_slots": config.allocated_slots,
-                    },
-                    log_dir=work / "logs" / "mmseqs",
+                    producer=producer,
+                    log_dir=runtime_mmseqs_logs,
+                    derived_artifacts=derived_cluster_artifacts,
                 )
+                remove_cluster_checkpoint(config.cluster_cache_root, cache_contract)
                 cluster_cache_action = "built"
             if loaded_cluster_cache is not None:
                 shutil.copyfile(
                     loaded_cluster_cache.root / CLUSTER_CACHE_MARKER,
                     stage / "cluster_cache_manifest.json",
                 )
+                cache_exports = loaded_cluster_cache.payload.get("exports", {})
+                _json(stage / "mmseqs_export_manifest.json", {
+                    "schema_version": 1,
+                    "mmseqs_profile": config.mmseqs_profile,
+                    "storage": "persistent-validated-cluster-cache",
+                    "cache_directory": str(loaded_cluster_cache.root),
+                    "cache_marker_sha256": loaded_cluster_cache.marker_sha256,
+                    "exports": cache_exports,
+                    "note": (
+                        "Validated MMseqs2 assignments remain in the persistent cache. "
+                        "Any declared post-cluster exports are listed here and are not "
+                        "duplicated into the benchmark publication or home quota."
+                    ),
+                })
             LOGGER.info(
                 "Stage completed: MMseqs2 execution or fixture assignment validation "
                 "clusters=%d members=%d elapsed_seconds=%.1f",
@@ -1871,7 +1975,13 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                         "assignment_sha256": loaded_cluster_cache.payload[
                             "assignment_sha256"
                         ],
-                        "cached_stage": "MMseqs2 cluster through createtsv",
+                        "cached_stage": (
+                            "MMseqs2 cluster assignments plus profile-locked post-cluster exports"
+                        ),
+                        "mmseqs_profile": config.mmseqs_profile,
+                        "post_cluster_exports": loaded_cluster_cache.payload.get(
+                            "exports", {}
+                        ),
                         "excluded_downstream_policy": [
                             "GOA retention",
                             "split policy",

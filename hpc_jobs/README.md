@@ -452,6 +452,7 @@ The normal no-persistent-input workflow now has two thin direct `qsub` entrypoin
 ```text
 hpc_jobs/active/hpc_homology_cluster_runtime_pilot.sh
 hpc_jobs/active/hpc_homology_cluster_runtime_array.sh
+hpc_jobs/active/hpc_homology_cluster_runtime_array_24core_daniel_aligned.sh
 ```
 
 Submit the recommended one-item 30% pilot with:
@@ -483,6 +484,21 @@ The non-consumable `scratch0free=300G` remains a host-free-space threshold. The 
 defaults are reduced globally to neutral `1x` bookkeeping; the pilot records rather than enforces
 the resulting estimate. The six-task wrapper uses the same per-task request, but do not submit that array before
 reviewing the pilot's disk report.
+
+The separate `24core_daniel_aligned` array is an explicit alternative profile, not an in-place
+change to the earlier calibrated runs. Each task requests 24 SMP slots, 168 GB aggregate memory,
+432 GB aggregate scratch, and a seven-day walltime. Its MMseqs2 command keeps sensitivity 7.5 and
+the existing coverage/alignment modes, while omitting `-e`, `--shuffle`, `--cluster-reassign`, and
+`-a` so that the pinned binary supplies its E-value/input-shuffle defaults and no reassignment or
+backtrace is requested. Daniel's derived `align`/`convertalis` and per-threshold cluster-FASTA
+inspection exports are deliberately omitted from this six-task production batch: they are not
+consumed by benchmark construction and six copies cannot fit safely within the measured SAN
+headroom. Immediately after `createtsv`, each task atomically writes a resumable compressed
+assignment checkpoint to SAN. After complete member/representative validation, that checkpoint is
+promoted to the persistent threshold-specific cluster cache and only then removed. The profile
+fails before clustering unless both that cache root and the precomputed shared preprocessing cache
+are available, preventing a fallback rebuild or scratch cleanup from discarding the expensive
+scientific result.
 
 Both wrappers delegate to
 `scripts/benchmark_generation/run_homology_cluster_runtime_hpc.sh`. That driver:

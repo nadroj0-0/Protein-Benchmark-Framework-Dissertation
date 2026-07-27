@@ -15,6 +15,10 @@ DRIVER = (
 )
 PILOT = WORKSPACE_ROOT / "hpc_jobs" / "active" / "hpc_homology_cluster_runtime_pilot.sh"
 ARRAY = WORKSPACE_ROOT / "hpc_jobs" / "active" / "hpc_homology_cluster_runtime_array.sh"
+DANIEL_ARRAY = (
+    WORKSPACE_ROOT / "hpc_jobs" / "active"
+    / "hpc_homology_cluster_runtime_array_24core_daniel_aligned.sh"
+)
 GUARDED_WORKER = (
     WORKSPACE_ROOT / "hpc_jobs" / "active" / "hpc_homology_cluster_benchmark.sh"
 )
@@ -22,6 +26,19 @@ SNAPSHOT = WORKSPACE_ROOT / "hpc_jobs" / "active" / "hpc_homology_progress_snaps
 
 
 class RuntimeHPCEntrypointTests(unittest.TestCase):
+    def test_daniel_aligned_array_requests_24_cores_and_locked_profile(self):
+        worker = DANIEL_ARRAY.read_text()
+        self.assertIn("#$ -pe smp 24", worker)
+        self.assertIn("#$ -t 1-6", worker)
+        self.assertIn("#$ -tc 6", worker)
+        self.assertIn("export MMSEQS_PROFILE=daniel-aligned-defaults", worker)
+        self.assertIn("export REQUIRE_HOMOLOGY_COMMON_CACHE=1", worker)
+        self.assertIn("MINIMUM_CLUSTER_CACHE_FREE_GB", worker)
+        self.assertIn("/SAN/bioinf/bmpfp/benchmarks/homology/2026_02", worker)
+        self.assertIn("/SAN/bioinf/bmpfp/derived_inputs/homology/2026_02", worker)
+        self.assertIn('export MINIMUM_SCRATCH_GB="${MINIMUM_SCRATCH_GB:-400}"', worker)
+        self.assertNotIn("qsub", worker)
+
     def _environment(self, root: Path, kind: str, task: str) -> tuple[dict[str, str], Path]:
         scratch = root / "scratch"
         results = root / "results"
@@ -282,6 +299,7 @@ class RuntimeHPCEntrypointTests(unittest.TestCase):
         driver = DRIVER.read_text()
         self.assertIn("homology_common_preprocessing_2026_02", driver)
         self.assertIn("HOMOLOGY_COMMON_PREPROCESSING_CACHE", driver)
+        self.assertIn("REQUIRE_HOMOLOGY_COMMON_CACHE", driver)
         self.assertIn("Staging common preprocessing cache into job-owned scratch", driver)
         self.assertIn(
             'if [[ -z "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then', driver

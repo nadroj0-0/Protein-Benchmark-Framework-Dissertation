@@ -13,15 +13,22 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from homology_cluster_benchmark.cluster_cache import (
+    ALIGNMENT_STATISTICS_FILE,
     ASSIGNMENTS_FILE,
+    CHECKPOINT_ASSIGNMENTS_FILE,
+    CHECKPOINT_MARKER,
     CACHE_ROOT_MARKER,
+    CLUSTER_FASTA_FILE,
     cluster_cache_contract,
     cluster_cache_directory,
     initialize_cluster_cache_root,
     import_publication_cluster_cache,
     inspect_cluster_cache,
     inspect_cluster_cache_root,
+    inspect_cluster_checkpoint,
+    load_cluster_checkpoint,
     load_cluster_cache,
+    publish_cluster_checkpoint,
     publish_cluster_cache,
 )
 from homology_cluster_benchmark.common_cache import build_common_preprocessing_cache
@@ -100,6 +107,107 @@ class ClusterCacheTests(unittest.TestCase):
             assignments = cache.root / ASSIGNMENTS_FILE
             assignments.write_bytes(assignments.read_bytes() + b"tamper")
             with self.assertRaisesRegex(ValueError, "file-size mismatch"):
+                inspect_cluster_cache(cache.root, verify_file_hashes=True)
+
+    def test_post_createtsv_checkpoint_is_atomic_resumable_and_tamper_checked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            executable = root / "mmseqs"
+            _fake_mmseqs(executable)
+            config = fixture_config(
+                root / "output",
+                root / "temp",
+                mmseqs_bin=str(executable),
+                expected_mmseqs_version=VERSION,
+            )
+            commands = root / "mmseqs_commands.tsv"
+            write_command_manifest(
+                commands,
+                build_mmseqs_commands(
+                    config, FIXTURES / "uniref90.fasta", root / "mmseqs-work"
+                ),
+            )
+            contract = cluster_cache_contract(
+                config,
+                self._runtime(executable),
+                sha256_file(FIXTURES / "uniref90.fasta"),
+            )
+            checkpoint = publish_cluster_checkpoint(
+                root / "cache",
+                contract,
+                FIXTURES / "clusters.tsv",
+                commands,
+                producer={"run_id": "fixture"},
+            )
+            self.assertTrue((checkpoint.root / CHECKPOINT_MARKER).is_file())
+            self.assertEqual(
+                load_cluster_checkpoint(root / "cache", contract).root,
+                checkpoint.root,
+            )
+            inspect_cluster_checkpoint(checkpoint.root, verify_file_hashes=True)
+            assignments = checkpoint.root / CHECKPOINT_ASSIGNMENTS_FILE
+            assignments.write_bytes(assignments.read_bytes() + b"tamper")
+            with self.assertRaisesRegex(ValueError, "file-size mismatch"):
+                inspect_cluster_checkpoint(checkpoint.root, verify_file_hashes=True)
+
+    def test_profile_locked_exports_are_published_and_verified(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            executable = root / "mmseqs"
+            _fake_mmseqs(executable)
+            config = fixture_config(
+                root / "output",
+                root / "temp",
+                mmseqs_bin=str(executable),
+                expected_mmseqs_version=VERSION,
+                mmseqs_profile="daniel-aligned-defaults",
+                createdb_shuffle=None,
+                cluster_reassign=0,
+                evalue=None,
+                export_alignment_statistics=True,
+                export_cluster_fasta=True,
+                cluster_assignments=None,
+                cluster_cache_root=root / "cache",
+            )
+            uniref = UniRefIndex.build(
+                FIXTURES / "uniref90.fasta", root / "uniref.sqlite"
+            )
+            clusters = ClusterIndex.build(
+                FIXTURES / "clusters.tsv", uniref, root / "clusters.sqlite"
+            )
+            commands = root / "mmseqs_commands.tsv"
+            write_command_manifest(
+                commands,
+                build_mmseqs_commands(
+                    config, FIXTURES / "uniref90.fasta", root / "mmseqs-work"
+                ),
+            )
+            statistics = root / "statistics.tsv"
+            statistics.write_text("query\ttarget\tevalue\tbits\traw\tpident\nU1\tU1\t0\t1\t1\t100\n")
+            fasta = root / "clusters.faa"
+            fasta.write_text(">U1\nAAAA\n")
+            cache = publish_cluster_cache(
+                root / "cache",
+                cluster_cache_contract(
+                    config, self._runtime(executable),
+                    sha256_file(FIXTURES / "uniref90.fasta"),
+                ),
+                clusters,
+                commands,
+                producer={"run_id": "fixture"},
+                derived_artifacts={
+                    "alignment_statistics": statistics,
+                    "cluster_fasta": fasta,
+                },
+            )
+            self.assertTrue((cache.root / ALIGNMENT_STATISTICS_FILE).is_file())
+            self.assertTrue((cache.root / CLUSTER_FASTA_FILE).is_file())
+            self.assertEqual(
+                set(cache.payload["exports"]),
+                {"alignment_statistics", "cluster_fasta"},
+            )
+            (cache.root / CLUSTER_FASTA_FILE).write_text(">U1\nTAMPER\n")
+            with self.assertRaisesRegex(ValueError, "file-size mismatch|file hash mismatch"):
                 inspect_cluster_cache(cache.root, verify_file_hashes=True)
 
     def test_contract_excludes_downstream_and_operational_choices(self):
@@ -221,6 +329,70 @@ class ClusterCacheTests(unittest.TestCase):
                         encoding="utf-8"
                     )
                 )["assignment_sha256"],
+            )
+
+    def test_pipeline_resumes_checkpoint_after_post_createtsv_validation_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            executable = root / "mmseqs"
+            _fake_mmseqs(executable)
+            cache_root = root / "cluster-cache"
+            first = fixture_config(
+                root / "failed-output",
+                root / "failed-temp",
+                cluster_assignments=None,
+                cluster_cache_root=cache_root,
+                mmseqs_bin=str(executable),
+                expected_mmseqs_version=VERSION,
+            )
+
+            def execute_fixture(commands, log_dir):
+                log_dir.mkdir(parents=True, exist_ok=True)
+                (log_dir / "mmseqs_fixture.log").write_text(
+                    "fixture\n", encoding="utf-8"
+                )
+                target = next(
+                    Path(command.argv[-1])
+                    for command in commands if command.stage == "createtsv"
+                )
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(FIXTURES / "clusters.tsv", target)
+
+            with mock.patch(
+                "homology_cluster_benchmark.pipeline.execute_commands",
+                side_effect=execute_fixture,
+            ), mock.patch(
+                "homology_cluster_benchmark.pipeline.ClusterIndex.build",
+                side_effect=RuntimeError("synthetic validation interruption"),
+            ), self.assertRaisesRegex(RuntimeError, "synthetic validation interruption"):
+                build_benchmark(first)
+
+            checkpoints = list(cache_root.rglob(CHECKPOINT_MARKER))
+            self.assertEqual(len(checkpoints), 1)
+            inspect_cluster_checkpoint(
+                checkpoints[0].parent, verify_file_hashes=True
+            )
+
+            resumed = replace(
+                first,
+                output_dir=root / "resumed-output",
+                temp_dir=root / "resumed-temp",
+            )
+            with mock.patch(
+                "homology_cluster_benchmark.pipeline.execute_commands",
+                side_effect=AssertionError("MMseqs clustering must not repeat"),
+            ):
+                result = build_benchmark(resumed)
+
+            self.assertTrue((result.output_dir / "RUN_COMPLETE.json").is_file())
+            self.assertFalse(list(cache_root.rglob(CHECKPOINT_MARKER)))
+            self.assertEqual(
+                json.loads(
+                    (result.output_dir / "input_manifest.json").read_text(
+                        encoding="utf-8"
+                    )
+                )["cluster_cache"]["action"],
+                "built",
             )
 
     def test_completed_publication_can_be_imported_without_mmseqs(self):

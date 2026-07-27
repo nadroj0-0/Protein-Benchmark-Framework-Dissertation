@@ -28,6 +28,12 @@ CACHE_ROOT_MARKER = "CLUSTER_CACHE_ROOT.json"
 CACHE_ROOT_SCHEMA_NAME = "homology-mmseqs-cluster-cache-root"
 ASSIGNMENTS_FILE = "cluster_assignments.tsv.gz"
 COMMANDS_FILE = "mmseqs_commands.tsv"
+CHECKPOINT_SCHEMA_NAME = "homology-mmseqs-cluster-assignment-checkpoint"
+CHECKPOINT_SCHEMA_VERSION = 1
+CHECKPOINT_MARKER = "CHECKPOINT_READY.json"
+CHECKPOINT_ASSIGNMENTS_FILE = "cluster_assignments.raw.tsv"
+ALIGNMENT_STATISTICS_FILE = "exports/cluster_alignment_statistics.tsv"
+CLUSTER_FASTA_FILE = "exports/clusters.faa"
 
 
 @dataclass(frozen=True)
@@ -38,8 +44,32 @@ class LoadedClusterCache:
     assignments: Path
 
 
+@dataclass(frozen=True)
+class LoadedClusterCheckpoint:
+    root: Path
+    marker_sha256: str
+    payload: dict[str, object]
+    assignments: Path
+
+
 def _json(path: Path, payload: object) -> None:
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    with path.open("w", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _copy_with_sha256(source: Path, destination: Path) -> tuple[int, str]:
+    digest = hashlib.sha256()
+    size = 0
+    with source.open("rb") as incoming, destination.open("xb") as outgoing:
+        while chunk := incoming.read(8 * 1024 * 1024):
+            outgoing.write(chunk)
+            digest.update(chunk)
+            size += len(chunk)
+        outgoing.flush()
+        os.fsync(outgoing.fileno())
+    return size, digest.hexdigest()
 
 
 def _canonical_hash(payload: object) -> str:
@@ -120,9 +150,13 @@ def cluster_cache_contract_from_values(
     cov_mode: int,
     cluster_mode: int,
     alignment_mode: int,
+    mmseqs_profile: str,
+    createdb_shuffle: int | None,
     cluster_reassign: int,
     sensitivity: float,
-    evalue: float,
+    evalue: float | None,
+    export_alignment_statistics: bool,
+    export_cluster_fasta: bool,
     expected_mmseqs_version: str,
     observed_mmseqs_version: str,
     mmseqs_executable_sha256: str,
@@ -154,11 +188,17 @@ def cluster_cache_contract_from_values(
             "cluster_mode": cluster_mode,
             "alignment_mode": alignment_mode,
             "seq_id_mode": 0,
+            "mmseqs_profile": mmseqs_profile,
             "cluster_reassign": cluster_reassign,
             "sensitivity": f"{sensitivity:.12g}",
-            "evalue": f"{evalue:.12g}",
+            "evalue": "mmseqs-default" if evalue is None else f"{evalue:.12g}",
             "createdb_dbtype": 1,
-            "createdb_shuffle": 0,
+            "createdb_shuffle": (
+                "mmseqs-default" if createdb_shuffle is None else createdb_shuffle
+            ),
+            "export_alignment_statistics": export_alignment_statistics,
+            "export_cluster_fasta": export_cluster_fasta,
+            "alignment_export_backtrace": False,
         },
         "runtime": {
             "expected_mmseqs_version": expected_mmseqs_version,
@@ -183,9 +223,13 @@ def cluster_cache_contract(
         cov_mode=config.cov_mode,
         cluster_mode=config.cluster_mode,
         alignment_mode=config.alignment_mode,
+        mmseqs_profile=config.mmseqs_profile,
+        createdb_shuffle=config.createdb_shuffle,
         cluster_reassign=config.cluster_reassign,
         sensitivity=config.sensitivity,
         evalue=config.evalue,
+        export_alignment_statistics=config.export_alignment_statistics,
+        export_cluster_fasta=config.export_cluster_fasta,
         expected_mmseqs_version=config.expected_mmseqs_version or "",
         observed_mmseqs_version=runtime.version_token,
         mmseqs_executable_sha256=runtime.executable_sha256,
@@ -206,6 +250,13 @@ def cluster_cache_directory(cache_root: Path, contract: dict[str, object]) -> Pa
         / _identity_label(identity)
         / f"contract_{digest[:16]}"
     )
+
+
+def cluster_checkpoint_directory(
+    cache_root: Path, contract: dict[str, object]
+) -> Path:
+    cache_directory = cluster_cache_directory(cache_root, contract)
+    return cache_directory.with_name(f"{cache_directory.name}.checkpoint")
 
 
 def prepare_cluster_cache_destination(
@@ -296,6 +347,24 @@ def inspect_cluster_cache(
         )
     if ASSIGNMENTS_FILE not in expected_paths or COMMANDS_FILE not in expected_paths:
         raise ValueError("Cluster cache lacks assignments or its command manifest")
+    method = contract.get("method")
+    exports = payload.get("exports", {})
+    if not isinstance(method, dict) or not isinstance(exports, dict):
+        raise ValueError("Cluster cache export contract is malformed")
+    required_exports = {
+        "alignment_statistics": ALIGNMENT_STATISTICS_FILE,
+        "cluster_fasta": CLUSTER_FASTA_FILE,
+    }
+    for role, relative in required_exports.items():
+        enabled = bool(method.get(f"export_{role}", False))
+        entry = exports.get(role)
+        if enabled:
+            if not isinstance(entry, dict) or entry.get("path") != relative:
+                raise ValueError(f"Cluster cache lacks required {role} export metadata")
+            if relative not in expected_paths:
+                raise ValueError(f"Cluster cache lacks required {role} export file")
+        elif entry is not None:
+            raise ValueError(f"Cluster cache contains undeclared {role} export")
     return payload
 
 
@@ -313,6 +382,93 @@ def load_cluster_cache(
         marker_sha256=sha256_file(root / CACHE_MARKER),
         payload=payload,
         assignments=root / ASSIGNMENTS_FILE,
+    )
+
+
+def inspect_cluster_checkpoint(
+    path: Path,
+    *,
+    expected_contract: dict[str, object] | None = None,
+    verify_file_hashes: bool = True,
+) -> dict[str, object]:
+    root = path.expanduser().resolve()
+    if root.is_file() and root.name == CHECKPOINT_MARKER:
+        root = root.parent
+    marker = root / CHECKPOINT_MARKER
+    if not root.is_dir() or not marker.is_file():
+        raise ValueError(f"Cluster checkpoint is incomplete: {root}")
+    payload = json.loads(marker.read_text(encoding="utf-8"))
+    if (
+        payload.get("schema_name") != CHECKPOINT_SCHEMA_NAME
+        or payload.get("schema_version") != CHECKPOINT_SCHEMA_VERSION
+        or payload.get("stage_complete") is not True
+    ):
+        raise ValueError("Cluster checkpoint marker has an unsupported contract")
+    contract = payload.get("contract")
+    if not isinstance(contract, dict):
+        raise ValueError("Cluster checkpoint lacks its scientific contract")
+    if payload.get("contract_sha256") != _canonical_hash(contract):
+        raise ValueError("Cluster checkpoint contract digest is invalid")
+    if expected_contract is not None and contract != expected_contract:
+        raise ValueError("Cluster checkpoint scientific contract does not match this run")
+    files = payload.get("files")
+    if not isinstance(files, list) or not files:
+        raise ValueError("Cluster checkpoint has no file manifest")
+    expected_paths: set[str] = set()
+    for entry in files:
+        if not isinstance(entry, dict):
+            raise ValueError("Cluster checkpoint file entry is malformed")
+        relative = str(entry.get("path", ""))
+        candidate = (root / relative).resolve()
+        if not relative or root not in candidate.parents or not candidate.is_file():
+            raise ValueError(f"Cluster checkpoint file is missing: {relative}")
+        expected_paths.add(relative)
+        if candidate.stat().st_size != entry.get("size_bytes"):
+            raise ValueError(f"Cluster checkpoint file-size mismatch: {relative}")
+        if verify_file_hashes and sha256_file(candidate) != entry.get("sha256"):
+            raise ValueError(f"Cluster checkpoint file hash mismatch: {relative}")
+    observed_paths = {
+        item.relative_to(root).as_posix()
+        for item in root.rglob("*")
+        if item.is_file() and item != marker
+    }
+    if observed_paths != expected_paths:
+        raise ValueError(
+            "Cluster checkpoint files do not reconcile with its marker: "
+            f"missing={sorted(expected_paths - observed_paths)}, "
+            f"extra={sorted(observed_paths - expected_paths)}"
+        )
+    if (
+        CHECKPOINT_ASSIGNMENTS_FILE not in expected_paths
+        or COMMANDS_FILE not in expected_paths
+    ):
+        raise ValueError("Cluster checkpoint lacks assignments or command manifest")
+    assignment_entry = next(
+        entry for entry in files
+        if isinstance(entry, dict)
+        and entry.get("path") == CHECKPOINT_ASSIGNMENTS_FILE
+    )
+    if payload.get("assignment_sha256") != assignment_entry.get("sha256"):
+        raise ValueError("Cluster checkpoint assignment digest is invalid")
+    return payload
+
+
+def load_cluster_checkpoint(
+    cache_root_path: Path,
+    contract: dict[str, object],
+) -> LoadedClusterCheckpoint | None:
+    inspect_cluster_cache_root(cache_root_path)
+    root = cluster_checkpoint_directory(cache_root_path, contract)
+    if not root.exists():
+        return None
+    payload = inspect_cluster_checkpoint(
+        root, expected_contract=contract, verify_file_hashes=True
+    )
+    return LoadedClusterCheckpoint(
+        root=root,
+        marker_sha256=sha256_file(root / CHECKPOINT_MARKER),
+        payload=payload,
+        assignments=root / CHECKPOINT_ASSIGNMENTS_FILE,
     )
 
 
@@ -340,6 +496,112 @@ def _copy_assignments(source: Path, destination: Path, *, has_header: bool) -> N
                     outgoing.write(f"{columns[0]}\t{columns[1]}\n")
 
 
+def publish_cluster_checkpoint(
+    cache_root_path: Path,
+    contract: dict[str, object],
+    source_assignments: Path,
+    command_manifest: Path,
+    *,
+    producer: dict[str, object],
+    log_dir: Path | None = None,
+) -> LoadedClusterCheckpoint:
+    initialize_cluster_cache_root(cache_root_path)
+    output = cluster_checkpoint_directory(cache_root_path, contract)
+    if output.exists():
+        loaded = load_cluster_checkpoint(cache_root_path, contract)
+        if loaded is None:
+            raise ValueError(f"Cluster checkpoint disappeared: {output}")
+        return loaded
+    output.parent.mkdir(parents=True, exist_ok=True)
+    stage = output.parent / f".{output.name}.staging-{uuid.uuid4().hex}"
+    started = time.monotonic()
+    try:
+        stage.mkdir()
+        if not source_assignments.is_file() or source_assignments.stat().st_size == 0:
+            raise ValueError(
+                f"MMseqs2 assignment checkpoint source is missing or empty: "
+                f"{source_assignments}"
+            )
+        assignment_size, assignment_sha256 = _copy_with_sha256(
+            source_assignments, stage / CHECKPOINT_ASSIGNMENTS_FILE
+        )
+        shutil.copy2(command_manifest, stage / COMMANDS_FILE)
+        if log_dir is not None and log_dir.is_dir():
+            shutil.copytree(log_dir, stage / "logs")
+        files = []
+        for path in sorted(path for path in stage.rglob("*") if path.is_file()):
+            relative = path.relative_to(stage).as_posix()
+            files.append({
+                "path": relative,
+                "size_bytes": (
+                    assignment_size
+                    if relative == CHECKPOINT_ASSIGNMENTS_FILE
+                    else path.stat().st_size
+                ),
+                "sha256": (
+                    assignment_sha256
+                    if relative == CHECKPOINT_ASSIGNMENTS_FILE
+                    else sha256_file(path)
+                ),
+            })
+        payload: dict[str, object] = {
+            "schema_name": CHECKPOINT_SCHEMA_NAME,
+            "schema_version": CHECKPOINT_SCHEMA_VERSION,
+            "stage_complete": True,
+            "created_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "elapsed_seconds": round(time.monotonic() - started, 3),
+            "contract": contract,
+            "contract_sha256": _canonical_hash(contract),
+            "assignment_sha256": assignment_sha256,
+            "assignment_validation": "pending-cluster-index-validation",
+            "producer": producer,
+            "files": files,
+            "note": (
+                "MMseqs2 createtsv completed and its representative/member table was "
+                "atomically copied before full validation or downstream benchmark work. "
+                "This checkpoint is resumable evidence, not a validated cluster cache."
+            ),
+        }
+        _json(stage / CHECKPOINT_MARKER, payload)
+        inspect_cluster_checkpoint(
+            stage, expected_contract=contract, verify_file_hashes=False
+        )
+        try:
+            stage.rename(output)
+        except OSError:
+            if not output.exists():
+                raise
+            existing = load_cluster_checkpoint(cache_root_path, contract)
+            if existing is None or existing.payload.get("assignment_sha256") != payload[
+                "assignment_sha256"
+            ]:
+                raise ValueError(
+                    "Concurrent cluster-checkpoint publication produced different assignments"
+                )
+            shutil.rmtree(stage, ignore_errors=True)
+            return existing
+        return LoadedClusterCheckpoint(
+            root=output,
+            marker_sha256=sha256_file(output / CHECKPOINT_MARKER),
+            payload=payload,
+            assignments=output / CHECKPOINT_ASSIGNMENTS_FILE,
+        )
+    except BaseException:
+        shutil.rmtree(stage, ignore_errors=True)
+        raise
+
+
+def remove_cluster_checkpoint(
+    cache_root_path: Path, contract: dict[str, object]
+) -> None:
+    checkpoint = cluster_checkpoint_directory(cache_root_path, contract)
+    if checkpoint.exists():
+        inspect_cluster_checkpoint(
+            checkpoint, expected_contract=contract, verify_file_hashes=True
+        )
+        shutil.rmtree(checkpoint)
+
+
 def _write_canonical_assignments(
     cluster_index: ClusterIndex, destination: Path
 ) -> None:
@@ -359,6 +621,7 @@ def publish_cluster_cache(
     *,
     producer: dict[str, object],
     log_dir: Path | None = None,
+    derived_artifacts: dict[str, Path] | None = None,
 ) -> LoadedClusterCache:
     initialize_cluster_cache_root(cache_root_path)
     output = cluster_cache_directory(cache_root_path, contract)
@@ -373,6 +636,20 @@ def publish_cluster_cache(
         shutil.copy2(command_manifest, stage / COMMANDS_FILE)
         if log_dir is not None and log_dir.is_dir():
             shutil.copytree(log_dir, stage / "logs")
+        published_export_paths: dict[str, str] = {}
+        for role, source in sorted((derived_artifacts or {}).items()):
+            destination_name = {
+                "alignment_statistics": ALIGNMENT_STATISTICS_FILE,
+                "cluster_fasta": CLUSTER_FASTA_FILE,
+            }.get(role)
+            if destination_name is None:
+                raise ValueError(f"Unsupported cluster-cache export role: {role}")
+            if not source.is_file() or source.stat().st_size == 0:
+                raise ValueError(f"MMseqs2 export is missing or empty: {source}")
+            destination = stage / destination_name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+            published_export_paths[role] = destination_name
         files = [
             {
                 "path": path.relative_to(stage).as_posix(),
@@ -381,6 +658,11 @@ def publish_cluster_cache(
             }
             for path in _directory_files(stage)
         ]
+        files_by_path = {str(entry["path"]): entry for entry in files}
+        published_exports = {
+            role: dict(files_by_path[relative], path=relative)
+            for role, relative in published_export_paths.items()
+        }
         payload: dict[str, object] = {
             "schema_name": CACHE_SCHEMA_NAME,
             "schema_version": CACHE_SCHEMA_VERSION,
@@ -395,16 +677,17 @@ def publish_cluster_cache(
                 "clusters": cluster_index.cluster_count(),
             },
             "producer": producer,
+            "exports": published_exports,
             "files": files,
             "note": (
-                "This cache ends immediately after MMseqs2 createtsv and complete assignment "
-                "validation. GOA retention, split allocation, labels, term universes, training "
-                "population, and PFP exports are deliberately excluded."
+                "This cache contains validated MMseqs2 cluster assignments and any profile-locked "
+                "post-cluster exports. GOA retention, split allocation, labels, term universes, "
+                "training population, and PFP exports are deliberately excluded."
             ),
         }
         _json(stage / CACHE_MARKER, payload)
         inspect_cluster_cache(
-            stage, expected_contract=contract, verify_file_hashes=True
+            stage, expected_contract=contract, verify_file_hashes=False
         )
         try:
             stage.rename(output)
@@ -418,7 +701,12 @@ def publish_cluster_cache(
                 )
             shutil.rmtree(stage, ignore_errors=True)
             return existing
-        return load_cluster_cache(cache_root_path, contract)
+        return LoadedClusterCache(
+            root=output,
+            marker_sha256=sha256_file(output / CACHE_MARKER),
+            payload=payload,
+            assignments=output / ASSIGNMENTS_FILE,
+        )
     except BaseException:
         shutil.rmtree(stage, ignore_errors=True)
         raise
@@ -495,9 +783,17 @@ def import_publication_cluster_cache(
         cov_mode=int(parameters["cov_mode"]),
         cluster_mode=int(parameters["cluster_mode"]),
         alignment_mode=int(parameters["alignment_mode"]),
+        mmseqs_profile=str(parameters.get("mmseqs_profile", "legacy-calibrated")),
+        createdb_shuffle=parameters.get("createdb_shuffle", 0),
         cluster_reassign=int(parameters["cluster_reassign"]),
         sensitivity=float(parameters["sensitivity"]),
-        evalue=float(parameters["evalue"]),
+        evalue=(
+            None if parameters.get("evalue") is None else float(parameters["evalue"])
+        ),
+        export_alignment_statistics=bool(
+            parameters.get("export_alignment_statistics", False)
+        ),
+        export_cluster_fasta=bool(parameters.get("export_cluster_fasta", False)),
         expected_mmseqs_version=str(publication["expected_mmseqs_version"]),
         observed_mmseqs_version=str(publication["observed_mmseqs_version"]),
         mmseqs_executable_sha256=str(publication["mmseqs_executable_sha256"]),
