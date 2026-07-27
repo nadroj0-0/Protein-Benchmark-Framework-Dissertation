@@ -122,6 +122,16 @@ command=(
   --runtime-value "alphafold_api_workers=8"
   --runtime-value "alphafold_download_workers=8"
 )
+if [[ -f "$BASELINE_ROOT/COMPOSITION_COMPLETE.json" ]]; then
+  command+=(
+    --source-file "replacement-composition=$BASELINE_ROOT/COMPOSITION_COMPLETE.json"
+  )
+fi
+if [[ -f "$BASELINE_ROOT/provenance/TEXT_GENERATION_COMPLETE.json" ]]; then
+  command+=(
+    --source-file "corrected-text-generation=$BASELINE_ROOT/provenance/TEXT_GENERATION_COMPLETE.json"
+  )
+fi
 
 printf 'Command:'; printf ' %q' "${command[@]}"; printf '\n'
 "${command[@]}" > "$OUTPUT_DIR/initialization_summary.json"

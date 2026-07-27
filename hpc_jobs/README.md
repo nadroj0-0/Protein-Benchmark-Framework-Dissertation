@@ -443,6 +443,23 @@ SAN retry state. Inspect `embedding_reproducibility.md`, the detailed TSV and
 strict. The wrapper always copies compact evidence home and removes its owned
 scratch directory, including on failure.
 
+After a corrected full text-only archive has completed, replace the legacy
+text layer without regenerating it or editing the old final cache:
+
+```bash
+qsub hpc_jobs/active/hpc_contemporary_text_replacement_finalize.sh
+```
+
+This CPU-only workflow treats the old validated final archive as the immutable
+source of sequence, structure and paper-faithful PPI arrays. In job-owned
+scratch it removes the old text directory before installing the cutoff-bound
+replacement archive. It then builds a new baseline, initializes fresh
+per-array evidence, validates every accepted array, creates and reads back the
+combined archive, and publishes the separately named
+`text-cutoff-2025-03-08__ppi-paper-faithful` variant. The original final cache
+is never changed or removed. Its later archival is a separate backup-verified
+operation.
+
 ## Homology-cluster identity array
 
 ### Final scratch-first runtime entrypoints
