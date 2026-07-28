@@ -51,7 +51,13 @@ class UnambiguousPpiDeltaTests(unittest.TestCase):
 
         rows = [
             ("P1", "True", "False", "9606.S1", "UniProt_AC"),
-            ("P2", "True", "False", "9606.S2", "Ensembl_UniProt"),
+            (
+                "P2",
+                "True",
+                "False",
+                "9606.S2",
+                "Ensembl_UniProt;UniProt_AC",
+            ),
             ("P3", "False", "True", "", ""),
             ("P4", "False", "False", "", ""),
             ("OUTSIDE", "True", "False", "9606.S3", "Ensembl_UniProt"),
@@ -243,7 +249,9 @@ class UnambiguousPpiDeltaTests(unittest.TestCase):
         self.assertFalse(self.output.exists())
 
     def test_selected_source_must_belong_to_frozen_policy(self) -> None:
-        self.rewrite_policy_row("P2", selected_source="Unreviewed_Alias")
+        self.rewrite_policy_row(
+            "P2", selected_source="Ensembl_UniProt;Unreviewed_Alias"
+        )
         result = subprocess.run(
             self.command(), check=False, capture_output=True, text=True
         )

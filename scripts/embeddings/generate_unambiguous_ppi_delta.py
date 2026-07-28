@@ -139,7 +139,11 @@ def load_policy_details(
             source = row["selected_source"]
             if not string_id or "." not in string_id or not source:
                 raise ValueError(f"Incomplete selected mapping for {protein_id}")
-            if source not in EXPECTED_SOURCES:
+            selected_sources = source.split(";")
+            if any(
+                not selected_source or selected_source not in EXPECTED_SOURCES
+                for selected_source in selected_sources
+            ):
                 raise ValueError(
                     f"Selected source is outside the frozen policy for {protein_id}: "
                     f"{source}"
