@@ -16,6 +16,15 @@ warning, scratch deletion takes priority over attempting a large result copy.
 With the default one allocated slot, `--num-workers` must remain `0` so the
 main process is not oversubscribed.
 
+`active/hpc_contemporary_followup_prediction_capture.sh` performs inference-only
+validation and test capture from the accepted corrected contemporary full-model
+checkpoints. It is pinned to the `2025-03-08` text cutoff and paper-faithful PPI
+variant, and refuses publication unless the regenerated test arrays exactly
+match the accepted test content. `active/hpc_contemporary_followup_analysis.sh`
+runs the CPU-only IA/Xu specificity or validation-fitted calibration analyses.
+Submit calibration with a Grid Engine `-hold_jid` dependency on the paired
+capture job; specificity can start immediately from the accepted test arrays.
+
 Use `configs/pfp_benchmark_run.cafa3.json`,
 `configs/pfp_benchmark_run.temporal.json`, or
 `configs/pfp_benchmark_run.homology.json` to select the scientific overlap and

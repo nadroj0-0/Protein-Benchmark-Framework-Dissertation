@@ -892,6 +892,64 @@ class ModelExecutionTests(unittest.TestCase):
         self.assertTrue((artifact_output / "embedding_validation_report.json").is_file())
         self.assertTrue((artifact_output / "RUN_COMPLETE.json").is_file())
 
+        validation_output = self.root / "validation-evaluation-with-capture"
+        validation_artifacts = self.root / "validation-prediction-artifacts"
+        run(
+            [
+                sys.executable,
+                str(MODEL_EXECUTION / "evaluate_pfp_checkpoints.py"),
+                "--pfp-root",
+                str(self.pfp),
+                "--data-dir",
+                str(data),
+                "--cache-root",
+                str(cache),
+                "--obo-file",
+                str(self.obo),
+                "--checkpoint-root",
+                str(checkpoint_root),
+                "--output-dir",
+                str(validation_output),
+                "--config",
+                str(TEMPORAL_CONFIG),
+                "--mode",
+                "sequence-only",
+                "--aspect",
+                "BPO",
+                "--evaluation-split",
+                "valid",
+                "--benchmark-id",
+                "fixture",
+                "--framework-commit",
+                "a" * 40,
+                "--pfp-commit",
+                "b" * 40,
+                "--preparation-report",
+                str(self.last_preparation_report),
+                "--embedding-report",
+                str(embedding_report),
+                "--prediction-artifact-dir",
+                str(validation_artifacts),
+            ]
+        )
+        validation_manifest = json.loads(
+            (validation_artifacts / "prediction_artifact_manifest.json").read_text()
+        )
+        self.assertEqual(validation_manifest["evaluation_split"], "valid")
+        self.assertEqual(
+            validation_manifest["aspects"]["BPO"]["evaluation_split"], "valid"
+        )
+        with np.load(
+            validation_artifacts / "BPO_evaluation_arrays.npz", allow_pickle=False
+        ) as arrays:
+            self.assertEqual(arrays["protein_ids"].tolist(), ["VALID"])
+        validation_result = json.loads(
+            (validation_output / "BPO" / "results.json").read_text()
+        )
+        self.assertEqual(validation_result["evaluation_split"], "valid")
+        self.assertIn("valid_fmax", validation_result)
+        self.assertNotIn("test_fmax", validation_result)
+
     def test_required_reference_comparison_cannot_pass_without_selected_aspect(self) -> None:
         preparation = self.root / "preparation.json"
         preparation.write_text(

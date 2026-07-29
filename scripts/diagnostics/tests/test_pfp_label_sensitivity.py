@@ -58,9 +58,13 @@ class PfpLabelSensitivityTests(unittest.TestCase):
         seed: int = 42,
         has_non_root: bool = True,
         mutate_ia_before_persist: bool = False,
+        evaluation_split: str = "test",
+        protein_ids_override: list[str] | None = None,
+        scores_override: np.ndarray | None = None,
+        truth_override: np.ndarray | None = None,
     ) -> Path:
-        destination = root / f"prediction-artifacts-{mode}"
-        stage = root / f"prediction-stage-{mode}"
+        destination = root / f"prediction-artifacts-{mode}-{evaluation_split}"
+        stage = root / f"prediction-stage-{mode}-{evaluation_split}"
         stage.mkdir()
         module = types.SimpleNamespace()
         writer_calls = {"predictions": 0, "truth": 0, "ia": 0}
@@ -86,12 +90,22 @@ class PfpLabelSensitivityTests(unittest.TestCase):
         module.save_ia_file = save_ia
         original_prediction_writer = module.save_predictions_cafa_format
         scores = np.asarray(
-            [[0.9, 0.1], [0.9, 0.8], [0.2, 0.1]], dtype=np.float32
+            (
+                scores_override
+                if scores_override is not None
+                else [[0.9, 0.1], [0.9, 0.8], [0.2, 0.1]]
+            ),
+            dtype=np.float32,
         )
         truth = np.asarray(
-            [[1, 0], [1, 1 if has_non_root else 0], [0, 0]], dtype=np.uint8
+            (
+                truth_override
+                if truth_override is not None
+                else [[1, 0], [1, 1 if has_non_root else 0], [0, 0]]
+            ),
+            dtype=np.uint8,
         )
-        protein_ids = ["ROOT_ONLY", "DEEP", "ALL_ZERO"]
+        protein_ids = protein_ids_override or ["ROOT_ONLY", "DEEP", "ALL_ZERO"]
         go_terms = ["GO:0008150", "GO:0009987"]
         with EvaluationArrayCapture(module, "BPO", stage) as capture:
             module.save_predictions_cafa_format(
@@ -112,6 +126,7 @@ class PfpLabelSensitivityTests(unittest.TestCase):
         aspect = capture.persist(
             expected_protein_ids=protein_ids,
             expected_go_terms=go_terms,
+            evaluation_split=evaluation_split,
             checkpoint=checkpoint,
             expected_checkpoint_sha256=self.sha256(checkpoint),
             cafa_metrics={"fmax": 0.6, "wfmax": 0.5, "smin": 1.2, "threshold": 0.5},
@@ -168,6 +183,7 @@ class PfpLabelSensitivityTests(unittest.TestCase):
             "benchmark_id": "fixture",
             "mode": mode,
             "seed": seed,
+            "evaluation_split": evaluation_split,
             "selected_aspects": ["BPO"],
             "config": {"path": "fixture.json", "sha256": "2" * 64},
             "obo": {"path": str(obo), "sha256": self.sha256(obo)},

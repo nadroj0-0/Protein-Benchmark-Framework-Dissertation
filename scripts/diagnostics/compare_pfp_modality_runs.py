@@ -26,6 +26,7 @@ from label_space_common import (
 from pfp_sensitivity_common import (
     MODE_MODALITIES,
     embedding_content_contract,
+    require_evaluation_split,
     verify_artifact_manifest,
 )
 
@@ -212,6 +213,7 @@ def bind_prediction_manifest(
     allow_framework_commit_drift: bool,
 ) -> dict[str, Any]:
     manifest, artifact_root = verify_artifact_manifest(manifest_path)
+    require_evaluation_split(manifest, "test", "Canonical modality comparison")
     report = bundle["report"]
     mode = report["modality_mode"]
     expected_fields = {

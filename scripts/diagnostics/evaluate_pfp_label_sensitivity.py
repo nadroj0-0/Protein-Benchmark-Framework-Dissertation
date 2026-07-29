@@ -32,6 +32,7 @@ from pfp_sensitivity_common import (
     flat_non_root_metrics,
     global_comparison_contract,
     load_aspect_bundle,
+    require_evaluation_split,
     run_cafa_evaluation,
     verify_artifact_manifest,
 )
@@ -156,6 +157,7 @@ def main() -> int:
 
     prediction_manifest_sha256 = sha256_file(manifest_path)
     manifest, artifact_root = verify_artifact_manifest(manifest_path)
+    require_evaluation_split(manifest, "test", "Root-only sensitivity analysis")
     if manifest["obo"]["sha256"] != sha256_file(obo_file):
         raise ValueError("Sensitivity OBO differs from the prediction artifact OBO")
     read_obo(obo_file)

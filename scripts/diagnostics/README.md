@@ -125,6 +125,143 @@ evidence match. Non-evaluable aspects remain visible with an explicit status.
 It does not treat Fmax values from different benchmark label spaces as directly
 comparable model rankings.
 
+## IA and Xu-specificity evaluation
+
+Daniel Buchan's proposed information-content analysis can be run directly from
+the same immutable prediction artifacts. The analyzer reads the exact
+information-accretion file used by the canonical evaluation. It can also
+calculate Xu et al.'s topology-only semantic totipotency from the exact frozen
+`is_a + part_of` OBO graph. IA and Xu are always separate panels: IA remains
+the canonical CAFA weight; Xu is only a specificity stratifier.
+
+```bash
+python scripts/diagnostics/evaluate_pfp_information_content.py \
+  --prediction-manifest /path/to/prediction_artifacts/prediction_artifact_manifest.json \
+  --obo /path/to/frozen-go.obo \
+  --specificity-measure all_separate \
+  --specificity-measure xu_neglog_totipotency \
+  --positive-bins 4 \
+  --bootstrap-replicates 10000 \
+  --bootstrap-seed 0 \
+  --output-dir /absolute/path/to/new/specificity-analysis
+```
+
+The output names Jaccard set agreement explicitly rather than calling it
+ordinary accuracy. Unweighted protein-centric metrics are primary; IA-weighted
+diagnostics are reported alongside them. Roots are excluded from flat bins.
+Raw Xu `T` is lower for more specific terms. `-log2(T)` is retained only as an
+exploratory display transform and is not attributed to Xu et al. or called IA.
+Bin-specific optima are descriptive; the common fixed result is visibly
+labelled `descriptive_test_oracle_fixed`. No binwise result is canonical CAFA
+`Smin`.
+
+## Policy-bound temporal cohort states
+
+The accepted contemporary `supervisor` benchmark is global qualifying
+no-knowledge, so its existing test predictions have no known-protein comparator.
+`build_temporal_annotation_ledger.py` therefore builds a new Layer-B state
+artifact from independently prepared historical inputs. It requires direct
+terms and propagated closures for both timepoints plus explicit protein
+presence. This prevents an absent protein being mislabelled as no-knowledge and
+enforces closure-before-difference.
+
+Every annotation input is a long-form TSV with the exact header
+`protein_id<TAB>aspect<TAB>go_term`. Protein scope and presence files have the
+single header `protein_id`.
+
+```bash
+python scripts/diagnostics/build_temporal_annotation_ledger.py \
+  --t0-direct-annotations /path/to/direct_t0.tsv \
+  --t1-direct-annotations /path/to/direct_t1.tsv \
+  --t0-closure-annotations /path/to/closure_t0.tsv \
+  --t1-closure-annotations /path/to/closure_t1.tsv \
+  --t0-protein-presence /path/to/t0_present.tsv \
+  --t1-protein-presence /path/to/t1_present.tsv \
+  --exposure-table /path/to/development_exposure.tsv \
+  --protein-scope /path/to/protein_ids.tsv \
+  --t0-snapshot 2025-03-08 \
+  --t1-snapshot 2026-06-17 \
+  --evidence-policy-id supervisor_snapshot_membership \
+  --graph-policy-id cafa_narrow_is_a_part_of \
+  --relationship is_a \
+  --relationship part_of \
+  --benchmark-id contemporary-2025-2026 \
+  --output-dir /absolute/path/to/new/temporal-ledger
+```
+
+The tool labels `no_qualifying`, `cross_ontology_known`,
+`same_aspect_partial`, `root_only` and `unknown`; it does not conflate
+same-aspect partial knowledge with CAFA limited knowledge. It records direct
+and closure terms, then forms retained-known, gained and lost closure sets.
+It deliberately does not parse raw GAF, resolve GO IDs, filter evidence or
+perform propagation. Those Layer-A operations must be completed and
+hash-bound upstream rather than inferred from filenames or reverse-engineered
+from propagated CSV truth.
+
+If any scoped protein has qualifying `t0` knowledge, `--exposure-table` is
+mandatory. It records train/validation membership by ID and exact sequence,
+declared homology-cluster overlap, modality availability and feature temporal
+policy. This prevents a seen-protein annotation-extension sensitivity from
+being described as unseen generalization.
+
+After predictions exist for the same protein scope, evaluate the cohorts and
+retained/gained partitions with:
+
+```bash
+python scripts/diagnostics/evaluate_pfp_knowledge_cohorts.py \
+  --prediction-manifest /path/to/prediction_artifact_manifest.json \
+  --temporal-ledger-dir /path/to/temporal-ledger \
+  --truth-graph-policy-id cafa_narrow_is_a_part_of \
+  --bootstrap-replicates 10000 \
+  --output-dir /absolute/path/to/new/knowledge-cohort-analysis
+```
+
+On the accepted `supervisor` test this deliberately returns
+`not_evaluable_empty_cohort` for known comparators. On a separately generated
+partial cohort it reports retained-known recovery, acquisition-conditioned and
+deployment-like gained-term performance, and the `t0` annotation-copy
+baseline. These are flat diagnostics. They become strict unseen results only
+after a separately authorized disjoint retraining design.
+
+## Validation prediction capture foundation
+
+`evaluate_pfp_checkpoints.py` keeps `--evaluation-split test` as its default.
+An explicit `--evaluation-split valid` evaluates the saved checkpoint on the
+prepared validation split and records `evaluation_split=valid` in the result
+and prediction-artifact manifest. Validation artifacts must use a separate new
+artifact directory. Existing test-only sensitivity analyzers reject them; they
+are intended as inputs to a separately specified calibration analysis.
+
+## Post-selection validation calibration
+
+`calibrate_pfp_predictions.py` fits only on a captured validation artifact and
+then evaluates temporal test transport once without refitting:
+
+```bash
+python scripts/diagnostics/calibrate_pfp_predictions.py \
+  --validation-prediction-manifest /path/to/valid/prediction_artifact_manifest.json \
+  --test-prediction-manifest /path/to/test/prediction_artifact_manifest.json \
+  --obo /path/to/frozen-go.obo \
+  --positive-ia-bins 4 \
+  --output-dir /absolute/path/to/new/post-selection-calibration
+```
+
+The fitted quantity is the estimated probability of membership in the
+benchmark-observed qualifying propagated `t1` label set. It is not biological
+truth and is never a p-value. The model has a positive-slope Platt backbone,
+regularized IA-bin and supported term intercepts, and the deterministic
+fallback order `term_shrinkage -> aspect_mode_ia_bin -> aspect_mode_platt`.
+It preserves raw, post-propagation and calibrated values, reliability and
+temporal-shift metrics, support, fallbacks and a hierarchy audit.
+
+This first implementation is explicitly
+`post_selection_validation_calibration`: the same validation population
+previously influenced checkpoint selection and early stopping. A primary
+independent calibration claim requires a disjoint `V_select`/`V_cal` design
+and usually retraining. Per-prediction uncertainty intervals remain a separate
+publication gate; the point estimates must not be wrapped into a user-facing
+tool until a protein-cluster-aware interval method has been validated.
+
 Canonical Fmax, weighted Fmax and Smin can be compared independently from the
 completed PFP run reports:
 

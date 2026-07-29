@@ -160,12 +160,15 @@ class EvaluationArrayCapture:
         *,
         expected_protein_ids: Sequence[str],
         expected_go_terms: Sequence[str],
+        evaluation_split: str = "test",
         checkpoint: Path,
         expected_checkpoint_sha256: str,
         cafa_metrics: Mapping[str, Any],
         ia_file: Path | None,
         expected_ia_sha256: str | None,
     ) -> dict[str, Any]:
+        if evaluation_split not in {"test", "valid"}:
+            raise ValueError(f"Unsupported prediction artifact split: {evaluation_split}")
         if self.predictions is None or self.labels is None:
             raise RuntimeError(f"PFP did not expose prediction and truth arrays for {self.aspect}")
         protein_ids = [str(value) for value in expected_protein_ids]
@@ -234,6 +237,7 @@ class EvaluationArrayCapture:
         }
         return {
             "aspect": self.aspect,
+            "evaluation_split": evaluation_split,
             "array_file": array_path.name,
             "array_file_bytes": array_path.stat().st_size,
             "array_file_sha256": sha256_file(array_path),

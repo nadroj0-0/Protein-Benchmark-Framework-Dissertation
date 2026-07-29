@@ -84,6 +84,16 @@ def main() -> int:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--mode", choices=MODALITY_MODES, required=True)
     parser.add_argument("--aspect", action="append", default=[])
+    parser.add_argument(
+        "--evaluation-split",
+        choices=("test", "valid"),
+        default="test",
+        help=(
+            "Prepared split to evaluate and optionally capture. The default remains "
+            "the canonical test split; validation capture is intended for separate "
+            "post-hoc calibration analyses."
+        ),
+    )
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--ia-file-dir", type=Path)
@@ -210,6 +220,7 @@ def main() -> int:
             "benchmark_id": args.benchmark_id or str(config.get("name", "unspecified")),
             "mode": args.mode,
             "seed": args.seed,
+            "evaluation_split": args.evaluation_split,
             "selected_aspects": aspects,
             "pfp_root": str(pfp_root),
             "data_dir": str(args.data_dir.resolve()),
@@ -233,8 +244,8 @@ def main() -> int:
                 ],
             },
             "capture_policy": (
-                "observe-standard-pfp-cafa-writers-without-extra-inference; "
-                "canonical-results-unchanged"
+                "observe-standard-pfp-cafa-writers-during-the-selected-split-"
+                "evaluation; canonical-test-default-and-results-unchanged"
             ),
             "aspects": {},
         }
@@ -258,6 +269,7 @@ def main() -> int:
     summary: Dict[str, Any] = {
         "schema_version": 1,
         "mode": args.mode,
+        "evaluation_split": args.evaluation_split,
         "device": device,
         "aspects": {},
     }
@@ -280,17 +292,17 @@ def main() -> int:
                 "train",
                 normalize="standard",
             )
-            test_dataset = MultiModalDataset(
+            evaluation_dataset = MultiModalDataset(
                 str(args.data_dir),
                 embedding_dirs,
                 "prott5",
                 aspect,
-                "test",
+                args.evaluation_split,
                 normalize="standard",
                 norm_stats=train_dataset.norm_stats,
             )
-            test_loader = DataLoader(
-                test_dataset,
+            evaluation_loader = DataLoader(
+                evaluation_dataset,
                 batch_size=32,
                 shuffle=False,
                 collate_fn=collate_fn,
@@ -319,7 +331,7 @@ def main() -> int:
             criterion = nn.BCEWithLogitsLoss().to(device)
             ordinary = evaluate(
                 model,
-                test_loader,
+                evaluation_loader,
                 criterion,
                 device,
                 compute_weight_stats_detailed=True,
@@ -338,9 +350,9 @@ def main() -> int:
             output = args.output_dir / aspect
             evaluation_kwargs = {
                 "model": model,
-                "loader": test_loader,
+                "loader": evaluation_loader,
                 "device": device,
-                "protein_ids": test_dataset.protein_ids.tolist(),
+                "protein_ids": evaluation_dataset.protein_ids.tolist(),
                 "go_terms": go_terms,
                 "obo_file": str(args.obo_file),
                 "output_dir": str(output / "cafa_eval"),
@@ -365,12 +377,17 @@ def main() -> int:
             result: Dict[str, Any] = {
                 "aspect": aspect,
                 "mode": args.mode,
+                "evaluation_split": args.evaluation_split,
                 "checkpoint": str(checkpoint),
                 "checkpoint_sha256": checkpoint_sha256,
                 "num_go_terms": len(go_terms),
-                "test_fmax": float(ordinary["fmax"]),
-                "test_micro_auprc": float(ordinary["micro_auprc"]),
-                "test_macro_auprc": float(ordinary["macro_auprc"]),
+                f"{args.evaluation_split}_fmax": float(ordinary["fmax"]),
+                f"{args.evaluation_split}_micro_auprc": float(
+                    ordinary["micro_auprc"]
+                ),
+                f"{args.evaluation_split}_macro_auprc": float(
+                    ordinary["macro_auprc"]
+                ),
                 "cafa_evaluator_policy": "strict-ia-norm-cafa-prop-max-no-fallback",
             }
             for key, value in cafa.items():
@@ -385,8 +402,9 @@ def main() -> int:
             if capture is not None:
                 assert prediction_manifest is not None
                 prediction_manifest["aspects"][aspect] = capture.persist(
-                    expected_protein_ids=test_dataset.protein_ids.tolist(),
+                    expected_protein_ids=evaluation_dataset.protein_ids.tolist(),
                     expected_go_terms=go_terms,
+                    evaluation_split=args.evaluation_split,
                     checkpoint=checkpoint,
                     expected_checkpoint_sha256=checkpoint_sha256,
                     cafa_metrics=cafa,

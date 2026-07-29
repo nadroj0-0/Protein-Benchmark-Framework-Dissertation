@@ -106,6 +106,18 @@ def verify_artifact_manifest(manifest_path: Path) -> tuple[dict[str, Any], Path]
         raise ValueError(f"Prediction manifest aspect inventory is inconsistent: {manifest_path}")
     if manifest.get("mode") not in SUPPORTED_MODALITY_MODES:
         raise ValueError(f"Prediction manifest has unsupported mode: {manifest_path}")
+    evaluation_split = manifest.get("evaluation_split", "test")
+    if evaluation_split not in {"test", "valid"}:
+        raise ValueError(
+            f"Prediction manifest has unsupported evaluation split: {evaluation_split}"
+        )
+    for aspect, specification in manifest.get("aspects", {}).items():
+        aspect_split = specification.get("evaluation_split", evaluation_split)
+        if aspect_split != evaluation_split:
+            raise ValueError(
+                f"Prediction manifest split differs for {aspect}: "
+                f"{aspect_split!r} != {evaluation_split!r}"
+            )
     provenance = manifest.get("provenance")
     if not isinstance(provenance, dict) or not provenance.get("benchmark_fingerprint"):
         raise ValueError(f"Prediction manifest lacks benchmark provenance: {manifest_path}")
@@ -175,6 +187,7 @@ def global_comparison_contract(
         "benchmark_fingerprint": provenance["benchmark_fingerprint"],
         "source_csv_sha256": provenance.get("source_csv_sha256", {}),
         "seed": manifest["seed"],
+        "evaluation_split": manifest.get("evaluation_split", "test"),
         "config_sha256": manifest["config"]["sha256"],
         "obo_sha256": manifest["obo"]["sha256"],
         "pfp_commit": provenance["pfp_commit"],
@@ -202,6 +215,7 @@ def aspect_comparison_contract(specification: Mapping[str, Any]) -> dict[str, An
             "ia_file_sha256",
         )
     }
+    value["evaluation_split"] = specification.get("evaluation_split", "test")
     return {"value": value, "sha256": sha256_json(value)}
 
 
@@ -288,7 +302,20 @@ def load_aspect_bundle(
         "go_terms": go_terms,
         "ia_path": ia_path,
         "root_index": go_terms.index(required_root),
+        "evaluation_split": specification.get(
+            "evaluation_split", manifest.get("evaluation_split", "test")
+        ),
     }
+
+
+def require_evaluation_split(
+    manifest: Mapping[str, Any], expected: str, context: str
+) -> None:
+    observed = str(manifest.get("evaluation_split", "test"))
+    if observed != expected:
+        raise ValueError(
+            f"{context} requires a {expected!r} prediction artifact; found {observed!r}"
+        )
 
 
 def cohort_masks(truth: np.ndarray, root_index: int) -> dict[str, np.ndarray]:
