@@ -202,6 +202,14 @@ class TemporalAnnotationLedgerTests(unittest.TestCase):
             self.assertEqual(report["t1_snapshot"], "2026-06-17")
             self.assertEqual(report["protein_count"], 3)
             self.assertEqual(report["cohort_counts"]["BPO"]["cross_ontology_known"], 1)
+            self.assertEqual(
+                report["gainer_cohort_counts"]["BPO"]["cross_ontology_known"],
+                1,
+            )
+            self.assertEqual(
+                report["gainer_cohort_counts"]["BPO"]["same_aspect_partial"],
+                1,
+            )
             self.assertEqual(report["global_knowledge_counts"]["unknown"], 1)
             self.assertEqual(report["transition_counts"]["retained_known"], 2)
             self.assertTrue((output / "output_manifest.json").is_file())

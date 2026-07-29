@@ -25,6 +25,12 @@ runs the CPU-only IA/Xu specificity or validation-fitted calibration analyses.
 Submit calibration with a Grid Engine `-hold_jid` dependency on the paired
 capture job; specificity can start immediately from the accepted test arrays.
 
+`active/hpc_contemporary_knowledge_cohort_census.sh` is the CPU-only companion
+that reconstructs direct and propagated t0/t1 annotation states from the frozen
+UniProt, GOA and ontology inputs. It verifies the accepted global-no-knowledge
+test labels exactly before publishing a reusable temporal ledger and descriptive
+no-knowledge, cross-ontology-known and same-ontology-partial cohort counts.
+
 Use `configs/pfp_benchmark_run.cafa3.json`,
 `configs/pfp_benchmark_run.temporal.json`, or
 `configs/pfp_benchmark_run.homology.json` to select the scientific overlap and

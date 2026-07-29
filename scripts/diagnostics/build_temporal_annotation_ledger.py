@@ -352,6 +352,24 @@ def main() -> int:
                 }
                 for aspect in ASPECTS
             },
+            "gainer_cohort_counts": {
+                aspect: {
+                    state: sum(
+                        row["aspect_knowledge_state"] == state
+                        and row["aspect_has_gain"]
+                        for row in rows
+                        if row["aspect"] == aspect
+                    )
+                    for state in (
+                        "no_qualifying",
+                        "cross_ontology_known",
+                        "same_aspect_partial",
+                        "root_only",
+                        "unknown",
+                    )
+                }
+                for aspect in ASPECTS
+            },
             "global_knowledge_counts": {
                 state: sum(value == state for value in protein_states.values())
                 for state in (
