@@ -43,7 +43,7 @@ from homology_cluster_benchmark.mmseqs import (
 from homology_cluster_benchmark.pipeline import _input_specs, build_benchmark
 from homology_cluster_benchmark.uniref import UniRefIndex
 
-from tests.helpers import FIXTURES, fixture_config
+from tests.helpers import FIXTURES, fixture_config, uniref50_fixture_config
 
 
 VERSION = "18-8cc5c"
@@ -64,6 +64,30 @@ class ClusterCacheTests(unittest.TestCase):
             version_exit_code=0,
             executable_sha256=sha256_file(executable),
         )
+
+    def test_uniref50_contract_has_a_distinct_cache_namespace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            executable = root / "mmseqs"
+            _fake_mmseqs(executable)
+            runtime = self._runtime(executable)
+            legacy = fixture_config(
+                root / "legacy-output", root / "legacy-temp",
+                mmseqs_bin=str(executable), expected_mmseqs_version=VERSION,
+            )
+            uniref50 = uniref50_fixture_config(
+                root / "u50-output", root / "u50-temp",
+                mmseqs_bin=str(executable), expected_mmseqs_version=VERSION,
+            )
+            legacy_contract = cluster_cache_contract(
+                legacy, runtime, sha256_file(FIXTURES / "uniref90.fasta")
+            )
+            u50_contract = cluster_cache_contract(
+                uniref50, runtime, sha256_file(FIXTURES / "uniref50.fasta")
+            )
+            self.assertIn("uniref90_2026_02", str(cluster_cache_directory(root, legacy_contract)))
+            self.assertIn("uniref50_2026_02", str(cluster_cache_directory(root, u50_contract)))
+            self.assertNotEqual(legacy_contract, u50_contract)
 
     def test_publish_load_and_tamper_detection(self):
         with tempfile.TemporaryDirectory() as tmp:

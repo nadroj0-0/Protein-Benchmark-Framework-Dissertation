@@ -20,10 +20,24 @@ from homology_cluster_benchmark.frozen_inputs import (
 )
 from homology_cluster_benchmark.models import InputSpec
 
-from tests.helpers import FIXTURES, fixture_config
+from tests.helpers import FIXTURES, fixture_config, uniref50_fixture_config
 
 
 class ConfigAndInputTests(unittest.TestCase):
+    def test_uniref50_profile_is_separate_and_uses_its_recommended_sensitivity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = uniref50_fixture_config(root / "out", root / "temp")
+            config.validate(require_pinned_inputs=False)
+            self.assertEqual(config.uniref_input_name, "uniref50_fasta")
+            self.assertEqual(config.uniref_id_field, "uniref50_id")
+            self.assertIn("uniref50_sensitivity_4", config.publication_relative_path.parts)
+            with self.assertRaisesRegex(ValueError, "UniRef90 route"):
+                replace(
+                    fixture_config(root / "legacy", root / "legacy-temp"),
+                    sensitivity=4.0,
+                ).validate(require_pinned_inputs=False)
+
     def test_daniel_profile_requires_persistent_cache_and_exact_policy(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -241,6 +255,7 @@ class ConfigAndInputTests(unittest.TestCase):
 
     def test_fixture_paths_exist(self):
         self.assertTrue((FIXTURES / "uniref90.fasta").is_file())
+        self.assertTrue((FIXTURES / "uniref50.fasta").is_file())
 
 
 if __name__ == "__main__":

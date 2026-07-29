@@ -59,7 +59,7 @@ from .frozen_inputs import (
     write_synthetic_fixture_manifest,
 )
 from .goa import iter_annotation_records, iter_excluded_annotations, load_goa
-from .idmapping import load_uniref90_mappings
+from .idmapping import load_uniref_mappings
 from .inputs import resolve_input, sha256_file
 from .labels import build_labels
 from .mapping import canonicalize_goa_accessions, load_requested_proteins_from_sources
@@ -133,6 +133,8 @@ def _parameters(config: BuildConfig) -> dict[str, object]:
     return {
         "identity_fraction": config.identity,
         "identity_percent": int(config.identity * 100),
+        "uniref_level": config.uniref_level,
+        "uniref_scaffold": config.uniref_scaffold.display_name,
         "coverage": config.coverage,
         "coverage_interpretation": "alignment residues / max(query length, target length) >= 0.8",
         "cov_mode": config.cov_mode,
@@ -189,6 +191,7 @@ def _scientific_fingerprint_payload(
     """Return the identity-independent contract shared by all six threshold jobs."""
     return {
         "frozen_input_source_fingerprint": frozen_manifest.source_fingerprint,
+        "uniref_level": config.uniref_level,
         "uniprot_source_scope": config.uniprot_source_scope,
         "attrition_policy_sha256": attrition_policy_sha256,
         "uniprot_release": config.release_uniprot,
@@ -276,11 +279,12 @@ def _resolved_inputs(
             cache_root,
             expected_source_scope=config.uniprot_source_scope,
             expected_input_sha256=expected_hashes,
+            expected_uniref_level=config.uniref_level,
             verify_file_hashes=False,
         )
         resolved = {
             name: resolve_input(specs[name], work / "downloads", config.allow_downloads)
-            for name in ("uniref90_fasta", "go_obo")
+            for name in (config.uniref_input_name, "go_obo")
         }
         marker = cache_root / CACHE_MARKER
         for name, spec in specs.items():
@@ -307,7 +311,7 @@ def _resolved_inputs(
 
 def _input_specs(config: BuildConfig):
     specs = {
-        "uniref90_fasta": config.uniref90_fasta,
+        config.uniref_input_name: config.uniref_fasta,
         "idmapping": config.idmapping,
         "goa": config.goa,
         "go_obo": config.go_obo,
@@ -347,7 +351,7 @@ def _disk_preflight(
     publication_root.mkdir(parents=True, exist_ok=True)
     publication_usage = shutil.disk_usage(publication_root)
     logical_input_bytes = sum(item.size_bytes for item in inputs.values())
-    uniref_bytes = inputs["uniref90_fasta"].size_bytes
+    uniref_bytes = inputs[config.uniref_input_name].size_bytes
     common_cache_bytes = 0
     if config.common_preprocessing_cache is not None:
         cache_root = common_cache_root(config.common_preprocessing_cache)
@@ -425,7 +429,7 @@ def _disk_preflight(
         "staged_input_bytes": staged_input_bytes,
         "common_preprocessing_cache_bytes": common_cache_bytes,
         "common_preprocessing_cache_used": config.common_preprocessing_cache is not None,
-        "uniref90_bytes": uniref_bytes,
+        f"uniref{config.uniref_level}_bytes": uniref_bytes,
         "goa_bytes": goa_bytes,
         "persistent_results_root": str(persistent_path),
         "persistent_free_bytes_at_preflight": persistent_usage.free,
@@ -499,21 +503,25 @@ def _decision_index(decisions: list[MappingDecision]) -> tuple[dict[str, Mapping
     return by_raw, by_protein
 
 
-def _write_mapping_manifests(stage: Path, decisions: list[MappingDecision]) -> None:
+def _write_mapping_manifests(
+    stage: Path, decisions: list[MappingDecision], config: BuildConfig
+) -> None:
+    scaffold = config.uniref_scaffold
+    exists_field = f"exists_in_{scaffold.slug}_fasta"
     fields = [
-        "raw_uniprot_accession", "uniprot_accession", "accession_action", "uniref90_id",
-        "mapping_status", "mapping_detail", "exists_in_uniref90_fasta",
+        "raw_uniprot_accession", "uniprot_accession", "accession_action",
+        scaffold.id_field, "mapping_status", "mapping_detail", exists_field,
         "canonical_sequence_available", "accession_lifecycle_status", "source_population",
     ]
-    _tsv(stage / "uniprot_to_uniref90.tsv", fields, (
+    _tsv(stage / f"uniprot_to_{scaffold.slug}.tsv", fields, (
         {
             "raw_uniprot_accession": item.raw_accession,
             "uniprot_accession": item.protein_id,
             "accession_action": item.accession_action,
-            "uniref90_id": item.uniref90_id,
+            scaffold.id_field: item.uniref90_id,
             "mapping_status": item.status,
             "mapping_detail": item.detail,
-            "exists_in_uniref90_fasta": (
+            exists_field: (
                 "" if item.exists_in_fasta is None else int(item.exists_in_fasta)
             ),
             "canonical_sequence_available": int(item.canonical_sequence_available),
@@ -528,10 +536,10 @@ def _write_mapping_manifests(stage: Path, decisions: list[MappingDecision]) -> N
             "raw_uniprot_accession": item.raw_accession,
             "uniprot_accession": item.protein_id,
             "accession_action": item.accession_action,
-            "uniref90_id": item.uniref90_id,
+            scaffold.id_field: item.uniref90_id,
             "mapping_status": item.status,
             "mapping_detail": item.detail,
-            "exists_in_uniref90_fasta": (
+            exists_field: (
                 "" if item.exists_in_fasta is None else int(item.exists_in_fasta)
             ),
             "canonical_sequence_available": int(item.canonical_sequence_available),
@@ -552,8 +560,11 @@ def _write_cluster_manifests(
     assignments: dict,
     decisions: list[MappingDecision],
     giant_threshold: int,
+    config: BuildConfig,
     canonical_membership: Path | None = None,
 ) -> tuple[int, int]:
+    scaffold = config.uniref_scaffold
+    member_count_field = f"{scaffold.slug}_member_count"
     retained_ids = set(retained)
     annotated_uniref = {
         item.uniref90_id for item in decisions
@@ -561,33 +572,33 @@ def _write_cluster_manifests(
     }
     membership_output = stage / "mmseqs_cluster_membership.tsv.gz"
     if canonical_membership is None:
-        _tsv(membership_output, ["mmseqs_cluster_id", "uniref90_id"], (
-            {"mmseqs_cluster_id": cluster, "uniref90_id": member}
+        _tsv(membership_output, ["mmseqs_cluster_id", scaffold.id_field], (
+            {"mmseqs_cluster_id": cluster, scaffold.id_field: member}
             for cluster, member in cluster_index.iter_assignments()
         ))
     else:
         shutil.copyfile(canonical_membership, membership_output)
     _tsv(stage / "cluster_split_assignments.tsv", [
-        "mmseqs_cluster_id", "split", "uniref90_member_count",
+        "mmseqs_cluster_id", "split", member_count_field,
         "qualifying_uniprot_count", "assignment_stage",
     ], (
         {
             "mmseqs_cluster_id": item.cluster_id,
             "split": item.split,
-            "uniref90_member_count": item.member_count,
+            member_count_field: item.member_count,
             "qualifying_uniprot_count": item.labelled_protein_count,
             "assignment_stage": item.stage,
         }
         for item in (assignments[key] for key in sorted(assignments))
     ))
     _tsv(stage / "retained_clusters.tsv", [
-        "mmseqs_cluster_id", "split", "uniref90_member_count",
+        "mmseqs_cluster_id", "split", member_count_field,
         "qualifying_uniprot_count", "singleton", "giant_cluster",
     ], (
         {
             "mmseqs_cluster_id": cluster_id,
             "split": assignments[cluster_id].split,
-            "uniref90_member_count": info.member_count,
+            member_count_field: info.member_count,
             "qualifying_uniprot_count": info.labelled_protein_count,
             "singleton": int(info.member_count == 1),
             "giant_cluster": int(info.member_count >= giant_threshold),
@@ -601,7 +612,7 @@ def _write_cluster_manifests(
         writer = csv.DictWriter(
             handle,
             fieldnames=[
-                "mmseqs_cluster_id", "split", "uniref90_id", "sequence_sha256",
+                "mmseqs_cluster_id", "split", scaffold.id_field, "sequence_sha256",
                 "sequence_length", "connected_to_qualifying_uniprot",
             ],
             delimiter="\t", lineterminator="\n",
@@ -616,7 +627,7 @@ def _write_cluster_manifests(
             writer.writerow({
                 "mmseqs_cluster_id": cluster_id,
                 "split": assignments[cluster_id].split,
-                "uniref90_id": member_id,
+                scaffold.id_field: member_id,
                 "sequence_sha256": digest,
                 "sequence_length": length,
                 "connected_to_qualifying_uniprot": int(connected),
@@ -624,14 +635,17 @@ def _write_cluster_manifests(
     return retained_members, retained_unannotated
 
 
-def _write_annotation_manifests(stage: Path, goa, decisions: list[MappingDecision]) -> None:
+def _write_annotation_manifests(
+    stage: Path, goa, decisions: list[MappingDecision], config: BuildConfig
+) -> None:
+    id_field = config.uniref_id_field
     by_raw, by_protein = _decision_index(decisions)
     _tsv(stage / "qualifying_annotations.tsv.gz", [
         "database", "raw_uniprot_accession", "uniprot_accession", "symbol",
         "raw_go_id", "canonical_go_id", "namespace", "aspect", "evidence_code", "qualifier",
         "reference", "with_from", "taxon_id", "assigned_date", "assigned_by",
         "annotation_extension", "gene_product_form", "gaf_line_number",
-        "go_term_action", "accession_action", "uniref90_id", "mmseqs_cluster_id", "split",
+        "go_term_action", "accession_action", id_field, "mmseqs_cluster_id", "split",
     ], (
         {
             "database": record.database,
@@ -654,7 +668,7 @@ def _write_annotation_manifests(stage: Path, goa, decisions: list[MappingDecisio
             "gaf_line_number": record.line_number,
             "go_term_action": record.term_action,
             "accession_action": record.accession_action,
-            "uniref90_id": (by_raw.get(record.raw_accession) or by_protein.get(record.protein_id)).uniref90_id
+            id_field: (by_raw.get(record.raw_accession) or by_protein.get(record.protein_id)).uniref90_id
             if (by_raw.get(record.raw_accession) or by_protein.get(record.protein_id)) else "",
             "mmseqs_cluster_id": (by_raw.get(record.raw_accession) or by_protein.get(record.protein_id)).mmseqs_cluster_id
             if (by_raw.get(record.raw_accession) or by_protein.get(record.protein_id)) else "",
@@ -910,7 +924,11 @@ def _write_taxonomy_summary(stage: Path, goa, labels, catalog) -> None:
     _tsv(stage / "taxonomy_summary.tsv", ["stage", "split", "taxon_id", "count"], rows)
 
 
-def _write_split_summary(stage: Path, assignments: dict, labels) -> dict[str, dict[str, float | int]]:
+def _write_split_summary(
+    stage: Path, assignments: dict, labels, config: BuildConfig
+) -> dict[str, dict[str, float | int]]:
+    member_field = f"uniref{config.uniref_level}_members"
+    member_ratio_field = f"uniref{config.uniref_level}_member_ratio"
     totals = {
         "clusters": len(assignments),
         "members": sum(item.member_count for item in assignments.values()),
@@ -931,8 +949,8 @@ def _write_split_summary(stage: Path, assignments: dict, labels) -> dict[str, di
         summary[split] = {
             "clusters": clusters,
             "cluster_ratio": clusters / totals["clusters"] if totals["clusters"] else 0,
-            "uniref90_members": members,
-            "uniref90_member_ratio": members / totals["members"] if totals["members"] else 0,
+            member_field: members,
+            member_ratio_field: members / totals["members"] if totals["members"] else 0,
             "qualifying_uniprot_mappings": labelled,
             "qualifying_uniprot_ratio": labelled / totals["labelled"] if totals["labelled"] else 0,
             "label_intermediate_proteins": intermediate,
@@ -940,7 +958,7 @@ def _write_split_summary(stage: Path, assignments: dict, labels) -> dict[str, di
         }
         rows.append({"split": split, **summary[split]})
     _tsv(stage / "split_summary.tsv", [
-        "split", "clusters", "cluster_ratio", "uniref90_members", "uniref90_member_ratio",
+        "split", "clusters", "cluster_ratio", member_field, member_ratio_field,
         "qualifying_uniprot_mappings", "qualifying_uniprot_ratio",
         "label_intermediate_proteins", "evaluable_pfp_proteins",
     ], rows)
@@ -958,7 +976,8 @@ def _write_split_balance_summary(stage: Path, assignments: dict, config: BuildCo
     payload = {
         "schema_version": 1,
         "objective": (
-            "uniref90_member_count" if config.split_policy == "sequence-balanced"
+            f"uniref{config.uniref_level}_member_count"
+            if config.split_policy == "sequence-balanced"
             else "cluster_count"
         ),
         "development_vs_test": {
@@ -1026,6 +1045,7 @@ def _write_cluster_size_summary(stage: Path, assignments: dict, giant_threshold:
 def _write_benchmark_summary(stage: Path, summary: dict[str, object]) -> None:
     _json(stage / "benchmark_summary.json", summary)
     counts = summary["counts"]
+    retained_scaffold_key = f"retained_uniref{summary['uniref_level']}_entries"
     lines = [
         "# Homology-cluster benchmark summary", "",
         f"- Benchmark scope: `{summary['benchmark_scope']}`",
@@ -1034,7 +1054,8 @@ def _write_benchmark_summary(stage: Path, summary: dict[str, object]) -> None:
         f"- Coverage: **{summary['coverage']}** using MMseqs2 cov-mode 0",
         f"- Split policy: `{summary['split_policy']}`",
         f"- Retained clusters: {counts['retained_mmseqs_clusters']}",
-        f"- Retained UniRef90 entries: {counts['retained_uniref90_entries']}",
+        f"- Retained {summary['uniref_scaffold']} entries: "
+        f"{counts[retained_scaffold_key]}",
         f"- Evaluable PFP proteins: {counts['evaluable_pfp_proteins']}",
         f"- Development-defined terms (roots retained): {counts['development_defined_terms']}",
         "", "## Scientific boundary", "",
@@ -1206,9 +1227,11 @@ def _validate_publication_marker(directory: Path) -> None:
         raise ValueError("Publication scientific_fingerprint must be one lowercase SHA-256")
     if not isinstance(payload, dict) or _scientific_fingerprint(payload) != fingerprint:
         raise ValueError("Publication scientific fingerprint payload/hash mismatch")
+    manifest_level = int(parameters.get("uniref_level", 90))
     frozen_manifest = load_frozen_input_manifest(
         frozen_manifest_path,
         uniprot_source_scope=str(publication["uniprot_source_scope"]),
+        uniref_level=manifest_level,
         fixture_mode=publication["fixture_mode"],
     )
     expected_parameter_fields = (
@@ -1222,6 +1245,8 @@ def _validate_publication_marker(directory: Path) -> None:
     for key in expected_parameter_fields:
         if key not in parameters or payload.get(key) != parameters.get(key):
             raise ValueError(f"Scientific fingerprint/parameters mismatch for {key}")
+    if int(payload.get("uniref_level", 90)) != int(parameters.get("uniref_level", 90)):
+        raise ValueError("Scientific fingerprint/parameters mismatch for uniref_level")
     bound_values = {
         "frozen_input_source_fingerprint": frozen_manifest.source_fingerprint,
         "expected_mmseqs_version": publication.get("expected_mmseqs_version"),
@@ -1307,7 +1332,8 @@ def _add_risk_warnings(report, goa, labels, decisions, catalog, config, ontology
     if total and mapped / total < 0.90:
         report.add_warning(
             "low_mapping_coverage",
-            "Less than 90% of qualifying GOA accessions completed the UniRef90/MMseqs mapping chain",
+            "Less than 90% of qualifying GOA accessions completed the "
+            f"{config.uniref_scaffold.display_name}/MMseqs mapping chain",
             mapped=mapped, total=total, ratio=mapped / total,
         )
     if labels.no_evaluable_term:
@@ -1482,6 +1508,7 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
             frozen_manifest = load_frozen_input_manifest(
                 config.frozen_input_manifest,
                 uniprot_source_scope=config.uniprot_source_scope,
+                uniref_level=config.uniref_level,
                 fixture_mode=config.fixture_mode,
             )
             if policy_source is None:
@@ -1516,6 +1543,7 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 _input_specs(config),
                 inputs,
                 config.uniprot_source_scope,
+                config.uniref_level,
             )
             if policy_source is None:
                 policy_source = work / "nonproduction_attrition_policy.json"
@@ -1579,10 +1607,13 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
 
                 stage_started = time.monotonic()
                 LOGGER.info(
-                    "Stage started: UniRef90, UniProt, and accession mapping indexes"
+                    "Stage started: %s, UniProt, and accession mapping indexes",
+                    config.uniref_scaffold.display_name,
                 )
                 uniref = UniRefIndex.build(
-                    inputs["uniref90_fasta"].resolved_path, work / "uniref90.sqlite"
+                    inputs[config.uniref_input_name].resolved_path,
+                    work / f"uniref{config.uniref_level}.sqlite",
+                    config.uniref_level,
                 )
                 requested_raw = set(goa.qualifying_accessions or goa.annotations)
                 catalog = load_requested_proteins_from_sources(
@@ -1593,13 +1624,15 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                     collision_report=stage / COLLISION_REPORT_FILE,
                 )
                 goa = canonicalize_goa_accessions(goa, catalog)
-                decisions = load_uniref90_mappings(
-                    inputs["idmapping"].resolved_path, requested_raw, catalog, uniref
+                decisions = load_uniref_mappings(
+                    inputs["idmapping"].resolved_path, requested_raw, catalog, uniref,
+                    config.uniref_level,
                 )
                 LOGGER.info(
-                    "Stage completed: UniRef90, UniProt, and accession mapping indexes "
+                    "Stage completed: %s, UniProt, and accession mapping indexes "
                     "uniref_entries=%d mapping_decisions=%d elapsed_seconds=%.1f",
-                    uniref.count(), len(decisions), time.monotonic() - stage_started,
+                    config.uniref_scaffold.display_name, uniref.count(), len(decisions),
+                    time.monotonic() - stage_started,
                 )
             else:
                 stage_started = time.monotonic()
@@ -1615,6 +1648,7 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                     strict_qc=config.strict_qc,
                     excluded_sample_per_reason=config.excluded_sample_per_reason,
                     frozen_input_manifest_sha256=frozen_manifest.sha256,
+                    uniref_level=config.uniref_level,
                 )
                 goa = loaded_common_cache.goa
                 catalog = loaded_common_cache.catalog
@@ -1642,7 +1676,7 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
             mmseqs_work = work / "mmseqs"
             mmseqs_work.mkdir()
             commands = build_mmseqs_commands(
-                runtime_config, inputs["uniref90_fasta"].resolved_path, mmseqs_work
+                runtime_config, inputs[config.uniref_input_name].resolved_path, mmseqs_work
             )
             write_command_manifest(stage / "mmseqs_commands.tsv", commands)
             write_command_manifest(work / "logs" / "mmseqs_commands.tsv", commands)
@@ -1670,7 +1704,7 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 cache_contract = cluster_cache_contract(
                     runtime_config,
                     mmseqs_runtime,
-                    inputs["uniref90_fasta"].sha256,
+                    inputs[config.uniref_input_name].sha256,
                 )
                 expected_cache = prepare_cluster_cache_destination(
                     config.cluster_cache_root, cache_contract
@@ -1756,7 +1790,9 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 else:
                     execute_commands(core_commands, work / "logs" / "mmseqs")
                     mmseqs_core_executed = True
-                    source_clusters = mmseqs_work / "uniref90_clusters.tsv"
+                    source_clusters = (
+                        mmseqs_work / f"uniref{config.uniref_level}_clusters.tsv"
+                    )
                     if (
                         config.cluster_cache_root is not None
                         and cache_contract is not None
@@ -1775,6 +1811,7 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 uniref,
                 work / "clusters.sqlite",
                 has_header=loaded_cluster_cache is not None,
+                member_field=config.uniref_id_field,
             )
             if (
                 config.cluster_cache_root is not None
@@ -1843,7 +1880,9 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
 
             stage_started = time.monotonic()
             LOGGER.info("Stage started: cluster retention, splitting, labels, and PFP exports")
-            decisions = connect_proteins_to_clusters(decisions, cluster_index)
+            decisions = connect_proteins_to_clusters(
+                decisions, cluster_index, config.uniref_level
+            )
             retained = retained_cluster_info(decisions, cluster_index)
             if len(retained) < 3:
                 raise ValueError(
@@ -1894,21 +1933,21 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
 
             stage_started = time.monotonic()
             LOGGER.info("Stage started: audit manifests and summaries")
-            _write_mapping_manifests(stage, decisions)
+            _write_mapping_manifests(stage, decisions, config)
             retained_members, retained_unannotated = _write_cluster_manifests(
                 stage, cluster_index, uniref, retained, assignments, decisions,
-                config.giant_cluster_threshold,
+                config.giant_cluster_threshold, config,
                 (
                     loaded_cluster_cache.assignments
                     if loaded_cluster_cache is not None else None
                 ),
             )
-            _write_annotation_manifests(stage, goa, decisions)
+            _write_annotation_manifests(stage, goa, decisions, config)
             _write_evidence_summary(stage, goa)
             _write_attrition_summary(stage, labels)
             _write_go_term_summary(stage, goa, labels, ontology)
             _write_taxonomy_summary(stage, goa, labels, catalog)
-            split_summary = _write_split_summary(stage, assignments, labels)
+            split_summary = _write_split_summary(stage, assignments, labels, config)
             _write_split_balance_summary(stage, assignments, config)
             _write_cluster_size_summary(stage, assignments, config.giant_cluster_threshold)
 
@@ -1922,7 +1961,8 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 "collision_counts": dict(sorted(catalog.collision_counts.items())),
                 "mapping_status_counts": mapping_counters(decisions),
                 "mapping_counts_by_source": mapping_counters_by_source(
-                    decisions, set(selected_sources), catalog.source_counts
+                    decisions, set(selected_sources), catalog.source_counts,
+                    config.uniref_level,
                 ),
             }
             _json(stage / "mapping_summary.json", mapping_summary)
@@ -1933,6 +1973,8 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 "fixture_mode": config.fixture_mode,
                 "benchmark_scope": config.benchmark_scope,
                 "uniprot_source_scope": config.uniprot_source_scope,
+                "uniref_level": config.uniref_level,
+                "uniref_scaffold": config.uniref_scaffold.display_name,
                 "structural_input_eligible": structural_input_eligible,
                 "eligibility": eligibility,
                 "frozen_input_manifest": {
@@ -1954,10 +1996,10 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                         "source_scope": config.uniprot_source_scope,
                         "cached_stages": [
                             "GOA parsing",
-                            "UniRef90 sequence index",
+                            f"{config.uniref_scaffold.display_name} sequence index",
                             "selected UniProt catalogue",
                             "GOA accession canonicalization",
-                            "UniProt-to-UniRef90 mapping",
+                            f"UniProt-to-{config.uniref_scaffold.display_name} mapping",
                         ],
                         "threshold_specific_data_cached": False,
                     }
@@ -2010,10 +2052,14 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                     "goa_headers": goa.headers,
                     "ontology_data_version": ontology.data_version,
                     "ontology_relationship_types_observed": sorted(ontology.relationship_types),
-                    "uniref90_release_validation": (
+                    f"uniref{config.uniref_level}_release_validation": (
                         "No release field is embedded in FASTA; configured release plus SHA-256 binds the input"
                     ),
-                    "idmapping_schema": "headerless idmapping_selected; exactly 22 columns; UniRef90 column 9",
+                    "idmapping_schema": (
+                        "headerless idmapping_selected; exactly 22 columns; "
+                        f"{config.uniref_scaffold.display_name} column "
+                        f"{config.uniref_scaffold.idmapping_column_index + 1}"
+                    ),
                 },
             }
             if config.cluster_assignments:
@@ -2068,6 +2114,8 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 "production_eligible": production_eligible,
                 "benchmark_scope": config.benchmark_scope,
                 "uniprot_source_scope": config.uniprot_source_scope,
+                "uniref_level": config.uniref_level,
+                "uniref_scaffold": config.uniref_scaffold.display_name,
                 "framework_revision": config.framework_revision,
                 "run_id": config.run_id,
                 "identity_percent": int(config.identity * 100),
@@ -2077,17 +2125,21 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 "training_population": config.training_population,
                 "split_summary": split_summary,
                 "counts": {
-                    "total_uniref90_entries": uniref.count(),
+                    f"total_uniref{config.uniref_level}_entries": uniref.count(),
                     "total_mmseqs_clusters": cluster_index.cluster_count(),
                     "qualifying_goa_accessions": len(requested_raw),
-                    "qualifying_mapped_to_uniref90": sum(item.status == "mapped" for item in decisions),
+                    f"qualifying_mapped_to_uniref{config.uniref_level}": sum(
+                        item.status == "mapped" for item in decisions
+                    ),
                     "qualifying_unmapped_or_ambiguous": sum(item.status != "mapped" for item in decisions),
                     "retained_mmseqs_clusters": len(retained),
-                    "retained_uniref90_entries": retained_members,
+                    f"retained_uniref{config.uniref_level}_entries": retained_members,
                     "retained_annotated_uniprot_proteins": len({
                         item.protein_id for item in decisions if item.mmseqs_cluster_id in retained
                     }),
-                    "retained_unannotated_uniref90_entries": retained_unannotated,
+                    f"retained_unannotated_uniref{config.uniref_level}_entries": (
+                        retained_unannotated
+                    ),
                     "label_intermediate_proteins": label_intermediate_count,
                     "evaluable_pfp_proteins": evaluable_pfp_count,
                     "development_defined_terms": len(labels.term_universe),

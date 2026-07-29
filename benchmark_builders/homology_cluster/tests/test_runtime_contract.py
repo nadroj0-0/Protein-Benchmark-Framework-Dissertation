@@ -33,6 +33,10 @@ URLS = {
     "goa": "https://ftp.ebi.ac.uk/pub/databases/GO/goa/UNIPROT/goa_uniprot_all.gaf.gz",
     "go_obo": "https://release.geneontology.org/2026-06-19/ontology/go-basic.obo",
 }
+UNIREF50_URL = (
+    "https://ftp.uniprot.org/pub/databases/uniprot/current_release/"
+    "uniref/uniref50/uniref50.fasta.gz"
+)
 
 
 def _runtime_files(root: Path) -> dict[str, Path]:
@@ -52,6 +56,37 @@ def _runtime_files(root: Path) -> dict[str, Path]:
 
 
 class RuntimeContractTests(unittest.TestCase):
+    def test_uniref50_runtime_contract_uses_schema_three_and_distinct_role(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = _runtime_files(root)
+            uniref50 = root / "uniref50.fasta.gz"
+            paths.pop("uniref90_fasta").replace(uniref50)
+            paths["uniref50_fasta"] = uniref50
+            urls = {**URLS, "uniref50_fasta": UNIREF50_URL}
+            urls.pop("uniref90_fasta")
+            manifest_path = root / "manifest.json"
+            policy_path = root / "policy.json"
+            write_runtime_contract(
+                manifest_path,
+                policy_path,
+                "sprot-only",
+                COMMIT,
+                [
+                    RuntimeInput(name, paths[name], urls[name], "provided-persistent-store")
+                    for name in paths
+                ],
+                uniref_level=50,
+            )
+            manifest = load_frozen_input_manifest(
+                manifest_path,
+                uniprot_source_scope="sprot-only",
+                uniref_level=50,
+            )
+            self.assertEqual(manifest.payload["schema_version"], 3)
+            self.assertEqual(manifest.payload["uniref_level"], 50)
+            self.assertIn("uniref50_fasta", manifest.entries)
+
     def test_runtime_contract_is_accepted_by_existing_strict_loaders(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

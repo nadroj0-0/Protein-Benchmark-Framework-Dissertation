@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from homology_cluster_benchmark.goa import load_goa
 from homology_cluster_benchmark.config import SUPERVISOR_EVIDENCE_CODES
-from homology_cluster_benchmark.idmapping import load_uniref90_mappings
+from homology_cluster_benchmark.idmapping import load_uniref90_mappings, load_uniref_mappings
 from homology_cluster_benchmark.mapping import (
     canonicalize_goa_accessions,
     load_requested_proteins,
@@ -23,6 +23,33 @@ from tests.helpers import FIXTURES
 
 
 class ParserTests(unittest.TestCase):
+    def test_uniref50_mapping_reads_the_distinct_idmapping_column(self):
+        ontology = Ontology(FIXTURES / "go-mini.obo")
+        goa = load_goa(FIXTURES / "goa.gaf", ontology)
+        catalog = load_requested_proteins(FIXTURES / "uniprot.fasta", set(goa.annotations))
+        canonicalize_goa_accessions(goa, catalog)
+        with tempfile.TemporaryDirectory() as tmp:
+            index = UniRefIndex.build(
+                FIXTURES / "uniref50.fasta",
+                Path(tmp) / "uniref.sqlite",
+                uniref_level=50,
+            )
+            decisions = load_uniref_mappings(
+                FIXTURES / "idmapping_selected.tab",
+                {record.raw_accession for record in goa.records},
+                catalog,
+                index,
+                uniref_level=50,
+            )
+        self.assertEqual(
+            {item.uniref90_id for item in decisions if item.raw_accession.startswith("P1")},
+            {"UniRef50_U1"},
+        )
+        self.assertEqual(
+            next(item for item in decisions if item.raw_accession == "P1BP").status,
+            "mapped",
+        )
+
     def test_ontology_alt_obsolete_propagation_and_all_root_retention(self):
         ontology = Ontology(FIXTURES / "go-mini.obo", include_relationships=True)
         self.assertEqual(ontology.data_version, "releases/2026-06-15")

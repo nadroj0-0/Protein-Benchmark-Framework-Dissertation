@@ -25,7 +25,7 @@ from homology_cluster_benchmark.pipeline import build_benchmark, validate_public
 from homology_cluster_benchmark.inputs import sha256_file
 from homology_cluster_benchmark.provenance import PUBLICATION_MARKER_KEYS
 
-from tests.helpers import FIXTURES, fixture_config
+from tests.helpers import FIXTURES, fixture_config, uniref50_fixture_config
 
 
 REQUIRED_MANIFESTS = {
@@ -123,6 +123,19 @@ def _rewrite_fixture_repository_commit(run_dir: Path, commit: str) -> None:
 
 
 class PipelineTests(unittest.TestCase):
+    def test_uniref50_fixture_builds_and_validates_without_colliding_with_legacy_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = uniref50_fixture_config(root / "outputs", root / "temp")
+            result = build_benchmark(config)
+            validate_publication(result.output_dir)
+            self.assertIn("uniref50_sensitivity_4", result.output_dir.parts)
+            self.assertTrue((result.output_dir / "uniprot_to_uniref50.tsv").is_file())
+            self.assertFalse((result.output_dir / "uniprot_to_uniref90.tsv").exists())
+            parameters = json.loads((result.output_dir / "parameters.json").read_text())
+            self.assertEqual(parameters["uniref_level"], 50)
+            self.assertEqual(parameters["sensitivity"], 4.0)
+
     def test_end_to_end_fixture_publishes_complete_contract(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

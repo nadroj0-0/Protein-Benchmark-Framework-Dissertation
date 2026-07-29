@@ -517,6 +517,38 @@ fails before clustering unless both that cache root and the precomputed shared p
 are available, preventing a fallback rebuild or scratch cleanup from discarding the expensive
 scientific result.
 
+The UniRef50 route is a second, separately namespaced alternative. It leaves all UniRef90 scripts,
+inputs, caches, and outputs intact:
+
+```text
+hpc_jobs/active/hpc_homology_uniref50_common_cache.sh
+hpc_jobs/active/hpc_homology_cluster_runtime_array_24core_uniref50.sh
+```
+
+The first job is run once after the frozen UniRef50 FASTA has been staged at
+`/SAN/bioinf/bmpfp/frozen_inputs/uniref50/2026_02/uniref50.fasta.gz`. It reads column 10 of the
+existing `idmapping_selected` input and publishes a separately validated shared preprocessing cache.
+The six-task array refuses to start without that cache. It then selects `UNIREF_LEVEL=50`, defaults
+`MMSEQS_SENSITIVITY=4`, and publishes its assignments and benchmark outputs beneath explicit
+`uniref50_sensitivity_4` paths. A different UniRef50 sensitivity can be tested by overriding
+`MMSEQS_SENSITIVITY`, but it produces a distinct contract-keyed cluster cache and result namespace.
+
+Do not submit either job before the UniRef50 FASTA is present. Once it is staged, the intended order is:
+
+```bash
+bash scripts/data_acquisition/download_uniref50_for_homology.sh \
+  /SAN/bioinf/bmpfp/frozen_inputs/uniref50/2026_02/uniref50.fasta.gz
+qsub hpc_jobs/active/hpc_homology_uniref50_common_cache.sh
+# Submit only after the cache job completes and verifies successfully.
+qsub hpc_jobs/active/hpc_homology_cluster_runtime_array_24core_uniref50.sh
+```
+
+The download helper is intentionally separate and was not run during implementation. It refuses
+to overwrite an existing file, requires the mutable UniProt endpoint to still report release
+`2026_02` before and after transfer, validates gzip/FASTA structure, and publishes SHA-256 and
+provenance sidecars atomically. This allows UniRef90 to be archived or removed under a separate,
+explicit storage decision before any UniRef50 bytes are written.
+
 Both wrappers delegate to
 `scripts/benchmark_generation/run_homology_cluster_runtime_hpc.sh`. That driver:
 
@@ -549,9 +581,11 @@ Both wrappers delegate to
 - always removes the task-owned scratch directory, including when home copy-back fails. A copy
   failure returns non-zero and leaves the Grid Engine `.o` log as the diagnostic.
 
-Optional local inputs use the existing variables `UNIREF90_FASTA`, `IDMAPPING`,
+Optional local inputs use `UNIREF_LEVEL=90|50` with the matching `UNIREF90_FASTA` or
+`UNIREF50_FASTA`, plus the existing variables `IDMAPPING`,
 `UNIPROT_SPROT_SEQUENCES`, `UNIPROT_TREMBL_SEQUENCES`, `GOA`, and `GO_OBO`. Each may be paired with
-its existing `*_SHA256` variable. Missing paths are downloaded into scratch. `RESULTS_ROOT`,
+its existing `*_SHA256` variable. `MMSEQS_SENSITIVITY` defaults to `7.5` for UniRef90 and `4` for
+UniRef50. Missing paths are downloaded into scratch. `RESULTS_ROOT`,
 `FRAMEWORK_REVISION`, `MMSEQS_BIN`, `UNIPROT_SOURCE_SCOPE`, `SPLIT_POLICY`, `SEED`, and `MIN_COUNT`
 are also overridable. Large source bytes and MMseqs2 temporary data are never copied home.
 

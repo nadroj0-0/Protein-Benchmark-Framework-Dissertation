@@ -14,12 +14,14 @@ from .frozen_inputs import (
 )
 from .inputs import open_text, sha256_file
 from .pipeline import validate_publication
+from .uniref_scaffold import SUPPORTED_UNIREF_LEVELS, uniref_scaffold
 
 
 RUNTIME_REVIEW_DATE = "2026-07-15"
 RUNTIME_CREATED_AT = "2026-06-17T00:00:00Z"
 OFFICIAL_HOSTS = {
     "uniref90_fasta": "ftp.uniprot.org",
+    "uniref50_fasta": "ftp.uniprot.org",
     "idmapping": "ftp.uniprot.org",
     "uniprot_sprot_sequences": "ftp.uniprot.org",
     "uniprot_trembl_sequences": "ftp.uniprot.org",
@@ -28,6 +30,7 @@ OFFICIAL_HOSTS = {
 }
 ROLE_FILENAMES = {
     "uniref90_fasta": "uniref90.fasta.gz",
+    "uniref50_fasta": "uniref50.fasta.gz",
     "idmapping": "idmapping_selected.tab.gz",
     "uniprot_sprot_sequences": "uniprot_sprot.dat.gz",
     "uniprot_trembl_sequences": "uniprot_trembl.dat.gz",
@@ -129,9 +132,13 @@ def write_runtime_policy(
     manifest_path: Path,
     source_scope: str,
     framework_revision: str,
+    uniref_level: int = 90,
 ) -> str:
     manifest = load_frozen_input_manifest(
-        manifest_path, uniprot_source_scope=source_scope, fixture_mode=False
+        manifest_path,
+        uniprot_source_scope=source_scope,
+        uniref_level=uniref_level,
+        fixture_mode=False,
     )
     if len(framework_revision) != 40 or any(
         ch not in "0123456789abcdef" for ch in framework_revision
@@ -174,6 +181,8 @@ def write_runtime_policy(
         "framework_commit": framework_revision,
         "frozen_input_manifest_sha256": manifest.sha256,
     }
+    if uniref_level != 90:
+        policy["uniref_level"] = uniref_level
     _json(policy_path, policy)
     return sha256_file(policy_path)
 
@@ -184,8 +193,10 @@ def write_runtime_contract(
     source_scope: str,
     framework_revision: str,
     inputs: list[RuntimeInput],
+    uniref_level: int = 90,
 ) -> dict[str, str]:
-    ordered_names = expected_input_names(source_scope)
+    scaffold = uniref_scaffold(uniref_level)
+    ordered_names = expected_input_names(source_scope, uniref_level)
     by_name = {item.name: item for item in inputs}
     if len(by_name) != len(inputs) or set(by_name) != set(ordered_names):
         raise ValueError(
@@ -226,7 +237,7 @@ def write_runtime_contract(
 
     manifest = {
         "schema_name": "homology-cluster-frozen-inputs",
-        "schema_version": 2,
+        "schema_version": 2 if uniref_level == 90 else 3,
         "uniprot_source_scope": source_scope,
         "created_at": RUNTIME_CREATED_AT,
         "review": {
@@ -240,11 +251,18 @@ def write_runtime_contract(
         },
         "inputs": entries,
     }
+    if uniref_level != 90:
+        manifest["uniref_level"] = uniref_level
+        manifest["review"]["evidence"] = (
+            f"Official release-specific host allow-list, {scaffold.display_name} and UniProt "
+            "2026_02 markers, GOA 234 marker/header, GO releases/2026-06-15 header, "
+            "byte size and SHA-256."
+        )
     _json(manifest_path, manifest)
     manifest_sha256 = sha256_file(manifest_path)
 
     policy_sha256 = write_runtime_policy(
-        policy_path, manifest_path, source_scope, framework_revision
+        policy_path, manifest_path, source_scope, framework_revision, uniref_level
     )
     return {
         "manifest_sha256": manifest_sha256,
@@ -346,6 +364,9 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
     )
     prepare.add_argument("--framework-revision", required=True)
+    prepare.add_argument(
+        "--uniref-level", type=int, choices=SUPPORTED_UNIREF_LEVELS, default=90
+    )
     for name in ROLE_FILENAMES:
         _input_argument(prepare, name)
     policy = subparsers.add_parser("policy")
@@ -357,6 +378,9 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
     )
     policy.add_argument("--framework-revision", required=True)
+    policy.add_argument(
+        "--uniref-level", type=int, choices=SUPPORTED_UNIREF_LEVELS, default=90
+    )
     review = subparsers.add_parser("review")
     review.add_argument("--run-dir", type=Path, required=True)
     review.add_argument("--output-dir", type=Path, required=True)
@@ -375,10 +399,11 @@ def main(argv: list[str] | None = None) -> int:
             args.manifest,
             args.source_scope,
             args.framework_revision,
+            args.uniref_level,
         )
         print(json.dumps({"policy_sha256": digest}, sort_keys=True))
         return 0
-    required = set(expected_input_names(args.source_scope))
+    required = set(expected_input_names(args.source_scope, args.uniref_level))
     inputs = []
     for name in ROLE_FILENAMES:
         path = getattr(args, name)
@@ -399,6 +424,7 @@ def main(argv: list[str] | None = None) -> int:
         args.source_scope,
         args.framework_revision,
         inputs,
+        args.uniref_level,
     )
     print(json.dumps(result, sort_keys=True))
     return 0

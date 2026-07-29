@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 
 from .models import InputSpec
+from .uniref_scaffold import uniref_scaffold
 
 
 SUPPORTED_IDENTITIES = (0.30, 0.25, 0.20, 0.15, 0.10, 0.05)
@@ -91,6 +92,7 @@ class BuildConfig:
     uniprot_trembl_sequences: InputSpec | None
     goa: InputSpec
     go_obo: InputSpec
+    uniref_level: int = 90
     split_policy: str = "sequence-balanced"
     training_population: str = "annotated-only"
     mmseqs_bin: str = "mmseqs"
@@ -166,6 +168,17 @@ class BuildConfig:
             raise ValueError("Diagnostic pilot mode is locked to task 1 / 30% identity")
         if self.attrition_override is not None and self.attrition_policy is None:
             raise ValueError("An attrition override requires an explicit reviewed attrition policy")
+        scaffold = uniref_scaffold(self.uniref_level)
+        if self.uniref90_fasta.name != scaffold.input_role:
+            raise ValueError(
+                f"UniRef{self.uniref_level} requires input role "
+                f"{scaffold.input_role!r}; observed {self.uniref90_fasta.name!r}"
+            )
+        if self.uniref90_fasta.source_population != scaffold.source_population:
+            raise ValueError(
+                f"UniRef{self.uniref_level} requires source_population "
+                f"{scaffold.source_population!r}"
+            )
         if self.coverage != 0.80:
             raise ValueError("Coverage is methodologically locked to exactly 0.80")
         if self.cov_mode != 0:
@@ -195,8 +208,12 @@ class BuildConfig:
                 "The established development split is locked to exactly 0.90/0.10 "
                 "training/validation"
             )
-        if self.sensitivity != 7.5:
-            raise ValueError("MMseqs2 sensitivity is methodologically locked to exactly 7.5")
+        if not 1.0 <= self.sensitivity <= 7.5:
+            raise ValueError("MMseqs2 sensitivity must be between 1.0 and 7.5")
+        if self.uniref_level == 90 and self.sensitivity != 7.5:
+            raise ValueError(
+                "The legacy UniRef90 route remains methodologically locked to sensitivity 7.5"
+            )
         if self.mmseqs_profile == MMSEQS_PROFILE_DANIEL and self.cluster_cache_root is None:
             raise ValueError(
                 "The Daniel-aligned MMseqs2 profile requires --cluster-cache-root so its "
@@ -291,7 +308,7 @@ class BuildConfig:
                     f"{label} release is frozen to {expected!r}; observed configured label {observed!r}"
                 )
         expected_spec_releases = {
-            "uniref90_fasta": self.release_uniprot,
+            scaffold.input_role: self.release_uniprot,
             "idmapping": self.release_uniprot,
             "goa": self.release_goa,
             "go_obo": self.release_ontology,
@@ -333,7 +350,7 @@ class BuildConfig:
                         "FASTA is diagnostic/fixture-only because it lacks secondary accessions"
                     )
         for name, expected_release in expected_spec_releases.items():
-            spec = getattr(self, name)
+            spec = self.uniref_fasta if name == scaffold.input_role else getattr(self, name)
             assert spec is not None
             if spec.release != expected_release:
                 raise ValueError(
@@ -366,6 +383,11 @@ class BuildConfig:
             if self.framework_revision else "framework_fixture"
         )
         root = Path(f"source_{self.uniprot_source_scope}") / revision_component
+        if self.uniref_level != 90:
+            profile = (
+                f"uniref{self.uniref_level}_sensitivity_{self.sensitivity:g}"
+            ).replace(".", "p")
+            root /= profile
         if self.mmseqs_profile != MMSEQS_PROFILE_LEGACY:
             root /= f"mmseqs_{self.mmseqs_profile}"
         return (
@@ -393,3 +415,20 @@ class BuildConfig:
                 "uniprot_sprot_sequences", "uniprot_trembl_sequences",
             ),
         }[self.uniprot_source_scope]
+
+    @property
+    def uniref_scaffold(self):
+        return uniref_scaffold(self.uniref_level)
+
+    @property
+    def uniref_fasta(self) -> InputSpec:
+        """Selected scaffold input; legacy field storage preserves old cache pickles/tests."""
+        return self.uniref90_fasta
+
+    @property
+    def uniref_input_name(self) -> str:
+        return self.uniref_scaffold.input_role
+
+    @property
+    def uniref_id_field(self) -> str:
+        return self.uniref_scaffold.id_field

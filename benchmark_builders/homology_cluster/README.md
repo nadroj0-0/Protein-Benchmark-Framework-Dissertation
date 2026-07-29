@@ -1,10 +1,15 @@
 # Homology-cluster benchmark builder
 
-This isolated package implements Daniel's Part B dissertation benchmark. It clusters the frozen
-UniRef90 FASTA independently at 30%, 25%, 20%, 15%, 10%, and 5% sequence identity, with 80%
+This isolated package implements Daniel's Part B dissertation benchmark. Its legacy profile clusters
+the frozen UniRef90 FASTA independently at 30%, 25%, 20%, 15%, 10%, and 5% sequence identity, with 80%
 longest-sequence coverage, retains clusters connected to a qualifying GOA annotation, and assigns
 whole clusters to development/test and then training/validation. It publishes the nine CSV files
 consumed by immutable PFP and five DeepGOPlus-shaped pickle files.
+
+An explicit UniRef50 scaffold profile is also available for the same six thresholds. It uses the
+UniRef50 column of `idmapping_selected`, defaults MMseqs2 sensitivity to `4.0`, and writes to
+separate manifests, caches, and result directories. The UniRef90/`7.5` path remains the default and
+keeps its existing cache contract.
 
 It does not modify the contemporary or historical benchmark implementations, embedding inventory,
 embedding generation, PFP training, or immutable PFP.
@@ -55,6 +60,36 @@ mmseqs createtsv WORK/uniref90_db WORK/uniref90_db \
 `-s 7.5` is prefilter sensitivity, not one of the six array values. See
 [METHODOLOGY.md](METHODOLOGY.md) for parameter semantics and source references.
 
+### Selectable UniRef scaffold
+
+The input scaffold and prefilter sensitivity are separate, explicit controls:
+
+| Profile | CLI | idmapping column | Default sensitivity | Cache/output compatibility |
+|---|---|---:|---:|---|
+| Legacy | `--uniref-level 90 --uniref90-fasta ...` | UniRef90, column 9 | `7.5` | Existing UniRef90 caches remain valid |
+| Faster scaffold | `--uniref-level 50 --uniref50-fasta ...` | UniRef50, column 10 | `4.0` | Requires new UniRef50 common and cluster caches |
+
+`--sensitivity` may override the UniRef50 default between `1.0` and `7.5`; omitting it uses `4.0`,
+matching Daniel's supplied working example. UniRef90 remains locked to `7.5`, so existing commands
+cannot silently change scientific behavior. Supplying the wrong FASTA option for the selected level
+fails before input resolution.
+
+Example UniRef50 preview:
+
+```bash
+python3 -m homology_cluster_benchmark build \
+  --identity all \
+  --uniref-level 50 \
+  --uniref50-fasta /persistent/inputs/uniref50.fasta.gz \
+  --sensitivity 4 \
+  ... \
+  --dry-run
+```
+
+Starting from UniRef50 is a new benchmark profile, not a byte-identical acceleration of UniRef90:
+the pre-existing 50% UniRef groups become the scaffold before the six lower-identity clusterings.
+Reports therefore record the scaffold level and sensitivity, and profile outputs must not be mixed.
+
 ### Identity selection
 
 The Python CLI can build one locked threshold, any explicit subset, or all six:
@@ -83,11 +118,11 @@ not an ordinary runtime option, and is rejected deliberately.
 ### Reusable validated cluster cache
 
 `--cluster-cache-root` moves the reusable boundary to immediately after
-`mmseqs createtsv` and complete one-assignment-per-UniRef90-member validation.
+`mmseqs createtsv` and complete one-assignment-per-selected-UniRef-member validation.
 A cache hit skips MMseqs2 but rebuilds a disposable local SQLite index and
 revalidates the cached membership before annotation-dependent work.
 
-The cache key binds UniRef90 release and SHA-256, exact MMseqs2 expected and
+The cache key binds the selected UniRef level, release and SHA-256, exact MMseqs2 expected and
 observed versions and executable SHA-256, identity, coverage, cluster/alignment
 modes, reassignment, sensitivity, E-value, and database options. It deliberately
 does not bind threads, scheduler slots, framework commit, GOA, split policy,
@@ -132,8 +167,8 @@ python3 -m homology_cluster_benchmark.cluster_cache import-publication \
   --work-dir /scratch/import-work
 ```
 
-The importer first validates the complete publication, verifies the shared
-UniRef90 index and input hash, normalizes the published membership, rebuilds the
+The importer first validates the complete publication, verifies the matching shared
+UniRef index and input hash, normalizes the published membership, rebuilds the
 assignment index, and only then publishes the cache atomically. The SAN artifact
 catalogue exposes the root marker as
 `homology_mmseqs_cluster_cache_root_2026_02`.
@@ -149,9 +184,9 @@ both. Production therefore has no default and requires exactly one explicit scop
 | `trembl-only` | frozen TrEMBL DAT | Swiss-Prot | 5 |
 | `sprot-and-trembl` | both frozen DAT files | neither | 6 |
 
-The four always-required inputs are frozen UniRef90 FASTA, 22-column
+The four always-required inputs are the selected frozen UniRef FASTA, 22-column
 `idmapping_selected`, GOA GAF, and GO OBO. The selected source scope controls accession eligibility
-and supervised rows; it never replaces UniRef90 as the MMseqs2 population.
+and supervised rows; it never replaces the explicitly selected UniRef scaffold as the MMseqs2 population.
 
 Production uses separate `--uniprot-sprot-sequences` and
 `--uniprot-trembl-sequences` declarations. DAT is required because it records primary and secondary

@@ -40,6 +40,17 @@ SPLIT_POLICY="${SPLIT_POLICY:-sequence-balanced}"
 TRAINING_POPULATION="${TRAINING_POPULATION:-annotated-only}"
 SEED="${SEED:-0}"
 MIN_COUNT="${MIN_COUNT:-50}"
+UNIREF_LEVEL="${UNIREF_LEVEL:-90}"
+case "$UNIREF_LEVEL" in
+    90) DEFAULT_MMSEQS_SENSITIVITY=7.5 ;;
+    50) DEFAULT_MMSEQS_SENSITIVITY=4 ;;
+    *) echo "UNIREF_LEVEL must be 90 or 50" >&2; exit 2 ;;
+esac
+MMSEQS_SENSITIVITY="${MMSEQS_SENSITIVITY:-$DEFAULT_MMSEQS_SENSITIVITY}"
+UNIREF_ROLE="uniref${UNIREF_LEVEL}_fasta"
+UNIREF_FILENAME="uniref${UNIREF_LEVEL}.fasta.gz"
+UNIREF_PATH_VARIABLE="UNIREF${UNIREF_LEVEL}_FASTA"
+UNIREF_HASH_VARIABLE="UNIREF${UNIREF_LEVEL}_FASTA_SHA256"
 [[ "$SPLIT_POLICY" == "sequence-balanced" || "$SPLIT_POLICY" == "cluster-count-random" ]] || {
     echo "Unsupported SPLIT_POLICY=$SPLIT_POLICY" >&2
     exit 2
@@ -122,6 +133,9 @@ RESULTS_ROOT="${RESULTS_ROOT:-$HOME/homology_cluster_benchmark_results}"
 }
 REVISION_TAG="${FRAMEWORK_REVISION:0:12}"
 FINAL_ROOT="$RESULTS_ROOT/runtime_${RUNTIME_KIND}/source_${UNIPROT_SOURCE_SCOPE}/framework_${REVISION_TAG}/run_${RUN_ID}/job_${JOB_KEY}/task_${TASK_ID}_identity_${IDENTITY}"
+if [[ "$UNIREF_LEVEL" != "90" ]]; then
+    FINAL_ROOT="$RESULTS_ROOT/runtime_${RUNTIME_KIND}/source_${UNIPROT_SOURCE_SCOPE}/uniref${UNIREF_LEVEL}_sensitivity_${MMSEQS_SENSITIVITY/./p}/framework_${REVISION_TAG}/run_${RUN_ID}/job_${JOB_KEY}/task_${TASK_ID}_identity_${IDENTITY}"
+fi
 PARTIAL_ROOT="${FINAL_ROOT}.partial-${JOB_KEY}-${TASK_ID}"
 LOG_FILE="$ARTIFACTS/logs/runtime.log"
 LOG_PIPE="$WORK/.runtime-log.pipe"
@@ -439,7 +453,7 @@ if (( free_kb < required_kb )); then
     exit 1
 fi
 
-UNIREF90_URL="https://ftp.uniprot.org/pub/databases/uniprot/current_release/uniref/uniref90/uniref90.fasta.gz"
+UNIREF_URL="https://ftp.uniprot.org/pub/databases/uniprot/current_release/uniref/uniref${UNIREF_LEVEL}/uniref${UNIREF_LEVEL}.fasta.gz"
 IDMAPPING_URL="https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/idmapping/idmapping_selected.tab.gz"
 SPROT_URL="https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/complete/uniprot_sprot.dat.gz"
 TREMBL_URL="https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/complete/uniprot_trembl.dat.gz"
@@ -464,9 +478,17 @@ use_catalog_input_if_available() {
     fi
 }
 
-use_catalog_input_if_available UNIREF90_FASTA UNIREF90_FASTA_SHA256 \
-    uniref90_t1 \
-    ed80f79bbf1f054b3ea444ce0db0819586731e4dc3a3fb0c75a60ff273eedefb
+if [[ "$UNIREF_LEVEL" == "90" ]]; then
+    use_catalog_input_if_available UNIREF90_FASTA UNIREF90_FASTA_SHA256 \
+        uniref90_t1 \
+        ed80f79bbf1f054b3ea444ce0db0819586731e4dc3a3fb0c75a60ff273eedefb
+else
+    uniref_candidate="$(resolve_artifact_path uniref50_t1 "${UNIREF50_FASTA:-}" || true)"
+    if [[ -n "$uniref_candidate" ]]; then
+        UNIREF50_FASTA="$uniref_candidate"
+        export UNIREF50_FASTA
+    fi
+fi
 use_catalog_input_if_available GO_OBO GO_OBO_SHA256 \
     go_basic_t1 \
     c72fc198a86983d55e43aac585d1ffdbeb6e3601475b3f18b6045acdc0a0734c
@@ -486,10 +508,12 @@ resolve_runtime_common_cache() {
         artifact_catalog_warn \
             "explicit homology common cache is incomplete; trying catalogue/raw fallback: $explicit"
     fi
-    marker="$(resolve_artifact_path homology_common_preprocessing_2026_02 "" || true)"
-    if [[ -s "$marker" && "$(basename "$marker")" == "CACHE_COMPLETE.json" ]]; then
-        printf '%s\n' "$marker"
-        return 0
+    if [[ "$UNIREF_LEVEL" == "90" ]]; then
+        marker="$(resolve_artifact_path homology_common_preprocessing_2026_02 "" || true)"
+        if [[ -s "$marker" && "$(basename "$marker")" == "CACHE_COMPLETE.json" ]]; then
+            printf '%s\n' "$marker"
+            return 0
+        fi
     fi
     return 1
 }
@@ -542,10 +566,12 @@ resolve_runtime_cluster_cache_root() {
         artifact_catalog_warn \
             "explicit homology cluster-cache root is invalid; trying catalogue fallback: $explicit"
     fi
-    marker="$(resolve_artifact_path homology_mmseqs_cluster_cache_root_2026_02 "" || true)"
-    if [[ -s "$marker" && "$(basename "$marker")" == "CLUSTER_CACHE_ROOT.json" ]]; then
-        dirname "$marker"
-        return 0
+    if [[ "$UNIREF_LEVEL" == "90" ]]; then
+        marker="$(resolve_artifact_path homology_mmseqs_cluster_cache_root_2026_02 "" || true)"
+        if [[ -s "$marker" && "$(basename "$marker")" == "CLUSTER_CACHE_ROOT.json" ]]; then
+            dirname "$marker"
+            return 0
+        fi
     fi
     return 1
 }
@@ -653,7 +679,7 @@ printf 'role\tpath\tofficial_url\tacquisition\tsize_bytes\tsha256\n' \
     > "$ARTIFACTS/logs/runtime_input_staging.tsv"
 
 needs_uniprot_download=0
-[[ -n "${UNIREF90_FASTA:-}" ]] || needs_uniprot_download=1
+[[ -n "${!UNIREF_PATH_VARIABLE:-}" ]] || needs_uniprot_download=1
 if [[ -z "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then
     [[ -n "${IDMAPPING:-}" ]] || needs_uniprot_download=1
     if [[ "$UNIPROT_SOURCE_SCOPE" != "trembl-only" && -z "${UNIPROT_SPROT_SEQUENCES:-}" ]]; then
@@ -670,8 +696,8 @@ if [[ "$needs_uniprot_download" == "1" ]]; then
         exit 1
     }
 fi
-stage_or_download uniref90_fasta "${UNIREF90_FASTA:-}" "$UNIREF90_URL" \
-    "$INPUT_ROOT/uniref90.fasta.gz" "${UNIREF90_FASTA_SHA256:-}"
+stage_or_download "$UNIREF_ROLE" "${!UNIREF_PATH_VARIABLE:-}" "$UNIREF_URL" \
+    "$INPUT_ROOT/$UNIREF_FILENAME" "${!UNIREF_HASH_VARIABLE:-}"
 if [[ -n "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then
     STAGED_COMMON_CACHE="$INPUT_ROOT/common_preprocessing_cache"
     echo "Staging common preprocessing cache into job-owned scratch"
@@ -783,17 +809,20 @@ if [[ -n "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then
         --policy-out "$ATTRITION_POLICY" \
         --source-scope "$UNIPROT_SOURCE_SCOPE" \
         --framework-revision "$FRAMEWORK_REVISION" \
+        --uniref-level "$UNIREF_LEVEL" \
         | tee "$ARTIFACTS/logs/runtime_contract.json"
 else
+    uniref_contract_option="--uniref${UNIREF_LEVEL}-fasta"
     contract_command=(
         "$PYTHON_BIN" -m homology_cluster_benchmark.runtime_contract prepare
         --manifest-out "$MANIFEST"
         --policy-out "$ATTRITION_POLICY"
         --source-scope "$UNIPROT_SOURCE_SCOPE"
         --framework-revision "$FRAMEWORK_REVISION"
-        --uniref90-fasta "$INPUT_ROOT/uniref90.fasta.gz"
-        --uniref90-fasta-url "$UNIREF90_URL"
-        --uniref90-fasta-acquisition "$(awk -F '\t' '$1=="uniref90_fasta" {print $4}' "$ARTIFACTS/logs/runtime_input_staging.tsv")"
+        --uniref-level "$UNIREF_LEVEL"
+        "$uniref_contract_option" "$INPUT_ROOT/$UNIREF_FILENAME"
+        "${uniref_contract_option}-url" "$UNIREF_URL"
+        "${uniref_contract_option}-acquisition" "$(awk -F '\t' -v role="$UNIREF_ROLE" '$1==role {print $4}' "$ARTIFACTS/logs/runtime_input_staging.tsv")"
         --idmapping "$INPUT_ROOT/idmapping_selected.tab.gz"
         --idmapping-url "$IDMAPPING_URL"
         --idmapping-acquisition "$(awk -F '\t' '$1=="idmapping" {print $4}' "$ARTIFACTS/logs/runtime_input_staging.tsv")"
@@ -851,6 +880,8 @@ builder_environment=(
     MIN_COUNT="$MIN_COUNT"
     MMSEQS_BIN="$MMSEQS_BIN"
     MMSEQS_PROFILE="${MMSEQS_PROFILE:-legacy-calibrated}"
+    UNIREF_LEVEL="$UNIREF_LEVEL"
+    MMSEQS_SENSITIVITY="$MMSEQS_SENSITIVITY"
     EXPECTED_MMSEQS_VERSION="$EXPECTED_MMSEQS_VERSION"
     FROZEN_INPUT_MANIFEST="$MANIFEST"
     ATTRITION_POLICY="$ATTRITION_POLICY"
@@ -866,9 +897,9 @@ builder_environment=(
     MMSEQS_WORK_MULTIPLIER="$MMSEQS_WORK_MULTIPLIER"
     PUBLICATION_SAFETY_MULTIPLIER="$PUBLICATION_SAFETY_MULTIPLIER"
     NO_DOWNLOADS=1
-    UNIREF90_FASTA="$INPUT_ROOT/uniref90.fasta.gz"
-    UNIREF90_FASTA_URL="$UNIREF90_URL"
-    UNIREF90_FASTA_SHA256="$(input_sha uniref90_fasta)"
+    "$UNIREF_PATH_VARIABLE=$INPUT_ROOT/$UNIREF_FILENAME"
+    "${UNIREF_PATH_VARIABLE}_URL=$UNIREF_URL"
+    "${UNIREF_PATH_VARIABLE}_SHA256=$(input_sha "$UNIREF_ROLE")"
     GO_OBO="$INPUT_ROOT/go-basic.obo"
     GO_OBO_URL="$GO_OBO_URL"
     GO_OBO_SHA256="$(input_sha go_obo)"
@@ -950,6 +981,8 @@ job_id=$JOB_KEY
 task_id=$TASK_ID
 identity_percent=$IDENTITY
 uniprot_source_scope=$UNIPROT_SOURCE_SCOPE
+uniref_level=$UNIREF_LEVEL
+mmseqs_sensitivity=$MMSEQS_SENSITIVITY
 framework_revision=$FRAMEWORK_REVISION
 pilot_required_for_array=false
 publication_directory=$RUN_DIR

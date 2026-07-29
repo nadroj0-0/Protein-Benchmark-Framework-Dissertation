@@ -15,6 +15,26 @@ from homology_cluster_benchmark.cli import _identities, main
 from homology_cluster_benchmark.config import SUPPORTED_IDENTITIES
 
 class CLITests(unittest.TestCase):
+    def test_uniref50_dry_run_selects_its_fasta_and_default_sensitivity(self):
+        with tempfile.TemporaryDirectory() as tmp, redirect_stdout(io.StringIO()) as output:
+            status = main([
+                "build", "--identity", "30", "--output-dir", str(Path(tmp) / "out"),
+                "--uniref-level", "50",
+                "--uniref50-fasta-url", "https://example.invalid/uniref50.fasta.gz",
+                "--idmapping-url", "https://example.invalid/idmapping.gz",
+                "--uniprot-source-scope", "sprot-only",
+                "--uniprot-sprot-sequences-url", "https://example.invalid/uniprot.dat.gz",
+                "--goa-url", "https://example.invalid/goa.gaf.gz",
+                "--go-obo-url", "https://example.invalid/go.obo",
+                "--fixture-mode", "--dry-run",
+            ])
+            self.assertEqual(status, 0)
+            text = output.getvalue()
+            self.assertIn('"uniref_level": 50', text)
+            self.assertIn('"sensitivity": 4.0', text)
+            self.assertIn("uniref50_db", text)
+            self.assertIn("uniref50_sensitivity_4", text)
+
     def test_all_expands_to_exact_six_locked_thresholds(self):
         self.assertEqual(_identities(["all"]), SUPPORTED_IDENTITIES)
 

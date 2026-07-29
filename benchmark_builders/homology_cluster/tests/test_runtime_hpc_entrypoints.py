@@ -19,6 +19,14 @@ DANIEL_ARRAY = (
     WORKSPACE_ROOT / "hpc_jobs" / "active"
     / "hpc_homology_cluster_runtime_array_24core_daniel_aligned.sh"
 )
+UNIREF50_ARRAY = (
+    WORKSPACE_ROOT / "hpc_jobs" / "active"
+    / "hpc_homology_cluster_runtime_array_24core_uniref50.sh"
+)
+UNIREF50_COMMON_CACHE = (
+    WORKSPACE_ROOT / "hpc_jobs" / "active"
+    / "hpc_homology_uniref50_common_cache.sh"
+)
 GUARDED_WORKER = (
     WORKSPACE_ROOT / "hpc_jobs" / "active" / "hpc_homology_cluster_benchmark.sh"
 )
@@ -26,6 +34,22 @@ SNAPSHOT = WORKSPACE_ROOT / "hpc_jobs" / "active" / "hpc_homology_progress_snaps
 
 
 class RuntimeHPCEntrypointTests(unittest.TestCase):
+    def test_uniref50_jobs_are_namespaced_and_block_on_the_new_shared_cache(self):
+        array = UNIREF50_ARRAY.read_text()
+        self.assertIn("#$ -pe smp 24", array)
+        self.assertIn("export UNIREF_LEVEL=50", array)
+        self.assertIn('MMSEQS_SENSITIVITY="${MMSEQS_SENSITIVITY:-4}"', array)
+        self.assertIn("uniref50/2026_02/uniref50.fasta.gz", array)
+        self.assertIn("uniref50/common_preprocessing", array)
+        self.assertIn("export REQUIRE_HOMOLOGY_COMMON_CACHE=1", array)
+        self.assertNotIn("qsub", array)
+
+        cache = UNIREF50_COMMON_CACHE.read_text()
+        self.assertIn("--uniref-level 50", cache)
+        self.assertIn("--uniref50-fasta", cache)
+        self.assertIn("--full-hashes", cache)
+        self.assertNotIn("qsub", cache)
+
     def test_daniel_aligned_array_requests_24_cores_and_locked_profile(self):
         worker = DANIEL_ARRAY.read_text()
         self.assertIn("#$ -pe smp 24", worker)
@@ -120,6 +144,18 @@ class RuntimeHPCEntrypointTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stdout)
             summary = next((root / "results").rglob("FINAL_RESULT_PATH.txt"))
             self.assertIn("task_6_identity_5", summary.read_text())
+            self.assertFalse(list(scratch.iterdir()))
+
+    def test_runtime_driver_namespaces_uniref50_results(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env, scratch = self._environment(root, "array", "1")
+            env["UNIREF_LEVEL"] = "50"
+            env["MMSEQS_SENSITIVITY"] = "4"
+            completed = self._run(env)
+            self.assertEqual(completed.returncode, 0, completed.stdout)
+            summary = next((root / "results").rglob("FINAL_RESULT_PATH.txt"))
+            self.assertIn("uniref50_sensitivity_4", summary.read_text())
             self.assertFalse(list(scratch.iterdir()))
 
     def test_copy_failure_is_nonzero_and_still_deletes_scratch(self):

@@ -41,7 +41,10 @@ def _cluster_manifest_errors(
     assignments: dict[str, SplitAssignment],
     cluster_index: ClusterIndex,
     uniref: UniRefIndex,
+    config: BuildConfig,
 ) -> list[str]:
+    scaffold = config.uniref_scaffold
+    member_count_field = f"{scaffold.slug}_member_count"
     errors: list[str] = []
     with (output_dir / "cluster_split_assignments.tsv").open(
         "r", encoding="utf-8", newline=""
@@ -62,7 +65,7 @@ def _cluster_manifest_errors(
             expected_values = {
                 "mmseqs_cluster_id": expected.cluster_id,
                 "split": expected.split,
-                "uniref90_member_count": str(expected.member_count),
+                member_count_field: str(expected.member_count),
                 "qualifying_uniprot_count": str(expected.labelled_protein_count),
                 "assignment_stage": expected.stage,
             }
@@ -94,7 +97,7 @@ def _cluster_manifest_errors(
             expected_values = {
                 "mmseqs_cluster_id": cluster_id,
                 "split": expected_assignment.split,
-                "uniref90_id": member_id,
+                scaffold.id_field: member_id,
                 "sequence_sha256": digest,
                 "sequence_length": str(length),
             }
@@ -115,7 +118,7 @@ def _cluster_manifest_errors(
                 break
             assert isinstance(row, dict)
             cluster_id, member_id = expected_row
-            if row != {"mmseqs_cluster_id": cluster_id, "uniref90_id": member_id}:
+            if row != {"mmseqs_cluster_id": cluster_id, scaffold.id_field: member_id}:
                 errors.append(f"canonical-membership-content:{row_number}:{member_id}")
                 if len(errors) >= 50:
                     break
@@ -222,6 +225,7 @@ def _annotation_audit_errors(output_dir: Path, goa, config: BuildConfig) -> list
         errors.append("excluded-sample-bound")
     for forbidden in (
         "uniref90_clusters.tsv", "uniref90_to_mmseqs_cluster.tsv",
+        "uniref50_clusters.tsv", "uniref50_to_mmseqs_cluster.tsv",
         "retained_cluster_members.tsv", "qualifying_annotations.tsv", "excluded_annotations.tsv",
     ):
         if (output_dir / forbidden).exists():
@@ -245,21 +249,23 @@ def validate_outputs(
     global_sequence_conflicts: list[dict[str, str]],
 ) -> ValidationReport:
     report = ValidationReport()
+    scaffold = config.uniref_scaffold
     _check(
         report,
         "explicit_uniprot_source_scope",
         config.uniprot_source_scope in {"sprot-only", "trembl-only", "sprot-and-trembl"},
-        "The selected UniProt supervised-population scope is explicit and does not replace UniRef90",
+        "The selected UniProt supervised-population scope is explicit and does not replace "
+        f"{scaffold.display_name}",
         uniprot_source_scope=config.uniprot_source_scope,
-        clustering_population="frozen UniRef90 FASTA",
+        clustering_population=f"frozen {scaffold.display_name} FASTA",
     )
     _check(
         report, "mmseqs_assignment_completeness", uniref_count == mmseqs_member_count,
-        "Every frozen UniRef90 entry must receive exactly one MMseqs2 assignment",
-        uniref90_entries=uniref_count, assigned_members=mmseqs_member_count,
+        f"Every frozen {scaffold.display_name} entry must receive exactly one MMseqs2 assignment",
+        **{f"{scaffold.slug}_entries": uniref_count}, assigned_members=mmseqs_member_count,
     )
     manifest_errors = _cluster_manifest_errors(
-        output_dir, assignments, cluster_index, uniref
+        output_dir, assignments, cluster_index, uniref, config
     )
     annotation_audit_errors = _annotation_audit_errors(output_dir, goa, config)
     _check(
@@ -271,7 +277,7 @@ def validate_outputs(
     )
     uniref_sequence_conflicts = [
         item for item in global_sequence_conflicts
-        if "," in item["uniref90_splits"]
+        if "," in item[f"{scaffold.slug}_splits"]
     ]
     annotated_sequence_conflicts = [
         item for item in global_sequence_conflicts
@@ -336,13 +342,14 @@ def validate_outputs(
         conflicts=annotated_sequence_conflicts,
     )
     _check(
-        report, "retained_uniref90_exact_sequence_disjointness", not uniref_sequence_conflicts,
-        "No exact frozen UniRef90 scaffold sequence may cross train/validation/test",
+        report, f"retained_{scaffold.slug}_exact_sequence_disjointness",
+        not uniref_sequence_conflicts,
+        f"No exact frozen {scaffold.display_name} scaffold sequence may cross train/validation/test",
         conflicts=uniref_sequence_conflicts,
     )
     _check(
         report, "global_retained_exact_sequence_disjointness", not global_sequence_conflicts,
-        "No exact sequence crosses splits across the combined retained UniRef90 scaffold and "
+        f"No exact sequence crosses splits across the combined retained {scaffold.display_name} scaffold and "
         "mapped qualifying UniProtKB population",
         conflicts=global_sequence_conflicts,
     )
@@ -378,7 +385,7 @@ def validate_outputs(
         "--cluster-mode": "0",
         "--alignment-mode": "3",
         "--seq-id-mode": "0",
-        "-s": "7.5",
+        "-s": f"{config.sensitivity:g}",
     }
     if config.cluster_reassign:
         required_fragments["--cluster-reassign"] = str(config.cluster_reassign)
@@ -622,7 +629,8 @@ def validate_outputs(
             )
     report.add_check(
         "split_ratios_reported", True,
-        "Requested and achieved cluster, UniRef90-member, and labelled-UniProt ratios were calculated",
+        f"Requested and achieved cluster, {scaffold.display_name}-member, and "
+        "labelled-UniProt ratios were calculated",
         requested_development=config.development_fraction,
         member_counts=member_counts,
         cluster_counts=cluster_counts,

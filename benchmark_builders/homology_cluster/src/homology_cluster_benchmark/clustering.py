@@ -6,11 +6,14 @@ from typing import Any
 
 from .models import ClusterInfo, MappingDecision
 from .mmseqs import ClusterIndex
+from .uniref_scaffold import uniref_scaffold
 
 
 def connect_proteins_to_clusters(
-    decisions: list[MappingDecision], cluster_index: ClusterIndex
+    decisions: list[MappingDecision], cluster_index: ClusterIndex,
+    uniref_level: int = 90,
 ) -> list[MappingDecision]:
+    scaffold = uniref_scaffold(uniref_level)
     cluster_by_member = cluster_index.clusters_for({
         decision.uniref90_id for decision in decisions
         if decision.status == "mapped" and decision.uniref90_id
@@ -24,7 +27,10 @@ def connect_proteins_to_clusters(
             cluster_id = cluster_by_member.get(decision.uniref90_id, "")
             if not cluster_id:
                 status = "missing-mmseqs-assignment"
-                detail = "mapped UniRef90 identifier has no MMseqs2 cluster assignment"
+                detail = (
+                    f"mapped {scaffold.display_name} identifier has no MMseqs2 "
+                    "cluster assignment"
+                )
         connected.append(replace(
             decision, mmseqs_cluster_id=cluster_id, status=status, detail=detail,
         ))
@@ -79,7 +85,9 @@ def mapping_counters_by_source(
     decisions: list[MappingDecision],
     selected_populations: set[str],
     source_counts: dict[str, dict[str, Any]],
+    uniref_level: int = 90,
 ) -> dict[str, dict[str, int]]:
+    scaffold = uniref_scaffold(uniref_level)
     populations = sorted(
         {item.source_population for item in decisions} | selected_populations
     )
@@ -106,7 +114,7 @@ def mapping_counters_by_source(
             "conflicting_sequences": int(
                 source_counts.get(population, {}).get("conflicting_sequences", 0)
             ),
-            "mapped_to_uniref90": sum(
+            f"mapped_to_{scaffold.slug}": sum(
                 bool(item.uniref90_id) and item.exists_in_fasta is True
                 for item in selected
             ),

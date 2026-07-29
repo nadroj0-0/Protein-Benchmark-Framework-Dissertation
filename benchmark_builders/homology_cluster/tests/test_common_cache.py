@@ -24,10 +24,49 @@ from homology_cluster_benchmark.frozen_inputs import write_synthetic_fixture_man
 from homology_cluster_benchmark.inputs import resolve_input, sha256_file
 from homology_cluster_benchmark.pipeline import _input_specs, build_benchmark
 
-from tests.helpers import fixture_config
+from tests.helpers import fixture_config, uniref50_fixture_config
 
 
 class CommonPreprocessingCacheTests(unittest.TestCase):
+    def test_uniref50_common_cache_is_distinct_and_reusable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = uniref50_fixture_config(root / "unused-output", root / "unused-temp")
+            specs = _input_specs(config)
+            resolved = {
+                name: resolve_input(spec, root / "downloads", allow_downloads=False)
+                for name, spec in specs.items()
+            }
+            manifest = write_synthetic_fixture_manifest(
+                root / "frozen-inputs.json",
+                specs,
+                resolved,
+                config.uniprot_source_scope,
+                uniref_level=50,
+            )
+            cache = build_common_preprocessing_cache(
+                root / "common-cache",
+                root / "cache-work",
+                manifest.path,
+                {name: spec.path for name, spec in specs.items() if spec.path is not None},
+                source_scope=config.uniprot_source_scope,
+                fixture_mode=True,
+                uniref_level=50,
+            )
+            payload = inspect_common_preprocessing_cache(
+                cache, expected_uniref_level=50, verify_file_hashes=True
+            )
+            self.assertEqual(payload["policy"]["uniref_level"], 50)
+            self.assertEqual(payload["counts"]["uniref50_entries"], 6)
+            result = build_benchmark(replace(
+                config,
+                output_dir=root / "cached-output",
+                temp_dir=root / "cached-temp",
+                frozen_input_manifest=manifest.path,
+                common_preprocessing_cache=cache,
+            ))
+            self.assertTrue((result.output_dir / "RUN_COMPLETE.json").is_file())
+
     def _fixture_manifest(self, root: Path):
         config = fixture_config(root / "unused-output", root / "unused-temp")
         specs = _input_specs(config)

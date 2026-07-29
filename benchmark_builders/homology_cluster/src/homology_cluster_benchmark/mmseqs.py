@@ -55,10 +55,11 @@ class MMseqsRuntime:
 
 
 def build_mmseqs_commands(config: BuildConfig, fasta: Path, work_dir: Path) -> tuple[CommandSpec, ...]:
-    database = work_dir / "uniref90_db"
+    scaffold = config.uniref_scaffold
+    database = work_dir / f"{scaffold.slug}_db"
     cluster_database = work_dir / "clusters_db"
     temporary = work_dir / "mmseqs_tmp"
-    cluster_tsv = work_dir / "uniref90_clusters.tsv"
+    cluster_tsv = work_dir / f"{scaffold.slug}_clusters.tsv"
     alignment_database = work_dir / "cluster_alignments_db"
     alignment_statistics = work_dir / "cluster_alignment_statistics.tsv"
     cluster_fasta_database = work_dir / "cluster_fasta_db"
@@ -83,7 +84,8 @@ def build_mmseqs_commands(config: BuildConfig, fasta: Path, work_dir: Path) -> t
         cluster.extend(("--cluster-reassign", str(config.cluster_reassign)))
     cluster.extend(("-s", f"{config.sensitivity:g}"))
     if config.evalue is not None:
-        cluster.extend(("-e", "1e-4"))
+        evalue = "1e-4" if config.evalue == 1e-4 else f"{config.evalue:g}"
+        cluster.extend(("-e", evalue))
     cluster.extend(("--threads", str(config.threads)))
 
     commands = [
@@ -304,6 +306,7 @@ class ClusterIndex:
         database: Path,
         *,
         has_header: bool = False,
+        member_field: str = "uniref90_id",
     ) -> "ClusterIndex":
         started = time.monotonic()
         LOGGER.info("MMseqs2 assignment index started: %s -> %s", cluster_tsv, database)
@@ -334,7 +337,7 @@ class ClusterIndex:
                     columns = raw_line.rstrip("\n\r").split("\t")
                     if has_header and first_content:
                         first_content = False
-                        if columns != ["mmseqs_cluster_id", "uniref90_id"]:
+                        if columns != ["mmseqs_cluster_id", member_field]:
                             raise ValueError(
                                 "Cached MMseqs2 membership has an unexpected header"
                             )
@@ -534,7 +537,11 @@ class ClusterIndex:
                 (limit,),
             ).fetchall()
         return [
-            {"sequence_sha256": str(digest), "splits": str(splits), "uniref90_ids": str(members)}
+            {
+                "sequence_sha256": str(digest),
+                "splits": str(splits),
+                f"{uniref.scaffold.slug}_ids": str(members),
+            }
             for digest, splits, members in rows
         ]
 
@@ -546,6 +553,7 @@ class ClusterIndex:
         limit: int = 20,
     ) -> list[dict[str, str]]:
         """Compare retained UniRef scaffold and mapped UniProt sequences in one digest space."""
+        uniref_source_prefix = f"{uniref.scaffold.display_name}:"
         with sqlite3.connect(self.database) as connection:
             connection.execute("PRAGMA temp_store=FILE")
             connection.execute("ATTACH DATABASE ? AS u", (str(uniref.database),))
@@ -564,29 +572,34 @@ class ClusterIndex:
             )
             rows = connection.execute(
                 "SELECT sequence_sha256, GROUP_CONCAT(DISTINCT split), "
-                "GROUP_CONCAT(DISTINCT CASE WHEN source_id LIKE 'UniRef90:%' THEN split END), "
+                "GROUP_CONCAT(DISTINCT CASE WHEN source_id LIKE ? THEN split END), "
                 "GROUP_CONCAT(DISTINCT CASE WHEN source_id LIKE 'UniProtKB:%' THEN split END), "
-                "MIN(CASE WHEN source_id LIKE 'UniRef90:%' THEN source_id END), "
+                "MIN(CASE WHEN source_id LIKE ? THEN source_id END), "
                 "MIN(CASE WHEN source_id LIKE 'UniProtKB:%' THEN source_id END), "
                 "COUNT(*) "
                 "FROM ("
                 "  SELECT u.sequence_sha256 AS sequence_sha256, "
-                "         'UniRef90:' || a.member_id AS source_id, s.split AS split "
+                "         ? || a.member_id AS source_id, s.split AS split "
                 "  FROM assignments a JOIN u.uniref90 u ON a.member_id=u.uniref90_id "
                 "  JOIN cluster_splits s ON a.cluster_id=s.cluster_id "
                 "  UNION ALL "
                 "  SELECT sequence_sha256, 'UniProtKB:' || source_id, split FROM protein_sequences"
                 ") GROUP BY sequence_sha256 HAVING COUNT(DISTINCT split) > 1 "
                 "ORDER BY sequence_sha256 LIMIT ?",
-                (limit,),
+                (
+                    f"{uniref_source_prefix}%",
+                    f"{uniref_source_prefix}%",
+                    uniref_source_prefix,
+                    limit,
+                ),
             ).fetchall()
         return [
             {
                 "sequence_sha256": str(digest),
                 "splits": str(splits),
-                "uniref90_splits": str(uniref_splits or ""),
+                f"{uniref.scaffold.slug}_splits": str(uniref_splits or ""),
                 "uniprot_splits": str(uniprot_splits or ""),
-                "sample_uniref90_id": str(sample_uniref or ""),
+                f"sample_{uniref.scaffold.slug}_id": str(sample_uniref or ""),
                 "sample_uniprot_accession": str(sample_uniprot or ""),
                 "source_count": str(source_count),
             }

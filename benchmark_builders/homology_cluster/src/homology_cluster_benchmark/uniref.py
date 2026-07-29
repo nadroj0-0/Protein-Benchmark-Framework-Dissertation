@@ -9,6 +9,7 @@ import time
 from typing import Iterator
 
 from .inputs import open_text
+from .uniref_scaffold import uniref_scaffold
 
 
 LOGGER = logging.getLogger(__name__)
@@ -48,15 +49,22 @@ def fasta_identifier(header: str) -> str:
 
 
 class UniRefIndex:
-    """Disk-backed UniRef90 identifier and sequence-hash index."""
+    """Disk-backed UniRef scaffold identifier and sequence-hash index."""
 
-    def __init__(self, database: Path):
+    def __init__(self, database: Path, uniref_level: int = 90):
         self.database = database
+        self.scaffold = uniref_scaffold(uniref_level)
 
     @classmethod
-    def build(cls, fasta: Path, database: Path) -> "UniRefIndex":
+    def build(
+        cls, fasta: Path, database: Path, uniref_level: int = 90
+    ) -> "UniRefIndex":
+        scaffold = uniref_scaffold(uniref_level)
         started = time.monotonic()
-        LOGGER.info("UniRef90 index build started: %s -> %s", fasta, database)
+        LOGGER.info(
+            "%s index build started: %s -> %s",
+            scaffold.display_name, fasta, database,
+        )
         database.parent.mkdir(parents=True, exist_ok=True)
         database.unlink(missing_ok=True)
         connection = sqlite3.connect(database)
@@ -73,9 +81,10 @@ class UniRefIndex:
             processed = 0
             for processed, (header, sequence) in enumerate(iter_fasta(fasta), start=1):
                 identifier = fasta_identifier(header)
-                if not identifier.startswith("UniRef90_"):
+                if not identifier.startswith(scaffold.id_prefix):
                     raise ValueError(
-                        f"UniRef90 FASTA identifier must begin with 'UniRef90_': {identifier}"
+                        f"{scaffold.display_name} FASTA identifier must begin with "
+                        f"{scaffold.id_prefix!r}: {identifier}"
                     )
                 if not sequence or SEQUENCE_RE.fullmatch(sequence) is None:
                     raise ValueError(f"Invalid or empty sequence for {identifier}")
@@ -93,15 +102,17 @@ class UniRefIndex:
                 cls._insert_batch(connection, batch)
             count = connection.execute("SELECT COUNT(*) FROM uniref90").fetchone()[0]
             if count == 0:
-                raise ValueError(f"UniRef90 FASTA contains no sequences: {fasta}")
+                raise ValueError(
+                    f"{scaffold.display_name} FASTA contains no sequences: {fasta}"
+                )
             connection.commit()
         finally:
             connection.close()
         LOGGER.info(
-            "UniRef90 index completed: sequences=%d elapsed_seconds=%.1f",
-            count, time.monotonic() - started,
+            "%s index completed: sequences=%d elapsed_seconds=%.1f",
+            scaffold.display_name, count, time.monotonic() - started,
         )
-        return cls(database)
+        return cls(database, uniref_level)
 
     @staticmethod
     def _insert_batch(connection: sqlite3.Connection, rows: list[tuple[str, str, int]]) -> None:
@@ -110,7 +121,7 @@ class UniRefIndex:
                 "INSERT INTO uniref90 VALUES (?, ?, ?)", rows
             )
         except sqlite3.IntegrityError as exc:
-            raise ValueError("Duplicate UniRef90 FASTA identifier") from exc
+            raise ValueError("Duplicate UniRef FASTA identifier") from exc
 
     def count(self) -> int:
         with sqlite3.connect(self.database) as connection:

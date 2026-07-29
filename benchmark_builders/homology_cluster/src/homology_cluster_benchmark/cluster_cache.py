@@ -17,6 +17,7 @@ from .config import BuildConfig
 from .inputs import open_text, sha256_file
 from .mmseqs import ClusterIndex, MMseqsRuntime
 from .uniref import UniRefIndex
+from .uniref_scaffold import uniref_scaffold
 
 
 LOGGER = logging.getLogger(__name__)
@@ -92,7 +93,7 @@ def cluster_cache_root(path: Path) -> Path:
     return resolved
 
 
-def _root_marker_payload() -> dict[str, object]:
+def _legacy_root_marker_payload() -> dict[str, object]:
     return {
         "schema_name": CACHE_ROOT_SCHEMA_NAME,
         "schema_version": CACHE_SCHEMA_VERSION,
@@ -105,6 +106,23 @@ def _root_marker_payload() -> dict[str, object]:
     }
 
 
+def _root_marker_payload() -> dict[str, object]:
+    return {
+        "schema_name": CACHE_ROOT_SCHEMA_NAME,
+        "schema_version": 2,
+        "cache_schema_name": CACHE_SCHEMA_NAME,
+        "role": "persistent validated MMseqs2 cluster-assignment cache root",
+        "note": (
+            "Each child cache is independently keyed by its UniRef scaffold and the exact "
+            "MMseqs2 scientific/runtime contract. Annotation and split policy are downstream."
+        ),
+    }
+
+
+def _valid_root_marker(payload: object) -> bool:
+    return payload in (_legacy_root_marker_payload(), _root_marker_payload())
+
+
 def initialize_cluster_cache_root(path: Path) -> Path:
     root = cluster_cache_root(path)
     root.mkdir(parents=True, exist_ok=True)
@@ -112,7 +130,7 @@ def initialize_cluster_cache_root(path: Path) -> Path:
     expected = _root_marker_payload()
     if marker.exists():
         observed = json.loads(marker.read_text(encoding="utf-8"))
-        if observed != expected:
+        if not _valid_root_marker(observed):
             raise ValueError(f"Cluster-cache root marker is incompatible: {marker}")
         return marker
     temporary = root / f".{CACHE_ROOT_MARKER}.partial-{uuid.uuid4().hex}"
@@ -136,7 +154,7 @@ def inspect_cluster_cache_root(path: Path) -> dict[str, object]:
     if not marker.is_file():
         raise ValueError(f"Cluster-cache root marker is missing: {marker}")
     payload = json.loads(marker.read_text(encoding="utf-8"))
-    if payload != _root_marker_payload():
+    if not _valid_root_marker(payload):
         raise ValueError(f"Cluster-cache root marker is incompatible: {marker}")
     return payload
 
@@ -160,26 +178,37 @@ def cluster_cache_contract_from_values(
     expected_mmseqs_version: str,
     observed_mmseqs_version: str,
     mmseqs_executable_sha256: str,
+    uniref_level: int = 90,
 ) -> dict[str, object]:
+    scaffold = uniref_scaffold(uniref_level)
     if not uniref90_release:
-        raise ValueError("Cluster cache requires a UniRef90 release")
+        raise ValueError(f"Cluster cache requires a {scaffold.display_name} release")
     if len(uniref90_sha256) != 64 or any(
         char not in "0123456789abcdef" for char in uniref90_sha256
     ):
-        raise ValueError("Cluster cache requires a lowercase UniRef90 SHA-256")
+        raise ValueError(
+            f"Cluster cache requires a lowercase {scaffold.display_name} SHA-256"
+        )
     if not expected_mmseqs_version or not observed_mmseqs_version:
         raise ValueError("Cluster cache requires exact expected and observed MMseqs2 versions")
     if len(mmseqs_executable_sha256) != 64 or any(
         char not in "0123456789abcdef" for char in mmseqs_executable_sha256
     ):
         raise ValueError("Cluster cache requires a lowercase MMseqs2 executable SHA-256")
+    input_contract: dict[str, object] = {
+        "uniref90_release": uniref90_release,
+        "uniref90_sha256": uniref90_sha256,
+    }
+    if uniref_level != 90:
+        input_contract = {
+            "uniref_level": uniref_level,
+            f"{scaffold.slug}_release": uniref90_release,
+            f"{scaffold.slug}_sha256": uniref90_sha256,
+        }
     return {
         "schema_name": CACHE_SCHEMA_NAME,
         "schema_version": CACHE_SCHEMA_VERSION,
-        "input": {
-            "uniref90_release": uniref90_release,
-            "uniref90_sha256": uniref90_sha256,
-        },
+        "input": input_contract,
         "method": {
             "workflow": "cluster",
             "identity_fraction": f"{identity:.12g}",
@@ -233,6 +262,7 @@ def cluster_cache_contract(
         expected_mmseqs_version=config.expected_mmseqs_version or "",
         observed_mmseqs_version=runtime.version_token,
         mmseqs_executable_sha256=runtime.executable_sha256,
+        uniref_level=config.uniref_level,
     )
 
 
@@ -242,14 +272,25 @@ def cluster_cache_directory(cache_root: Path, contract: dict[str, object]) -> Pa
     if not isinstance(method, dict) or not isinstance(inputs, dict):
         raise ValueError("Cluster cache contract is malformed")
     identity = float(str(method["identity_fraction"]))
-    release = str(inputs["uniref90_release"])
+    level = int(inputs.get("uniref_level", 90))
+    scaffold = uniref_scaffold(level)
+    release = str(inputs[f"{scaffold.slug}_release"])
     digest = _canonical_hash(contract)
     return (
         cluster_cache_root(cache_root)
-        / f"uniref90_{release}"
+        / f"{scaffold.slug}_{release}"
         / _identity_label(identity)
         / f"contract_{digest[:16]}"
     )
+
+
+def contract_uniref_level(contract: dict[str, object]) -> int:
+    inputs = contract.get("input")
+    if not isinstance(inputs, dict):
+        raise ValueError("Cluster cache contract lacks an input section")
+    level = int(inputs.get("uniref_level", 90))
+    uniref_scaffold(level)
+    return level
 
 
 def cluster_checkpoint_directory(
@@ -472,7 +513,9 @@ def load_cluster_checkpoint(
     )
 
 
-def _copy_assignments(source: Path, destination: Path, *, has_header: bool) -> None:
+def _copy_assignments(
+    source: Path, destination: Path, *, has_header: bool, member_field: str
+) -> None:
     with open_text(source) as incoming, destination.open("wb") as raw:
         with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as compressed:
             with io.TextIOWrapper(compressed, encoding="utf-8", newline="") as outgoing:
@@ -483,7 +526,7 @@ def _copy_assignments(source: Path, destination: Path, *, has_header: bool) -> N
                     columns = raw_line.rstrip("\r\n").split("\t")
                     if has_header and first_content:
                         first_content = False
-                        if columns != ["mmseqs_cluster_id", "uniref90_id"]:
+                        if columns != ["mmseqs_cluster_id", member_field]:
                             raise ValueError(
                                 "Published cluster membership has an unexpected header"
                             )
@@ -603,12 +646,12 @@ def remove_cluster_checkpoint(
 
 
 def _write_canonical_assignments(
-    cluster_index: ClusterIndex, destination: Path
+    cluster_index: ClusterIndex, destination: Path, member_field: str
 ) -> None:
     with destination.open("wb") as raw:
         with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as compressed:
             with io.TextIOWrapper(compressed, encoding="utf-8", newline="") as outgoing:
-                outgoing.write("mmseqs_cluster_id\tuniref90_id\n")
+                outgoing.write(f"mmseqs_cluster_id\t{member_field}\n")
                 for cluster_id, member_id in cluster_index.iter_assignments():
                     outgoing.write(f"{cluster_id}\t{member_id}\n")
 
@@ -632,7 +675,12 @@ def publish_cluster_cache(
     started = time.monotonic()
     try:
         stage.mkdir()
-        _write_canonical_assignments(cluster_index, stage / ASSIGNMENTS_FILE)
+        member_field = uniref_scaffold(
+            contract_uniref_level(contract)
+        ).id_field
+        _write_canonical_assignments(
+            cluster_index, stage / ASSIGNMENTS_FILE, member_field
+        )
         shutil.copy2(command_manifest, stage / COMMANDS_FILE)
         if log_dir is not None and log_dir.is_dir():
             shutil.copytree(log_dir, stage / "logs")
@@ -731,8 +779,8 @@ def import_publication_cluster_cache(
     work_dir: Path,
 ) -> LoadedClusterCache:
     from .common_cache import (  # Imported lazily to keep the pipeline import acyclic.
-        UNIREF_INDEX_FILE,
         inspect_common_preprocessing_cache,
+        uniref_index_file,
     )
     from .pipeline import validate_publication
 
@@ -749,31 +797,47 @@ def import_publication_cluster_cache(
     )
     if publication.get("fixture_mode") is True:
         raise ValueError("Fixture publications cannot seed a production cluster cache")
+    uniref_level = int(parameters.get("uniref_level", 90))
+    scaffold = uniref_scaffold(uniref_level)
     inputs = input_manifest.get("inputs")
-    if not isinstance(inputs, dict) or not isinstance(inputs.get("uniref90_fasta"), dict):
-        raise ValueError("Publication lacks its resolved UniRef90 input binding")
-    uniref_binding = inputs["uniref90_fasta"]
+    if (
+        not isinstance(inputs, dict)
+        or not isinstance(inputs.get(scaffold.input_role), dict)
+    ):
+        raise ValueError(
+            f"Publication lacks its resolved {scaffold.display_name} input binding"
+        )
+    uniref_binding = inputs[scaffold.input_role]
     uniref_sha256 = str(uniref_binding.get("sha256", ""))
 
     common_root = common_preprocessing_cache.expanduser().resolve()
     if common_root.is_file():
         common_root = common_root.parent
     common_payload = inspect_common_preprocessing_cache(
-        common_root, verify_file_hashes=True
+        common_root,
+        expected_uniref_level=uniref_level,
+        verify_file_hashes=True,
     )
     common_bindings = common_payload.get("input_bindings")
     if (
         not isinstance(common_bindings, dict)
-        or not isinstance(common_bindings.get("uniref90_fasta"), dict)
-        or common_bindings["uniref90_fasta"].get("sha256") != uniref_sha256
+        or not isinstance(common_bindings.get(scaffold.input_role), dict)
+        or common_bindings[scaffold.input_role].get("sha256") != uniref_sha256
     ):
         raise ValueError(
-            "Common preprocessing cache and publication use different UniRef90 inputs"
+            "Common preprocessing cache and publication use different "
+            f"{scaffold.display_name} inputs"
         )
-    uniref = UniRefIndex(common_root / UNIREF_INDEX_FILE)
-    expected_uniref_count = int(common_payload["counts"]["uniref90_entries"])  # type: ignore[index]
+    uniref = UniRefIndex(
+        common_root / uniref_index_file(uniref_level), uniref_level
+    )
+    expected_uniref_count = int(
+        common_payload["counts"][f"{scaffold.slug}_entries"]  # type: ignore[index]
+    )
     if uniref.count() != expected_uniref_count:
-        raise ValueError("Common preprocessing cache UniRef90 index count changed")
+        raise ValueError(
+            f"Common preprocessing cache {scaffold.display_name} index count changed"
+        )
 
     contract = cluster_cache_contract_from_values(
         uniref90_release=str(parameters["uniprot_release"]),
@@ -797,6 +861,7 @@ def import_publication_cluster_cache(
         expected_mmseqs_version=str(publication["expected_mmseqs_version"]),
         observed_mmseqs_version=str(publication["observed_mmseqs_version"]),
         mmseqs_executable_sha256=str(publication["mmseqs_executable_sha256"]),
+        uniref_level=uniref_level,
     )
     work_root = work_dir.expanduser().resolve() / f"cluster-cache-import-{uuid.uuid4().hex}"
     work_root.mkdir(parents=True)
@@ -806,9 +871,11 @@ def import_publication_cluster_cache(
             publication_root / "mmseqs_cluster_membership.tsv.gz",
             normalized,
             has_header=True,
+            member_field=scaffold.id_field,
         )
         cluster_index = ClusterIndex.build(
-            normalized, uniref, work_root / "clusters.sqlite"
+            normalized, uniref, work_root / "clusters.sqlite",
+            member_field=scaffold.id_field,
         )
         return publish_cluster_cache(
             cache_root_path,

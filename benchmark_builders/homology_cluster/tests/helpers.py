@@ -45,3 +45,19 @@ def fixture_config(output_root: Path, temp_root: Path, **overrides) -> BuildConf
     }
     values.update(overrides)
     return BuildConfig(**values)
+
+
+def uniref50_fixture_config(
+    output_root: Path, temp_root: Path, **overrides
+) -> BuildConfig:
+    values = {
+        "uniref_level": 50,
+        "uniref90_fasta": InputSpec(
+            "uniref50_fasta", FIXTURES / "uniref50.fasta", release="2026_02",
+            source_population="uniref50-clustering-scaffold",
+        ),
+        "cluster_assignments": FIXTURES / "clusters_uniref50.tsv",
+        "sensitivity": 4.0,
+    }
+    values.update(overrides)
+    return fixture_config(output_root, temp_root, **values)

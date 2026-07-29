@@ -8,15 +8,11 @@ import re
 from typing import Any
 
 from .models import InputSpec, ResolvedInput
+from .uniref_scaffold import uniref_scaffold
 
 
 SCHEMA_NAME = "homology-cluster-frozen-inputs"
-SHARED_INPUT_NAMES = (
-    "uniref90_fasta",
-    "idmapping",
-    "goa",
-    "go_obo",
-)
+SHARED_INPUT_TAIL = ("idmapping", "goa", "go_obo")
 SOURCE_INPUT_NAMES = {
     "sprot-only": ("uniprot_sprot_sequences",),
     "trembl-only": ("uniprot_trembl_sequences",),
@@ -24,6 +20,7 @@ SOURCE_INPUT_NAMES = {
 }
 SOURCE_POPULATIONS = {
     "uniref90_fasta": "uniref90-clustering-scaffold",
+    "uniref50_fasta": "uniref50-clustering-scaffold",
     "idmapping": "uniprotkb-shared-mapping",
     "uniprot_sprot_sequences": "sprot",
     "uniprot_trembl_sequences": "trembl",
@@ -53,16 +50,23 @@ def _non_placeholder(value: str) -> bool:
     return bool(lowered) and not any(token in lowered for token in PLACEHOLDER_TOKENS)
 
 
-def expected_input_names(uniprot_source_scope: str) -> tuple[str, ...]:
+def expected_input_names(
+    uniprot_source_scope: str, uniref_level: int = 90
+) -> tuple[str, ...]:
     try:
         selected = SOURCE_INPUT_NAMES[uniprot_source_scope]
     except KeyError as exc:
         raise ValueError(f"Unsupported UniProt source scope: {uniprot_source_scope!r}") from exc
-    return (*SHARED_INPUT_NAMES[:2], *selected, *SHARED_INPUT_NAMES[2:])
+    scaffold_role = uniref_scaffold(uniref_level).input_role
+    return (scaffold_role, SHARED_INPUT_TAIL[0], *selected, *SHARED_INPUT_TAIL[1:])
 
 
 def load_frozen_input_manifest(
-    path: Path, *, uniprot_source_scope: str | None = None, fixture_mode: bool = False
+    path: Path,
+    *,
+    uniprot_source_scope: str | None = None,
+    uniref_level: int | None = None,
+    fixture_mode: bool = False,
 ) -> FrozenInputManifest:
     resolved = path.expanduser().resolve()
     raw = resolved.read_bytes()
@@ -72,8 +76,18 @@ def load_frozen_input_manifest(
         raise ValueError(f"Frozen-input manifest is not valid JSON: {resolved}: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError("Frozen-input manifest root must be an object")
-    if payload.get("schema_name") != SCHEMA_NAME or payload.get("schema_version") != 2:
+    schema_version = payload.get("schema_version")
+    if payload.get("schema_name") != SCHEMA_NAME or schema_version not in {2, 3}:
         raise ValueError("Frozen-input manifest has an unsupported schema_name/schema_version")
+    manifest_uniref_level = int(payload.get("uniref_level", 90))
+    uniref_scaffold(manifest_uniref_level)
+    if schema_version == 2 and manifest_uniref_level != 90:
+        raise ValueError("Frozen-input manifest schema 2 is specific to UniRef90")
+    if uniref_level is not None and manifest_uniref_level != int(uniref_level):
+        raise ValueError(
+            "Frozen-input manifest UniRef scaffold mismatch: "
+            f"expected UniRef{uniref_level}, observed UniRef{manifest_uniref_level}"
+        )
     manifest_scope = str(payload.get("uniprot_source_scope", ""))
     if manifest_scope not in SOURCE_INPUT_NAMES:
         raise ValueError("Frozen-input manifest has an invalid or missing uniprot_source_scope")
@@ -82,7 +96,7 @@ def load_frozen_input_manifest(
             "Frozen-input manifest source scope mismatch: "
             f"expected {uniprot_source_scope!r}, observed {manifest_scope!r}"
         )
-    input_names = expected_input_names(manifest_scope)
+    input_names = expected_input_names(manifest_scope, manifest_uniref_level)
     if not _non_placeholder(str(payload.get("created_at", ""))):
         raise ValueError("Frozen-input manifest created_at is missing or a placeholder")
 
@@ -155,9 +169,10 @@ def load_frozen_input_manifest(
         entries[name] = normalized
     if set(entries) != set(input_names):
         raise ValueError("Frozen-input manifest is missing one or more required sources")
+    scaffold_role = uniref_scaffold(manifest_uniref_level).input_role
     uniprot_releases = {
         entries[name]["release"]
-        for name in ("uniref90_fasta", "idmapping", *SOURCE_INPUT_NAMES[manifest_scope])
+        for name in (scaffold_role, "idmapping", *SOURCE_INPUT_NAMES[manifest_scope])
     }
     if len(uniprot_releases) != 1:
         raise ValueError("Frozen-input manifest UniProt/UniRef source releases disagree")
@@ -173,6 +188,8 @@ def load_frozen_input_manifest(
         "uniprot_source_scope": manifest_scope,
         "inputs": [entries[name] for name in input_names],
     }
+    if manifest_uniref_level != 90:
+        fingerprint_payload["uniref_level"] = manifest_uniref_level
     fingerprint = _sha256_bytes(
         json.dumps(fingerprint_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     )
@@ -192,7 +209,8 @@ def bind_frozen_inputs(
     resolved_inputs: dict[str, ResolvedInput],
 ) -> dict[str, bool]:
     manifest_scope = str(manifest.payload["uniprot_source_scope"])
-    input_names = expected_input_names(manifest_scope)
+    manifest_uniref_level = int(manifest.payload.get("uniref_level", 90))
+    input_names = expected_input_names(manifest_scope, manifest_uniref_level)
     if set(specs) != set(input_names) or set(resolved_inputs) != set(input_names):
         raise ValueError("Configured/resolved input roles do not exactly match the selected source scope")
     for name in input_names:
@@ -238,13 +256,14 @@ def write_synthetic_fixture_manifest(
     specs: dict[str, InputSpec],
     resolved_inputs: dict[str, ResolvedInput],
     uniprot_source_scope: str,
+    uniref_level: int = 90,
 ) -> FrozenInputManifest:
-    input_names = expected_input_names(uniprot_source_scope)
+    input_names = expected_input_names(uniprot_source_scope, uniref_level)
     if set(specs) != set(input_names) or set(resolved_inputs) != set(input_names):
         raise ValueError("Synthetic fixture inputs do not match the selected source scope")
     payload = {
         "schema_name": SCHEMA_NAME,
-        "schema_version": 2,
+        "schema_version": 2 if uniref_level == 90 else 3,
         "uniprot_source_scope": uniprot_source_scope,
         "created_at": "synthetic-fixture-generated",
         "review": {
@@ -271,7 +290,12 @@ def write_synthetic_fixture_manifest(
             for name in input_names
         ],
     }
+    if uniref_level != 90:
+        payload["uniref_level"] = uniref_level
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return load_frozen_input_manifest(
-        path, uniprot_source_scope=uniprot_source_scope, fixture_mode=True
+        path,
+        uniprot_source_scope=uniprot_source_scope,
+        uniref_level=uniref_level,
+        fixture_mode=True,
     )

@@ -19,12 +19,13 @@ from .frozen_inputs import (
     load_frozen_input_manifest,
 )
 from .goa import load_goa
-from .idmapping import load_uniref90_mappings
+from .idmapping import load_uniref_mappings
 from .inputs import sha256_file
 from .mapping import canonicalize_goa_accessions, load_requested_proteins_from_sources
 from .models import GoaLoadResult, MappingDecision, ProteinCatalog
 from .ontology import Ontology
 from .uniref import UniRefIndex
+from .uniref_scaffold import SUPPORTED_UNIREF_LEVELS, uniref_scaffold
 
 
 LOGGER = logging.getLogger(__name__)
@@ -34,7 +35,8 @@ CACHE_SCHEMA_VERSION = 3
 CACHE_MARKER = "CACHE_COMPLETE.json"
 STATE_FILE = "preprocessing_state.pkl.gz"
 STATE_FORMAT = "homology-common-preprocessing-state-v1"
-UNIREF_INDEX_FILE = "uniref90.sqlite"
+LEGACY_UNIREF90_INDEX_FILE = "uniref90.sqlite"
+UNIREF_INDEX_FILE = LEGACY_UNIREF90_INDEX_FILE
 FROZEN_MANIFEST_FILE = "frozen_input_manifest.json"
 GOA_RECORD_FILE = "goa/qualifying_annotations.raw.jsonl.gz"
 GOA_EXCLUDED_FILE = "goa/excluded_annotations.sample.jsonl.gz"
@@ -52,6 +54,7 @@ PREPROCESSING_SOURCE_FILES = (
     "models.py",
     "ontology.py",
     "uniref.py",
+    "uniref_scaffold.py",
 )
 
 # Schema 2 was produced by the first SAN cache build. Its CLI executed this
@@ -156,8 +159,9 @@ def _cache_policy(
     include_relationships: bool,
     strict_qc: bool,
     excluded_sample_per_reason: int,
+    uniref_level: int = 90,
 ) -> dict[str, object]:
-    return {
+    policy: dict[str, object] = {
         "uniprot_source_scope": source_scope,
         "evidence_codes": sorted(SUPERVISOR_EVIDENCE_CODES),
         "include_relationships": include_relationships,
@@ -167,6 +171,13 @@ def _cache_policy(
         "goa_release": "234",
         "ontology_release": "releases/2026-06-15",
     }
+    if uniref_level != 90:
+        policy["uniref_level"] = uniref_level
+    return policy
+
+
+def uniref_index_file(uniref_level: int) -> str:
+    return f"uniref{uniref_level}.sqlite"
 
 
 def _validate_frozen_metadata(
@@ -205,7 +216,10 @@ def _validate_input_paths(
     manifest: FrozenInputManifest,
     paths: dict[str, Path],
 ) -> dict[str, dict[str, object]]:
-    expected_names = set(expected_input_names(str(manifest.payload["uniprot_source_scope"])))
+    level = int(manifest.payload.get("uniref_level", 90))
+    expected_names = set(
+        expected_input_names(str(manifest.payload["uniprot_source_scope"]), level)
+    )
     if set(paths) != expected_names:
         raise ValueError(
             "Common-cache inputs do not exactly match the frozen source scope: "
@@ -251,6 +265,7 @@ def inspect_common_preprocessing_cache(
     expected_source_scope: str | None = None,
     expected_input_sha256: dict[str, str] | None = None,
     expected_policy: dict[str, object] | None = None,
+    expected_uniref_level: int | None = None,
     verify_file_hashes: bool = False,
 ) -> dict[str, object]:
     root = _cache_root(path)
@@ -272,6 +287,20 @@ def inspect_common_preprocessing_cache(
         raise ValueError(
             "Common preprocessing cache source-scope mismatch: "
             f"expected={expected_source_scope}, observed={source_scope}"
+        )
+    policy = payload.get("policy")
+    if not isinstance(policy, dict):
+        raise ValueError("Common preprocessing cache lacks a policy")
+    observed_uniref_level = int(policy.get("uniref_level", 90))
+    uniref_scaffold(observed_uniref_level)
+    if (
+        expected_uniref_level is not None
+        and observed_uniref_level != expected_uniref_level
+    ):
+        raise ValueError(
+            "Common preprocessing cache UniRef scaffold mismatch: "
+            f"expected UniRef{expected_uniref_level}, "
+            f"observed UniRef{observed_uniref_level}"
         )
     observed_source_hashes = payload.get("preprocessing_source_sha256")
     expected_source_hashes = (
@@ -336,12 +365,14 @@ def build_common_preprocessing_cache(
     excluded_sample_per_reason: int = 1000,
     fixture_mode: bool = False,
     replace_existing: bool = False,
+    uniref_level: int = 90,
 ) -> Path:
     output = output_dir.expanduser().resolve()
     work = work_dir.expanduser().resolve()
     manifest = load_frozen_input_manifest(
         frozen_input_manifest,
         uniprot_source_scope=source_scope,
+        uniref_level=uniref_level,
         fixture_mode=fixture_mode,
     )
     bindings = _validate_input_paths(manifest, input_paths)
@@ -350,6 +381,7 @@ def build_common_preprocessing_cache(
         include_relationships=include_relationships,
         strict_qc=strict_qc,
         excluded_sample_per_reason=excluded_sample_per_reason,
+        uniref_level=uniref_level,
     )
     expected_hashes = {
         name: str(entry["sha256"]) for name, entry in bindings.items()
@@ -361,6 +393,7 @@ def build_common_preprocessing_cache(
                 expected_source_scope=source_scope,
                 expected_input_sha256=expected_hashes,
                 expected_policy=policy,
+                expected_uniref_level=uniref_level,
                 verify_file_hashes=True,
             )
             LOGGER.info("Common preprocessing cache is already complete: %s", output)
@@ -386,8 +419,12 @@ def build_common_preprocessing_cache(
             excluded_sample_per_reason=excluded_sample_per_reason,
         )
         _validate_frozen_metadata(manifest, ontology, goa.headers)
+        scaffold = uniref_scaffold(uniref_level)
+        index_file = uniref_index_file(uniref_level)
         uniref = UniRefIndex.build(
-            input_paths["uniref90_fasta"], run_work / UNIREF_INDEX_FILE
+            input_paths[scaffold.input_role],
+            run_work / index_file,
+            uniref_level,
         )
         requested_raw = set(goa.qualifying_accessions or goa.annotations)
         source_names = {
@@ -406,13 +443,14 @@ def build_common_preprocessing_cache(
             collision_report=run_work / COLLISION_REPORT_FILE,
         )
         goa = canonicalize_goa_accessions(goa, catalog)
-        decisions = load_uniref90_mappings(
-            input_paths["idmapping"], requested_raw, catalog, uniref
+        decisions = load_uniref_mappings(
+            input_paths["idmapping"], requested_raw, catalog, uniref,
+            uniref_level,
         )
 
         stage.mkdir(parents=True)
         (stage / "goa").mkdir()
-        shutil.copy2(run_work / UNIREF_INDEX_FILE, stage / UNIREF_INDEX_FILE)
+        shutil.copy2(run_work / index_file, stage / index_file)
         shutil.copy2(
             run_work / COLLISION_REPORT_FILE,
             stage / COLLISION_REPORT_FILE,
@@ -455,7 +493,7 @@ def build_common_preprocessing_cache(
             "input_bindings": bindings,
             "preprocessing_source_sha256": _source_hashes(),
             "counts": {
-                "uniref90_entries": uniref.count(),
+                f"{scaffold.slug}_entries": uniref.count(),
                 "qualifying_raw_accessions": len(requested_raw),
                 "canonical_qualifying_accessions": len(goa.qualifying_accessions),
                 "loaded_canonical_sequences": len(catalog.records),
@@ -473,6 +511,7 @@ def build_common_preprocessing_cache(
             expected_source_scope=source_scope,
             expected_input_sha256=expected_hashes,
             expected_policy=policy,
+            expected_uniref_level=uniref_level,
             verify_file_hashes=True,
         )
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -499,6 +538,7 @@ def load_common_preprocessing_cache(
     strict_qc: bool,
     excluded_sample_per_reason: int,
     frozen_input_manifest_sha256: str,
+    uniref_level: int = 90,
 ) -> LoadedCommonPreprocessing:
     root = _cache_root(path)
     policy = _cache_policy(
@@ -506,12 +546,14 @@ def load_common_preprocessing_cache(
         include_relationships=include_relationships,
         strict_qc=strict_qc,
         excluded_sample_per_reason=excluded_sample_per_reason,
+        uniref_level=uniref_level,
     )
     payload = inspect_common_preprocessing_cache(
         root,
         expected_source_scope=source_scope,
         expected_input_sha256=expected_input_sha256,
         expected_policy=policy,
+        expected_uniref_level=uniref_level,
         verify_file_hashes=True,
     )
     if payload.get("frozen_input_manifest_sha256") != frozen_input_manifest_sha256:
@@ -526,8 +568,14 @@ def load_common_preprocessing_cache(
         goa.record_spool = root / goa.record_spool
     if goa.excluded_spool is not None:
         goa.excluded_spool = root / goa.excluded_spool
-    uniref = UniRefIndex(root / UNIREF_INDEX_FILE)
-    expected_count = int(payload["counts"]["uniref90_entries"])  # type: ignore[index]
+    scaffold = uniref_scaffold(uniref_level)
+    index_file = (
+        LEGACY_UNIREF90_INDEX_FILE
+        if int(payload["schema_version"]) == 2
+        else uniref_index_file(uniref_level)
+    )
+    uniref = UniRefIndex(root / index_file, uniref_level)
+    expected_count = int(payload["counts"][f"{scaffold.slug}_entries"])  # type: ignore[index]
     if uniref.count() != expected_count:
         raise ValueError("Common preprocessing cache UniRef index count changed")
     return LoadedCommonPreprocessing(
@@ -562,7 +610,11 @@ def _parser() -> argparse.ArgumentParser:
     build.add_argument("--work-dir", type=Path, required=True)
     build.add_argument("--frozen-input-manifest", type=Path, required=True)
     build.add_argument("--source-scope", choices=tuple(SOURCE_INPUT_NAMES), required=True)
-    build.add_argument("--uniref90-fasta", type=Path, required=True)
+    build.add_argument(
+        "--uniref-level", type=int, choices=SUPPORTED_UNIREF_LEVELS, default=90
+    )
+    build.add_argument("--uniref90-fasta", type=Path)
+    build.add_argument("--uniref50-fasta", type=Path)
     build.add_argument("--idmapping", type=Path, required=True)
     build.add_argument("--uniprot-sprot-sequences", type=Path)
     build.add_argument("--uniprot-trembl-sequences", type=Path)
@@ -574,6 +626,9 @@ def _parser() -> argparse.ArgumentParser:
     verify = subparsers.add_parser("verify")
     verify.add_argument("--cache-dir", type=Path, required=True)
     verify.add_argument("--source-scope", choices=tuple(SOURCE_INPUT_NAMES))
+    verify.add_argument(
+        "--uniref-level", type=int, choices=SUPPORTED_UNIREF_LEVELS, default=90
+    )
     verify.add_argument("--expected-input-sha256", action="append", default=[])
     verify.add_argument("--full-hashes", action="store_true")
     return parser
@@ -596,9 +651,11 @@ def main(argv: list[str] | None = None) -> int:
                     include_relationships=True,
                     strict_qc=True,
                     excluded_sample_per_reason=1000,
+                    uniref_level=args.uniref_level,
                 )
                 if args.source_scope else None
             ),
+            expected_uniref_level=args.uniref_level,
             verify_file_hashes=args.full_hashes,
         )
         print(json.dumps({
@@ -607,8 +664,15 @@ def main(argv: list[str] | None = None) -> int:
             "counts": payload["counts"],
         }, sort_keys=True))
         return 0
+    scaffold = uniref_scaffold(args.uniref_level)
+    selected_fasta = getattr(args, scaffold.input_role)
+    if selected_fasta is None:
+        raise ValueError(
+            f"UniRef{args.uniref_level} cache build requires "
+            f"--{scaffold.slug}-fasta"
+        )
     source_inputs = {
-        "uniref90_fasta": args.uniref90_fasta,
+        scaffold.input_role: selected_fasta,
         "idmapping": args.idmapping,
         "goa": args.goa,
         "go_obo": args.go_obo,
@@ -630,6 +694,7 @@ def main(argv: list[str] | None = None) -> int:
         excluded_sample_per_reason=args.excluded_sample_per_reason,
         fixture_mode=args.fixture_mode,
         replace_existing=args.replace_existing,
+        uniref_level=args.uniref_level,
     )
     print(json.dumps({"status": "complete", "cache_dir": str(output)}, sort_keys=True))
     return 0

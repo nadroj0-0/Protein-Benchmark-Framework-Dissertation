@@ -8,26 +8,28 @@ import time
 from .inputs import open_text
 from .models import MappingDecision, ProteinCatalog
 from .uniref import UniRefIndex
+from .uniref_scaffold import uniref_scaffold
 
 
 LOGGER = logging.getLogger(__name__)
 
 
 IDMAPPING_SELECTED_COLUMNS = 22
-UNIREF90_COLUMN_INDEX = 8
 
 
 def _split_mapping_values(value: str) -> set[str]:
     return {item.strip() for item in value.split(";") if item.strip()}
 
 
-def load_uniref90_mappings(
+def load_uniref_mappings(
     path: Path,
     requested_accessions: set[str],
     catalog: ProteinCatalog,
     uniref_index: UniRefIndex,
+    uniref_level: int = 90,
 ) -> list[MappingDecision]:
     """Stream the headerless 22-column idmapping_selected table."""
+    scaffold = uniref_scaffold(uniref_level)
     started = time.monotonic()
     LOGGER.info(
         "ID mapping scan started: %s requested_accessions=%d", path, len(requested_accessions)
@@ -59,7 +61,9 @@ def load_uniref90_mappings(
             if accession not in lookup_accessions:
                 continue
             seen.add(accession)
-            values[accession].update(_split_mapping_values(columns[UNIREF90_COLUMN_INDEX]))
+            values[accession].update(
+                _split_mapping_values(columns[scaffold.idmapping_column_index])
+            )
 
     candidate_sets: dict[str, set[str]] = {}
     all_candidate_ids: set[str] = set()
@@ -125,7 +129,7 @@ def load_uniref90_mappings(
                 raw_accession=raw_accession, protein_id=protein_id,
                 accession_action=accession_action, status="ambiguous",
                 detail=(
-                    "multiple UniRef90 mappings; present_in_fasta="
+                    f"multiple {scaffold.display_name} mappings; present_in_fasta="
                     + (";".join(present) or "none")
                     + "; missing_from_fasta="
                     + (";".join(missing) or "none")
@@ -143,7 +147,7 @@ def load_uniref90_mappings(
             seen_mapping_row = raw_accession in seen or protein_id in seen
             status = "unmapped-blank" if seen_mapping_row else "unmapped-absent"
             reason = (
-                "blank UniRef90 column" if seen_mapping_row
+                f"blank {scaffold.display_name} column" if seen_mapping_row
                 else "accession absent from idmapping; obsolete status cannot be inferred without a deleted-accession source"
             )
             decisions.append(MappingDecision(
@@ -163,13 +167,19 @@ def load_uniref90_mappings(
                 source_population=source_population,
             ))
         else:
-            uniref90_id = next(iter(candidates))
-            exists = uniref90_id in present_uniref_ids
+            selected_uniref_id = next(iter(candidates))
+            exists = selected_uniref_id in present_uniref_ids
             decisions.append(MappingDecision(
                 raw_accession=raw_accession, protein_id=protein_id,
-                accession_action=accession_action, uniref90_id=uniref90_id,
-                status="mapped" if exists else "missing-from-uniref90-fasta",
-                detail="" if exists else "mapped UniRef90 identifier is absent from frozen FASTA",
+                accession_action=accession_action, uniref90_id=selected_uniref_id,
+                status=(
+                    "mapped" if exists
+                    else f"missing-from-{scaffold.slug}-fasta"
+                ),
+                detail=(
+                    "" if exists else
+                    f"mapped {scaffold.display_name} identifier is absent from frozen FASTA"
+                ),
                 exists_in_fasta=exists,
                 canonical_sequence_available=protein_id in catalog.records,
                 accession_lifecycle_status=(
@@ -188,3 +198,15 @@ def load_uniref90_mappings(
         time.monotonic() - started,
     )
     return decisions
+
+
+def load_uniref90_mappings(
+    path: Path,
+    requested_accessions: set[str],
+    catalog: ProteinCatalog,
+    uniref_index: UniRefIndex,
+) -> list[MappingDecision]:
+    """Backward-compatible UniRef90 entry point."""
+    return load_uniref_mappings(
+        path, requested_accessions, catalog, uniref_index, uniref_level=90
+    )

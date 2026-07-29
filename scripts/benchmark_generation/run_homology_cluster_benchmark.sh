@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Real shell entrypoint for Daniel's frozen UniRef90/MMseqs2 homology benchmark.
+# Shell entrypoint for the selectable frozen UniRef/MMseqs2 homology benchmark.
 
 set -euo pipefail
 
@@ -22,6 +22,13 @@ SEED="${SEED:-0}"
 MIN_COUNT="${MIN_COUNT:-50}"
 MMSEQS_BIN="${MMSEQS_BIN:-mmseqs}"
 MMSEQS_PROFILE="${MMSEQS_PROFILE:-legacy-calibrated}"
+UNIREF_LEVEL="${UNIREF_LEVEL:-90}"
+case "$UNIREF_LEVEL" in
+    90) DEFAULT_MMSEQS_SENSITIVITY=7.5 ;;
+    50) DEFAULT_MMSEQS_SENSITIVITY=4 ;;
+    *) echo "UNIREF_LEVEL must be 90 or 50" >&2; exit 2 ;;
+esac
+MMSEQS_SENSITIVITY="${MMSEQS_SENSITIVITY:-$DEFAULT_MMSEQS_SENSITIVITY}"
 EXPECTED_MMSEQS_VERSION="${EXPECTED_MMSEQS_VERSION:-}"
 FROZEN_INPUT_MANIFEST="${FROZEN_INPUT_MANIFEST:-}"
 ATTRITION_POLICY="${ATTRITION_POLICY:-}"
@@ -53,7 +60,16 @@ SIGNAL_STATUS=0
 SIGNAL_WATCHDOG_PID=""
 SIGNAL_GRACE_SECONDS=10
 
-UNIREF90_FASTA="$(resolve_artifact_path uniref90_t1 "${UNIREF90_FASTA:-}" || true)"
+if [[ "$UNIREF_LEVEL" == "90" ]]; then
+    UNIREF_FASTA="$(resolve_artifact_path uniref90_t1 "${UNIREF90_FASTA:-}" || true)"
+    UNIREF_FASTA_URL="${UNIREF90_FASTA_URL:-}"
+    UNIREF_FASTA_SHA256="${UNIREF90_FASTA_SHA256:-}"
+else
+    UNIREF_FASTA="$(resolve_artifact_path uniref50_t1 "${UNIREF50_FASTA:-}" || true)"
+    UNIREF_FASTA_URL="${UNIREF50_FASTA_URL:-}"
+    UNIREF_FASTA_SHA256="${UNIREF50_FASTA_SHA256:-}"
+fi
+UNIREF_INPUT_OPTION="uniref${UNIREF_LEVEL}-fasta"
 GO_OBO="$(resolve_artifact_path go_basic_t1 "${GO_OBO:-}" || true)"
 resolve_common_preprocessing_cache() {
     local explicit="${1:-}"
@@ -70,10 +86,12 @@ resolve_common_preprocessing_cache() {
         artifact_catalog_warn \
             "explicit homology common cache is incomplete; trying catalogue/raw fallback: $explicit"
     fi
-    candidate="$(artifact_catalog_lookup homology_common_preprocessing_2026_02 2>/dev/null || true)"
-    if [[ -s "$candidate" && "$(basename "$candidate")" == "CACHE_COMPLETE.json" ]]; then
-        (cd "$(dirname "$candidate")" && pwd -P)
-        return 0
+    if [[ "$UNIREF_LEVEL" == "90" ]]; then
+        candidate="$(artifact_catalog_lookup homology_common_preprocessing_2026_02 2>/dev/null || true)"
+        if [[ -s "$candidate" && "$(basename "$candidate")" == "CACHE_COMPLETE.json" ]]; then
+            (cd "$(dirname "$candidate")" && pwd -P)
+            return 0
+        fi
     fi
     return 1
 }
@@ -95,10 +113,12 @@ resolve_cluster_cache_root() {
         artifact_catalog_warn \
             "explicit homology cluster-cache root is invalid; trying catalogue fallback: $explicit"
     fi
-    candidate="$(artifact_catalog_lookup homology_mmseqs_cluster_cache_root_2026_02 2>/dev/null || true)"
-    if [[ -s "$candidate" && "$(basename "$candidate")" == "CLUSTER_CACHE_ROOT.json" ]]; then
-        (cd "$(dirname "$candidate")" && pwd -P)
-        return 0
+    if [[ "$UNIREF_LEVEL" == "90" ]]; then
+        candidate="$(artifact_catalog_lookup homology_mmseqs_cluster_cache_root_2026_02 2>/dev/null || true)"
+        if [[ -s "$candidate" && "$(basename "$candidate")" == "CLUSTER_CACHE_ROOT.json" ]]; then
+            (cd "$(dirname "$candidate")" && pwd -P)
+            return 0
+        fi
     fi
     return 1
 }
@@ -116,7 +136,7 @@ else
     UNIPROT_TREMBL_SEQUENCES="$(resolve_artifact_path uniprot_trembl_t1 "${UNIPROT_TREMBL_SEQUENCES:-}" || true)"
     GOA="$(resolve_artifact_path goa_t1 "${GOA:-}" || true)"
 fi
-for catalog_input in "$UNIREF90_FASTA" "$IDMAPPING" "$UNIPROT_SPROT_SEQUENCES" \
+for catalog_input in "$UNIREF_FASTA" "$IDMAPPING" "$UNIPROT_SPROT_SEQUENCES" \
     "$UNIPROT_TREMBL_SEQUENCES" "$GOA" "$GO_OBO" \
     "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" "$HOMOLOGY_CLUSTER_CACHE_ROOT"; do
     [[ -z "$catalog_input" ]] || add_mmfp_singularity_bind "$(dirname "$catalog_input")"
@@ -201,7 +221,7 @@ case "$UNIPROT_SOURCE_SCOPE" in
 esac
 
 if [[ "$DRY_RUN" != "1" ]]; then
-    require_local_or_url UniRef90 "${UNIREF90_FASTA:-}" "${UNIREF90_FASTA_URL:-}"
+    require_local_or_url "UniRef${UNIREF_LEVEL}" "$UNIREF_FASTA" "$UNIREF_FASTA_URL"
     if [[ -z "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then
         require_local_or_url idmapping_selected "${IDMAPPING:-}" "${IDMAPPING_URL:-}"
         if [[ "$UNIPROT_SOURCE_SCOPE" != "trembl-only" ]]; then
@@ -236,7 +256,11 @@ if [[ "$DRY_RUN" != "1" ]]; then
                 exit 1
             }
         fi
-        required_hashes=(UNIREF90_FASTA_SHA256 IDMAPPING_SHA256 GOA_SHA256 GO_OBO_SHA256)
+        [[ -n "$UNIREF_FASTA_SHA256" ]] || {
+            echo "Production run requires the selected UniRef FASTA SHA-256" >&2
+            exit 1
+        }
+        required_hashes=(IDMAPPING_SHA256 GOA_SHA256 GO_OBO_SHA256)
         [[ "$UNIPROT_SOURCE_SCOPE" == "trembl-only" ]] || required_hashes+=(UNIPROT_SPROT_SEQUENCES_SHA256)
         [[ "$UNIPROT_SOURCE_SCOPE" == "sprot-only" ]] || required_hashes+=(UNIPROT_TREMBL_SEQUENCES_SHA256)
         for hash_variable in "${required_hashes[@]}"
@@ -267,6 +291,8 @@ COMMAND=(
     --uniprot-source-scope "$UNIPROT_SOURCE_SCOPE"
     --mmseqs-bin "$MMSEQS_BIN"
     --mmseqs-profile "$MMSEQS_PROFILE"
+    --uniref-level "$UNIREF_LEVEL"
+    --sensitivity "$MMSEQS_SENSITIVITY"
     --output-dir "$OUTPUT_ROOT"
     --temp-dir "$TEMP_DIR"
     --threads "$THREADS"
@@ -317,7 +343,7 @@ if [[ -n "$PERSISTENT_RESULTS_ROOT" ]]; then
     COMMAND+=(--persistent-results-root "$PERSISTENT_RESULTS_ROOT")
 fi
 
-append_input uniref90-fasta "${UNIREF90_FASTA:-}" "${UNIREF90_FASTA_URL:-}" "${UNIREF90_FASTA_SHA256:-}"
+append_input "$UNIREF_INPUT_OPTION" "$UNIREF_FASTA" "$UNIREF_FASTA_URL" "$UNIREF_FASTA_SHA256"
 append_input idmapping "${IDMAPPING:-}" "${IDMAPPING_URL:-}" "${IDMAPPING_SHA256:-}"
 if [[ "$UNIPROT_SOURCE_SCOPE" != "trembl-only" ]]; then
     append_input uniprot-sprot-sequences "${UNIPROT_SPROT_SEQUENCES:-}" "${UNIPROT_SPROT_SEQUENCES_URL:-}" "${UNIPROT_SPROT_SEQUENCES_SHA256:-}"
@@ -344,6 +370,7 @@ echo "Output root   : $OUTPUT_ROOT"
 echo "Temporary root: $TEMP_DIR"
 echo "Cluster cache : ${HOMOLOGY_CLUSTER_CACHE_ROOT:-disabled}"
 echo "MMseqs profile: $MMSEQS_PROFILE"
+echo "UniRef profile: UniRef${UNIREF_LEVEL} at sensitivity ${MMSEQS_SENSITIVITY}"
 printf 'Command        : '
 printf '%q ' "${COMMAND[@]}"
 printf '\n'

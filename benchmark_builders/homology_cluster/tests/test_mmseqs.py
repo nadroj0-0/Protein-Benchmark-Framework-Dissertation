@@ -29,10 +29,27 @@ from homology_cluster_benchmark.mmseqs import (
 )
 from homology_cluster_benchmark.uniref import UniRefIndex
 
-from tests.helpers import FIXTURES, fixture_config
+from tests.helpers import FIXTURES, fixture_config, uniref50_fixture_config
 
 
 class MMseqsTests(unittest.TestCase):
+    def test_uniref50_command_uses_distinct_names_and_sensitivity_four(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = uniref50_fixture_config(
+                root / "out", root / "temp", cluster_assignments=None
+            )
+            commands = build_mmseqs_commands(
+                config, FIXTURES / "uniref50.fasta", root / "work"
+            )
+            by_stage = {command.stage: command.argv for command in commands}
+            cluster = by_stage["cluster"]
+            self.assertEqual(cluster[cluster.index("-s") + 1], "4")
+            self.assertTrue(any(value.endswith("uniref50_db") for value in by_stage["createdb"]))
+            self.assertTrue(
+                any(value.endswith("uniref50_clusters.tsv") for value in by_stage["createtsv"])
+            )
+
     def test_command_output_is_streamed_and_preserved_in_stage_log(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

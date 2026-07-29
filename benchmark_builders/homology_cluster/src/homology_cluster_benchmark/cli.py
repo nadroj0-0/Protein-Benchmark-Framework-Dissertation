@@ -31,6 +31,7 @@ from .provenance import (
     write_completion_marker,
     write_output_manifest,
 )
+from .uniref_scaffold import SUPPORTED_UNIREF_LEVELS, uniref_scaffold
 
 
 LOGGER = logging.getLogger(__name__)
@@ -45,7 +46,7 @@ def _add_input(parser: argparse.ArgumentParser, option: str, label: str) -> None
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="homology-cluster-benchmark",
-        description="Build Daniel's frozen UniRef90/MMseqs2 whole-cluster PFP benchmark",
+        description="Build a frozen UniRef/MMseqs2 whole-cluster PFP benchmark",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     build = subparsers.add_parser("build", help="Build one or all locked identity thresholds")
@@ -59,12 +60,17 @@ def _parser() -> argparse.ArgumentParser:
         default="annotated-only",
         help="annotated-only is implemented; all-cluster-members is explicitly unsupported",
     )
+    build.add_argument(
+        "--uniref-level", type=int, choices=SUPPORTED_UNIREF_LEVELS, default=90,
+        help="Clustering scaffold; legacy production remains UniRef90, Daniel's fast route uses UniRef50",
+    )
     _add_input(build, "uniref90-fasta", "UniRef90 FASTA")
+    _add_input(build, "uniref50-fasta", "UniRef50 FASTA")
     _add_input(build, "idmapping", "idmapping_selected.tab")
     build.add_argument(
         "--uniprot-source-scope",
         choices=UNIPROT_SOURCE_SCOPES,
-        help="Required production supervised-population scope; UniRef90 remains the clustering scaffold",
+        help="Required production supervised-population scope; --uniref-level selects the scaffold",
     )
     _add_input(build, "uniprot-sprot-sequences", "frozen Swiss-Prot DAT")
     _add_input(build, "uniprot-trembl-sequences", "frozen TrEMBL DAT")
@@ -127,8 +133,8 @@ def _parser() -> argparse.ArgumentParser:
         help="Locked at 0.90; exposed only so incompatible invocations fail explicitly",
     )
     build.add_argument(
-        "--sensitivity", type=float, default=7.5,
-        help="Locked at 7.5 by the reviewed MMseqs2 contract",
+        "--sensitivity", type=float,
+        help="MMseqs2 sensitivity; defaults to 7.5 for UniRef90 and 4.0 for UniRef50",
     )
     build.add_argument(
         "--mmseqs-profile", choices=MMSEQS_PROFILES, default=MMSEQS_PROFILES[0],
@@ -227,14 +233,32 @@ def _config(args: argparse.Namespace, identity: float) -> BuildConfig:
     )
     profile_policy = MMSEQS_PROFILE_POLICIES[args.mmseqs_profile]
     evalue = args.evalue if args.evalue is not None else profile_policy["evalue"]
+    scaffold = uniref_scaffold(args.uniref_level)
+    sensitivity = (
+        scaffold.recommended_sensitivity
+        if args.sensitivity is None else args.sensitivity
+    )
+    selected_uniref_spec = _input_spec(
+        args,
+        f"uniref{args.uniref_level}-fasta",
+        args.uniprot_release,
+        scaffold.source_population,
+    )
+    unused_uniref_level = 50 if args.uniref_level == 90 else 90
+    unused_prefix = f"uniref{unused_uniref_level}_fasta"
+    if any(
+        getattr(args, unused_prefix + suffix) is not None
+        for suffix in ("", "_url", "_sha256")
+    ):
+        raise ValueError(
+            f"--uniref-level {args.uniref_level} cannot be combined with "
+            f"--uniref{unused_uniref_level}-fasta inputs"
+        )
     return BuildConfig(
         identity=identity,
         output_dir=args.output_dir,
         temp_dir=args.temp_dir,
-        uniref90_fasta=_input_spec(
-            args, "uniref90-fasta", args.uniprot_release,
-            "uniref90-clustering-scaffold",
-        ),
+        uniref90_fasta=selected_uniref_spec,
         idmapping=_input_spec(
             args, "idmapping", args.uniprot_release, "uniprotkb-shared-mapping"
         ),
@@ -247,6 +271,7 @@ def _config(args: argparse.Namespace, identity: float) -> BuildConfig:
         ),
         goa=_input_spec(args, "goa", args.goa_release, "uniprotkb-goa"),
         go_obo=_input_spec(args, "go-obo", args.ontology_release, "gene-ontology"),
+        uniref_level=args.uniref_level,
         split_policy=args.split_policy,
         training_population=args.training_population,
         mmseqs_bin=args.mmseqs_bin,
@@ -272,7 +297,7 @@ def _config(args: argparse.Namespace, identity: float) -> BuildConfig:
         mmseqs_profile=args.mmseqs_profile,
         createdb_shuffle=profile_policy["createdb_shuffle"],
         cluster_reassign=profile_policy["cluster_reassign"],
-        sensitivity=args.sensitivity,
+        sensitivity=sensitivity,
         evalue=evalue,
         export_alignment_statistics=profile_policy["export_alignment_statistics"],
         export_cluster_fasta=profile_policy["export_cluster_fasta"],
@@ -295,12 +320,16 @@ def _config(args: argparse.Namespace, identity: float) -> BuildConfig:
 
 def _preview(config: BuildConfig) -> dict[str, object]:
     config.validate(require_pinned_inputs=False)
-    path = config.uniref90_fasta.path
+    path = config.uniref_fasta.path
     if path is None:
-        path = Path(f"<download:{config.uniref90_fasta.url or 'UNRESOLVED_UNIREF90_URL'}>")
+        path = Path(
+            f"<download:{config.uniref_fasta.url or 'UNRESOLVED_UNIREF_URL'}>"
+        )
     commands = build_mmseqs_commands(config, path, config.temp_dir / config.identity_directory / "mmseqs")
     return {
         "identity": config.identity,
+        "uniref_level": config.uniref_level,
+        "sensitivity": config.sensitivity,
         "benchmark_scope": config.benchmark_scope,
         "uniprot_source_scope": config.uniprot_source_scope,
         "framework_revision": config.framework_revision,
@@ -412,6 +441,7 @@ def _cross_threshold_reports(
     actual_population = str(first["training_population"])
     actual_seed = int(first["seed"])
     actual_min_count = int(first["min_count"])
+    actual_uniref_level = int(first.get("uniref_level", 90))
     legacy_expectations = (
         ("split_policy", split_policy, actual_split_policy),
         ("training_population", training_population, actual_population),
@@ -439,9 +469,17 @@ def _cross_threshold_reports(
             "Production aggregation requires the same clean framework commit as every child; "
             f"observed={aggregate_repository_state}"
         )
-    final = (
+    aggregate_root = (
         root.resolve() / f"source_{source_scope}" / f"framework_{framework_revision[:12]}"
-        / "all_thresholds_summary" / actual_split_policy / actual_population
+    )
+    if actual_uniref_level != 90:
+        sensitivity = float(fingerprint_payload["sensitivity"])
+        profile = f"uniref{actual_uniref_level}_sensitivity_{sensitivity:g}".replace(
+            ".", "p"
+        )
+        aggregate_root /= profile
+    final = (
+        aggregate_root / "all_thresholds_summary" / actual_split_policy / actual_population
         / f"seed_{actual_seed}" / f"min_count_{actual_min_count}"
     )
     if any(final.is_relative_to(child) for child in child_dirs.values()):
@@ -562,6 +600,7 @@ def _cross_threshold_reports(
         (stage / "all_thresholds_summary.json").write_text(json.dumps({
             "identities": percentages,
             "uniprot_source_scope": source_scope,
+            "uniref_level": actual_uniref_level,
             "framework_revision": framework_revision,
             "frozen_input_manifest_sha256": next(iter(frozen_manifest_hashes)),
             "attrition_policy_sha256": attrition_policy_sha256,
@@ -623,7 +662,7 @@ def _cross_threshold_reports(
         if not validation_payload["valid"]:
             raise ValueError("Cross-threshold validation failed before publication")
         parameter_keys = (
-            "split_policy", "development_fraction", "training_fraction_within_development",
+            "uniref_level", "split_policy", "development_fraction", "training_fraction_within_development",
             "training_population", "seed", "min_count", "evidence_codes",
             "include_relationships", "root_policy", "coverage", "cov_mode", "cluster_mode",
             "alignment_mode", "seq_id_mode", "mmseqs_profile", "createdb_shuffle",
@@ -656,6 +695,7 @@ def _cross_threshold_reports(
             "schema_version": 1,
             "kind": "all-thresholds-child-references",
             "uniprot_source_scope": source_scope,
+            "uniref_level": actual_uniref_level,
             "framework_revision": framework_revision,
             "frozen_input_manifest_sha256": next(iter(frozen_manifest_hashes)),
             "attrition_policy_sha256": attrition_policy_sha256,
@@ -682,6 +722,7 @@ def _cross_threshold_reports(
             "production_eligible": production_eligible,
             "benchmark_scope": "all-thresholds-summary",
             "uniprot_source_scope": source_scope,
+            "uniref_level": actual_uniref_level,
             "framework_revision": framework_revision,
             "run_id": "aggregate",
             "identity_percent": None,
