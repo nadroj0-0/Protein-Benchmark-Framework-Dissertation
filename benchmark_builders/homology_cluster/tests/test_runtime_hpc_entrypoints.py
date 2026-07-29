@@ -322,6 +322,20 @@ class RuntimeHPCEntrypointTests(unittest.TestCase):
         self.assertNotIn("STAGED_CLUSTER_CACHE", driver)
         self.assertNotIn("cp -a \"$HOMOLOGY_CLUSTER_CACHE_ROOT\"", driver)
 
+    def test_runtime_driver_binds_and_probes_persistent_cache_before_initializing_it(self):
+        driver = DRIVER.read_text()
+        bind_call = 'add_mmfp_singularity_bind "$bind_root"'
+        probe_message = "Cluster-cache container read/write preflight passed"
+        initialize_call = "homology_cluster_benchmark.cluster_cache init-root"
+
+        self.assertIn("configure_cluster_cache_container_access()", driver)
+        self.assertIn(bind_call, driver)
+        self.assertIn(probe_message, driver)
+        self.assertIn("HOMOLOGY_CLUSTER_CACHE_PREFLIGHT_ONLY", driver)
+        self.assertIn("CLUSTER_CACHE_PREFLIGHT_COMPLETE.txt", driver)
+        self.assertLess(driver.index(bind_call), driver.index(initialize_call))
+        self.assertLess(driver.index(probe_message), driver.index(initialize_call))
+
 
 if __name__ == "__main__":
     unittest.main()

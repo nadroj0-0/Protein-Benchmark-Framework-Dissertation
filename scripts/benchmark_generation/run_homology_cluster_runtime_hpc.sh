@@ -53,6 +53,11 @@ MIN_COUNT="${MIN_COUNT:-50}"
 
 TEST_MODE="${HOMOLOGY_RUNTIME_TEST_MODE:-0}"
 case "$TEST_MODE" in 0|1) ;; *) echo "HOMOLOGY_RUNTIME_TEST_MODE must be 0 or 1" >&2; exit 2 ;; esac
+CLUSTER_CACHE_PREFLIGHT_ONLY="${HOMOLOGY_CLUSTER_CACHE_PREFLIGHT_ONLY:-0}"
+case "$CLUSTER_CACHE_PREFLIGHT_ONLY" in
+    0|1) ;;
+    *) echo "HOMOLOGY_CLUSTER_CACHE_PREFLIGHT_ONLY must be 0 or 1" >&2; exit 2 ;;
+esac
 if [[ "$TEST_MODE" != "1" ]]; then
     for name in HOMOLOGY_RUNTIME_TEST_BUILD_COMMAND HOMOLOGY_RUNTIME_TEST_COPY_COMMAND; do
         [[ -z "${!name:-}" ]] || {
@@ -369,6 +374,57 @@ checkpoint_disk_usage framework-cloned
 # shellcheck source=../reproduction_common.sh
 source "$FRAMEWORK_DIR/scripts/reproduction_common.sh"
 artifact_catalog_configure "$FRAMEWORK_DIR" "${ARTIFACT_CATALOG:-}"
+
+CLUSTER_CACHE_CONTAINER_BIND_ROOT=""
+configure_cluster_cache_container_access() {
+    local cache_root="$1"
+    local bind_root="$cache_root"
+
+    [[ "$cache_root" == /* && "$cache_root" != "/" ]] || {
+        echo "HOMOLOGY_CLUSTER_CACHE_ROOT must be an absolute non-root path" >&2
+        return 1
+    }
+    while [[ ! -d "$bind_root" ]]; do
+        [[ "$bind_root" != "/" ]] || {
+            echo "No existing directory can be bound for cluster cache: $cache_root" >&2
+            return 1
+        }
+        bind_root="$(dirname "$bind_root")"
+    done
+    [[ "$bind_root" != "/" ]] || {
+        echo "Refusing to bind the host root for cluster cache: $cache_root" >&2
+        return 1
+    }
+
+    add_mmfp_singularity_bind "$bind_root"
+    CLUSTER_CACHE_CONTAINER_BIND_ROOT="$(cd "$bind_root" && pwd -P)"
+
+    "$PYTHON_BIN" - "$cache_root" <<'PY'
+from pathlib import Path
+import os
+import sys
+import uuid
+
+root = Path(sys.argv[1])
+root.mkdir(parents=True, exist_ok=True)
+probe = root / f".container-write-probe-{os.getpid()}-{uuid.uuid4().hex}"
+payload = b"homology-cluster-cache-container-write-ok\n"
+try:
+    with probe.open("xb") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+    if probe.read_bytes() != payload:
+        raise RuntimeError(f"Cluster-cache probe read-back mismatch: {probe}")
+finally:
+    probe.unlink(missing_ok=True)
+print(f"Cluster-cache container read/write preflight passed: {root}")
+PY
+}
+
+if [[ -n "${HOMOLOGY_CLUSTER_CACHE_ROOT:-}" ]]; then
+    configure_cluster_cache_container_access "$HOMOLOGY_CLUSTER_CACHE_ROOT"
+fi
 validate_mmfp_env "$PYTHON_BIN"
 
 MINIMUM_SCRATCH_GB="${MINIMUM_SCRATCH_GB:-275}"
@@ -538,6 +594,16 @@ if [[ -n "$HOMOLOGY_CLUSTER_CACHE_ROOT" \
              "${cluster_cache_required_kb} KiB is required" >&2
         exit 1
     fi
+fi
+if [[ "$CLUSTER_CACHE_PREFLIGHT_ONLY" == "1" ]]; then
+    cat > "$ARTIFACTS/CLUSTER_CACHE_PREFLIGHT_COMPLETE.txt" <<EOF
+status=complete
+cluster_cache_root=$HOMOLOGY_CLUSTER_CACHE_ROOT
+container_bind_root=$CLUSTER_CACHE_CONTAINER_BIND_ROOT
+framework_revision=$FRAMEWORK_REVISION
+EOF
+    echo "Cluster-cache-only preflight completed; MMseqs clustering was not started"
+    exit 0
 fi
 
 download_file() {
