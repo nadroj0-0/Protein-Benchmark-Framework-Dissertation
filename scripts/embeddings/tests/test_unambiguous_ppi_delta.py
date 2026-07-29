@@ -206,6 +206,16 @@ class UnambiguousPpiDeltaTests(unittest.TestCase):
         self.assertEqual(marker["ambiguous_rejected_count"], 1)
         self.assertEqual(marker["base_overlap_count"], 0)
         self.assertTrue(marker["roundtrip_validated"])
+        self.assertEqual(
+            marker["historical_basis"]["repository_commit"],
+            "b00cbcbbf1c1ee60c2adc5da16d54c6ce2c9a95d",
+        )
+        self.assertEqual(
+            marker["selection_rule"], "exactly-one-H5-resident-STRING-ID"
+        )
+        self.assertIn("Ensembl_UniProt", marker["source_tokens"])
+        self.assertIn("Ensembl_HGNC_uniprot_ids", marker["source_tokens"])
+        self.assertEqual(marker["runtime"]["numpy"], np.__version__)
         with tarfile.open(self.output / "ppi_delta.tar.gz", "r:gz") as archive:
             self.assertEqual(archive.getnames(), ["ppi/P2.npy"])
             extracted = archive.extractfile("ppi/P2.npy")

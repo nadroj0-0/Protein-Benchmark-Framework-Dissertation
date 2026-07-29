@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Publish only newly available PPI arrays under the validated wider alias policy.
 
-#$ -l tmem=20G
+#$ -l tmem=30G
 #$ -l tscratch=15G
 #$ -l scratch0free=30G
 #$ -l h_rt=24:0:0
@@ -10,7 +10,7 @@
 #$ -V
 #$ -notify
 
-set -euo pipefail
+set -Eeuo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 
 die() { echo "ERROR: $*" >&2; exit 2; }
@@ -18,12 +18,12 @@ require_value() { [[ $# -ge 2 && -n "$2" ]] || die "$1 requires a value"; }
 git_in_dir() { local directory="$1"; shift; (cd "$directory" && git "$@"); }
 
 AUDIT_ROOT=/SAN/bioinf/bmpfp/diagnostics/string_alias_policy_coverage/7114128_20260726T192824Z
-BASE_PAIR_STATUS=/SAN/bioinf/bmpfp/embeddings/contemporary/2025_01_to_2026_02_supervisor/finalized_pfp_cache/evidence/pair_status.tsv
+BASE_PAIR_STATUS=/SAN/bioinf/bmpfp/embeddings/contemporary/2025_01_to_2026_02_supervisor/variants/text-cutoff-2025-03-08__ppi-paper-faithful/finalized_pfp_cache/evidence/pair_status.tsv
 STRING_H5=/SAN/bioinf/bmpfp/frozen_inputs/string/v12.0/protein.network.embeddings.v12.0.h5
 OUTPUT_PARENT=/SAN/bioinf/bmpfp/embeddings/contemporary/2025_01_to_2026_02_supervisor/ppi_deltas/validated-wider-unambiguous
 EXPECTED_POLICY_DETAILS_SHA256=5c6e8f180e8a39d056ce76f0f80ce2896dcc14f88e5740c6567f2ea2c9d0c96c
 EXPECTED_AUDIT_SUMMARY_SHA256=5d39795bd294ed4d9644b8968962ddd17bf94fa8202fc7e8d763b369d4739d37
-EXPECTED_BASE_PAIR_STATUS_SHA256=cb7547d34d4ae26758f136bb9c574503a1c8ed39d0014e0769c57ff01d2ef8d9
+EXPECTED_BASE_PAIR_STATUS_SHA256=cdbff3243209d4bae9f62b9df2527aa29bb49682f60e868dd78459f08ad0408f
 EXPECTED_STRING_H5_SHA256=a3a5875df30ec4f0568b9f9d6ecc06565659c59befb221d018e819f3ce5add72
 CLI_RESULTS_ROOT=""
 
@@ -119,7 +119,7 @@ cleanup() {
   exit "$status"
 }
 trap cleanup EXIT
-trap 'echo "Received termination signal"; exit 130' INT TERM
+trap 'echo "Received termination signal"; exit 130' INT TERM USR1 USR2
 
 [[ ! -e "$WORK" ]] || die "Scratch path already exists: $WORK"
 [[ ! -e "$RUN_ROOT" ]] || die "Run root already exists: $RUN_ROOT"
@@ -142,8 +142,21 @@ for path in "$WORK" "$AUDIT_ROOT" "$(dirname "$BASE_PAIR_STATUS")" \
   "$(dirname "$STRING_H5")" "$OUTPUT_PARENT"; do
   add_mmfp_singularity_bind "$path"
 done
-activate_or_create_mmfp_env
-PYTHON_BIN="$(command -v python)"
+
+# This CPU-only extractor needs only NumPy and h5py. Avoid importing the full
+# GPU/PFP stack during startup; Grid Engine terminated the previous attempt in
+# that unrelated heavyweight validation before extraction began.
+[[ -x "$CONDA_EXE" ]] || die "Missing conda executable: $CONDA_EXE"
+[[ -x "$MMFP_ENV_DIR/bin/python" ]] || die "Missing mmfp Python: $MMFP_ENV_DIR/bin/python"
+eval "$("$CONDA_EXE" shell.bash hook)"
+conda activate "$MMFP_ENV_DIR"
+PYTHON_BIN="$MMFP_ENV_DIR/bin/python"
+"$PYTHON_BIN" - <<'PY'
+import h5py
+import numpy
+
+print(f"Validated lightweight extraction runtime: numpy={numpy.__version__} h5py={h5py.__version__}")
+PY
 
 {
   echo "Host             : $(hostname)"

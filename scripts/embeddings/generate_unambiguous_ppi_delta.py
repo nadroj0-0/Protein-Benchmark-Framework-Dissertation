@@ -10,8 +10,10 @@ import hashlib
 import io
 import json
 import os
+import platform
 import re
 import shutil
+import sys
 import tarfile
 import tempfile
 import uuid
@@ -431,6 +433,19 @@ def main() -> int:
                 "policy_description": audit_summary["policies"][POLICY][
                     "description"
                 ],
+                "historical_basis": {
+                    "repository_commit": "b00cbcbbf1c1ee60c2adc5da16d54c6ce2c9a95d",
+                    "observed_behavior": (
+                        "historical ppi_check.py accepted every STRING alias source "
+                        "and selected the first row"
+                    ),
+                    "safe_divergence": (
+                        "retain the released sources, add only Ensembl_UniProt and "
+                        "Ensembl_HGNC_uniprot_ids, and require one H5-resident STRING ID"
+                    ),
+                },
+                "source_tokens": sorted(EXPECTED_SOURCES),
+                "selection_rule": "exactly-one-H5-resident-STRING-ID",
                 "target_count": len(targets),
                 "base_accepted_count": len(accepted),
                 "direct_policy_covered_count": len(direct),
@@ -445,6 +460,12 @@ def main() -> int:
                 "mapping_report_sha256": sha256_file(mapping_report),
                 "member_content_sha256": member_content_sha256(vector_hashes),
                 "roundtrip_validated": True,
+                "runtime": {
+                    "python": platform.python_version(),
+                    "numpy": np.__version__,
+                    "h5py": h5py.__version__,
+                    "executable": sys.executable,
+                },
                 "inputs": {
                     "policy_details": str(args.policy_details.resolve()),
                     "policy_details_sha256": policy_sha,
