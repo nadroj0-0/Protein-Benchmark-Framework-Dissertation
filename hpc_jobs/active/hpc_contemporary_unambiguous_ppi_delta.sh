@@ -178,6 +178,7 @@ PY
     --expected-string-h5-sha256 "$EXPECTED_STRING_H5_SHA256" \
     --expected-target-count 156421 \
     --expected-base-count 100334 \
+    --expected-direct-count 126114 \
     --expected-delta-count 26330 \
     --expected-final-count 126664
 } 2>&1 | tee "$WORKFLOW_LOG"

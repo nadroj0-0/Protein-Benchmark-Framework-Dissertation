@@ -52,6 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--expected-string-h5-sha256", required=True)
     parser.add_argument("--expected-target-count", type=int, required=True)
     parser.add_argument("--expected-base-count", type=int, required=True)
+    parser.add_argument("--expected-direct-count", type=int, required=True)
     parser.add_argument("--expected-delta-count", type=int, required=True)
     parser.add_argument("--expected-final-count", type=int, required=True)
     parser.add_argument("--protein-chunk-size", type=int, default=250_000)
@@ -375,18 +376,13 @@ def main() -> int:
                 f"{args.expected_base_count}"
             )
         direct, ambiguous_count = load_policy_details(args.policy_details, targets)
-        missing_base = accepted - direct.keys()
-        if missing_base:
-            sample = ", ".join(sorted(missing_base)[:5])
+        if len(direct) != args.expected_direct_count:
             raise ValueError(
-                f"Widened policy loses {len(missing_base)} accepted baseline PPI "
-                f"proteins; sample: {sample}"
+                f"Direct widened-policy coverage differs: {len(direct)} != "
+                f"{args.expected_direct_count}"
             )
-        if len(direct) != args.expected_final_count:
-            raise ValueError(
-                f"Widened policy coverage differs: {len(direct)} != "
-                f"{args.expected_final_count}"
-            )
+        baseline_not_direct = accepted - direct.keys()
+        direct_base_overlap = accepted & direct.keys()
         delta = {
             protein_id: mapping
             for protein_id, mapping in direct.items()
@@ -398,7 +394,8 @@ def main() -> int:
             raise ValueError(
                 f"Delta count differs: {len(delta)} != {args.expected_delta_count}"
             )
-        if len(accepted | set(delta)) != args.expected_final_count:
+        final_union = accepted | set(delta)
+        if len(final_union) != args.expected_final_count:
             raise ValueError("Final PPI union count differs")
 
         args.work_dir.mkdir(parents=True)
@@ -449,9 +446,15 @@ def main() -> int:
                 "target_count": len(targets),
                 "base_accepted_count": len(accepted),
                 "direct_policy_covered_count": len(direct),
+                "direct_base_overlap_count": len(direct_base_overlap),
+                "baseline_not_direct_count": len(baseline_not_direct),
+                "baseline_not_direct_reason": (
+                    "retained paper-faithful entry-name or sibling-accession mappings "
+                    "outside the direct-ID alias audit"
+                ),
                 "ambiguous_rejected_count": ambiguous_count,
                 "delta_count": len(delta),
-                "final_union_count": len(accepted | set(delta)),
+                "final_union_count": len(final_union),
                 "base_overlap_count": 0,
                 "dimension": 512,
                 "archive": archive.name,

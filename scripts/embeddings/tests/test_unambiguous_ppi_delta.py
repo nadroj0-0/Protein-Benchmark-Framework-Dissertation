@@ -136,7 +136,11 @@ class UnambiguousPpiDeltaTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def command(
-        self, *, delta_count: int = 1, final_count: int | None = None
+        self,
+        *,
+        direct_count: int = 2,
+        delta_count: int = 1,
+        final_count: int | None = None,
     ) -> list[str]:
         if final_count is None:
             final_count = 1 + delta_count
@@ -167,6 +171,8 @@ class UnambiguousPpiDeltaTests(unittest.TestCase):
             "4",
             "--expected-base-count",
             "1",
+            "--expected-direct-count",
+            str(direct_count),
             "--expected-delta-count",
             str(delta_count),
             "--expected-final-count",
@@ -202,6 +208,9 @@ class UnambiguousPpiDeltaTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         marker = json.loads((self.output / "DELTA_COMPLETE.json").read_text())
         self.assertEqual(marker["base_accepted_count"], 1)
+        self.assertEqual(marker["direct_policy_covered_count"], 2)
+        self.assertEqual(marker["direct_base_overlap_count"], 1)
+        self.assertEqual(marker["baseline_not_direct_count"], 0)
         self.assertEqual(marker["delta_count"], 1)
         self.assertEqual(marker["ambiguous_rejected_count"], 1)
         self.assertEqual(marker["base_overlap_count"], 0)
@@ -242,7 +251,7 @@ class UnambiguousPpiDeltaTests(unittest.TestCase):
         self.assertIn("policy details SHA-256 mismatch", result.stderr)
         self.assertFalse(self.output.exists())
 
-    def test_widened_policy_must_retain_every_baseline_vector(self) -> None:
+    def test_indirect_baseline_vector_is_retained_outside_delta(self) -> None:
         self.rewrite_policy_row(
             "P1",
             covered="False",
@@ -252,11 +261,14 @@ class UnambiguousPpiDeltaTests(unittest.TestCase):
             resident_string_ids="",
         )
         result = subprocess.run(
-            self.command(), check=False, capture_output=True, text=True
+            self.command(direct_count=1), check=False, capture_output=True, text=True
         )
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Widened policy loses 1 accepted baseline", result.stderr)
-        self.assertFalse(self.output.exists())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        marker = json.loads((self.output / "DELTA_COMPLETE.json").read_text())
+        self.assertEqual(marker["baseline_not_direct_count"], 1)
+        self.assertEqual(marker["direct_base_overlap_count"], 0)
+        self.assertEqual(marker["delta_count"], 1)
+        self.assertEqual(marker["final_union_count"], 2)
 
     def test_selected_source_must_belong_to_frozen_policy(self) -> None:
         self.rewrite_policy_row(
