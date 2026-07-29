@@ -132,6 +132,26 @@ if [[ -f "$BASELINE_ROOT/provenance/TEXT_GENERATION_COMPLETE.json" ]]; then
     --source-file "corrected-text-generation=$BASELINE_ROOT/provenance/TEXT_GENERATION_COMPLETE.json"
   )
 fi
+if [[ -f "$BASELINE_ROOT/provenance/BASE_CONTRACT.json" ]]; then
+  command+=(
+    --source-file "base-final-contract=$BASELINE_ROOT/provenance/BASE_CONTRACT.json"
+  )
+fi
+if [[ -f "$BASELINE_ROOT/provenance/BASE_VARIANT_COMPLETE.json" ]]; then
+  command+=(
+    --source-file "base-variant-completion=$BASELINE_ROOT/provenance/BASE_VARIANT_COMPLETE.json"
+  )
+fi
+if [[ -f "$BASELINE_ROOT/provenance/DELTA_COMPLETE.json" ]]; then
+  command+=(
+    --source-file "ppi-delta-completion=$BASELINE_ROOT/provenance/DELTA_COMPLETE.json"
+  )
+fi
+if [[ -f "$BASELINE_ROOT/provenance/delta_mapping.tsv.gz" ]]; then
+  command+=(
+    --source-file "ppi-delta-mapping=$BASELINE_ROOT/provenance/delta_mapping.tsv.gz"
+  )
+fi
 
 printf 'Command:'; printf ' %q' "${command[@]}"; printf '\n'
 "${command[@]}" > "$OUTPUT_DIR/initialization_summary.json"
