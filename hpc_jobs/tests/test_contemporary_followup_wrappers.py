@@ -22,6 +22,12 @@ ANALYSIS = (
     / "active"
     / "hpc_contemporary_followup_analysis.sh"
 )
+CENSUS = (
+    REPOSITORY_ROOT
+    / "hpc_jobs"
+    / "active"
+    / "hpc_contemporary_knowledge_cohort_census.sh"
+)
 
 
 class ContemporaryFollowupWrapperTests(unittest.TestCase):
@@ -64,6 +70,21 @@ class ContemporaryFollowupWrapperTests(unittest.TestCase):
         self.assertIn("Paired capture is incomplete", source)
         self.assertIn("text-cutoff-2025-03-08__ppi-paper-faithful", source)
         self.assertNotIn("widened", source.lower())
+
+    def test_census_uses_only_the_outer_transport_manifest_verifier(self):
+        source = CENSUS.read_text(encoding="utf-8")
+        completed = subprocess.run(
+            ["bash", "-n", str(CENSUS)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(source.count("manage_output_manifest.py verify"), 1)
+        self.assertIn('cp -a "$ANALYSIS_OUTPUT" "$PUBLISH_STAGE/analysis"', source)
+        self.assertIn(
+            '--root "$PUBLISH_STAGE" --include-nested-control-files', source
+        )
 
 
 if __name__ == "__main__":

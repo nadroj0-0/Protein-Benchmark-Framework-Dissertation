@@ -141,8 +141,10 @@ echo "==> Reconstructing direct/closure states and cohort census"
   --t1-source-obo "$T1_SOURCE_OBO" \
   --output-dir "$ANALYSIS_OUTPUT" \
   >"$LOG_FILE" 2>&1
-"$PYTHON_BIN" scripts/model_execution/manage_output_manifest.py verify \
-  --root "$ANALYSIS_OUTPUT" --include-nested-control-files
+
+# The census manifest intentionally excludes its RUN_COMPLETE marker to avoid a
+# circular hash. The outer publication manifest below binds both nested control
+# files and is the authoritative transport-integrity check.
 
 echo "==> Publishing cohort census atomically"
 mkdir -p "$PUBLISH_STAGE/logs"

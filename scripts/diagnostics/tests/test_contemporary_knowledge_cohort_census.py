@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import subprocess
 import sys
@@ -223,7 +224,20 @@ class ContemporaryKnowledgeCohortCensusTests(unittest.TestCase):
                 ]
             )
             self.assertTrue((output / "cohort_census.tsv").is_file())
-            self.assertTrue((output / "RUN_COMPLETE.json").is_file())
+            completion_path = output / "RUN_COMPLETE.json"
+            manifest_path = output / "output_manifest.json"
+            self.assertTrue(completion_path.is_file())
+            self.assertTrue(manifest_path.is_file())
+            completion = json.loads(completion_path.read_text(encoding="utf-8"))
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest_paths = {item["path"] for item in manifest["files"]}
+            self.assertNotIn("RUN_COMPLETE.json", manifest_paths)
+            self.assertNotIn("output_manifest.json", manifest_paths)
+            self.assertTrue(completion["complete"])
+            self.assertEqual(
+                completion["output_manifest_sha256"],
+                hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+            )
 
 
 if __name__ == "__main__":
