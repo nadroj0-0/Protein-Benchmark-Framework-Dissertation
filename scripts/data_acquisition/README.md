@@ -30,7 +30,7 @@ The profiles are:
 | Profile | Contents |
 |---|---|
 | `temporal` | UniProt 2025_01 and 2026_02 data required by the contemporary temporal builder; GOA 225 and 234; the frozen t0/t1 GO products. |
-| `homology` | UniProtKB 2026_02 Swiss-Prot and TrEMBL DAT files, UniRef90, `idmapping_selected`, GOA 234, GO 2026-06-19, and the shared threshold-independent preprocessing cache derived from them. |
+| `homology` | UniProtKB 2026_02 Swiss-Prot and TrEMBL DAT files, UniRef50, `idmapping_selected`, GOA 234, GO 2026-06-19, and the UniRef50-specific shared threshold-independent preprocessing cache derived from them. |
 | `embedding-inputs` | STRING v12.0 network embeddings used by PFP PPI extraction. |
 | `references` | Canonical CAFA3 CSVs and GO OBO from Zenodo 7409660, DeepGOPlus CAFA intermediates, and Zijian's published MMFP embeddings/checkpoints/splits from Zenodo 19498341. |
 | `tools` | Pinned MMseqs2 `18-8cc5c` Linux AVX2 archive. |
@@ -53,11 +53,11 @@ The `homology` profile likewise builds one cache at the exact point immediately
 before threshold-specific MMseqs2 work begins:
 
 ```text
-derived_inputs/homology/2026_02/goa_234/sprot-and-trembl/common_preprocessing/
+derived_inputs/homology/2026_02/goa_234/sprot-and-trembl/uniref50/common_preprocessing/
 ```
 
-It contains the GOA spools, UniRef90 SQLite sequence index, selected-UniProt
-catalogue, accession-canonicalisation decisions, and UniProt-to-UniRef90 mapping
+It contains the GOA spools, UniRef50 SQLite sequence index, selected-UniProt
+catalogue, accession-canonicalisation decisions, and UniProt-to-UniRef50 mapping
 decisions that are identical for all six identity thresholds. Its completion
 marker binds every file to all six frozen input hashes, the source scope,
 evidence/ontology policy, and the preprocessing implementation hashes. It never
@@ -67,16 +67,22 @@ The same profile also initializes a separate persistent root for validated,
 threshold-specific MMseqs2 memberships:
 
 ```text
-derived_inputs/homology/2026_02/mmseqs_cluster_cache/CLUSTER_CACHE_ROOT.json
+derived_inputs/homology/2026_02/mmseqs_cluster_assignments/uniref50_sensitivity_4/CLUSTER_CACHE_ROOT.json
 ```
 
 The root marker is catalogued as
-`homology_mmseqs_cluster_cache_root_2026_02`. It is initially tiny; completed
-30%, 25%, 20%, 15%, 10%, and 5% children are published there atomically by the
+`homology_uniref50_mmseqs_cluster_cache_root_2026_02_sensitivity_4`. It is initially tiny; completed
+30%, 25%, 20%, 15%, 10%, and 5% children can be published there atomically by the
 benchmark tasks themselves. The cache is not copied into each task's scratch
-space. It binds UniRef90, the exact MMseqs2 binary/version, and the complete
+space. It binds UniRef50, the exact MMseqs2 binary/version, and the complete
 clustering contract, while deliberately excluding annotation, split, and
 training-population policy.
+
+The UniRef50 FASTA row is pinned to the byte size and MD5 published in UniProt's
+release-`2026_02` `RELEASE.metalink`. The moving `current_release` endpoint is
+checked before and after acquisition and must still identify release `2026_02`.
+This keeps the input frozen even though UniProt does not expose an immutable
+`previous_releases` URL for this UniRef object.
 
 Inspect the plan before starting the large transfer:
 
@@ -104,6 +110,14 @@ bash scripts/data_acquisition/populate_san_frozen_inputs.sh \
   --profile homology --profile tools
 ```
 
+To stage only the authenticated source files before scheduling the common-cache
+build separately, add `--skip-derived`. This is the migration-safe first stage:
+
+```bash
+bash scripts/data_acquisition/populate_san_frozen_inputs.sh \
+  --profile homology --skip-derived
+```
+
 Because `--profile all` transfers roughly 400 GB, run the real acquisition as
 a scheduled cluster job rather than as a long process on the login node.
 
@@ -116,8 +130,8 @@ a scheduled cluster job rather than as a long process on the login node.
   and atomically published. A clean SAN rebuild therefore recreates both raw
   files and these workflow-ready filtered caches in one invocation.
 - The homology common cache is also idempotent. A matching marker skips the
-  expensive GOA/UniProt/idmapping scans and 121-million-sequence UniRef index
-  build; changed inputs, policy, or preprocessing code force an atomic rebuild.
+  expensive GOA/UniProt/idmapping scans and UniRef50 sequence-index build;
+  changed inputs, policy, or preprocessing code force an atomic rebuild.
 - Interrupted transfers remain as `<filename>.partial` and are resumed.
 - Downloads are validated before an atomic rename publishes the final path.
 - Known file sizes and checksums are pinned in the committed catalogue.

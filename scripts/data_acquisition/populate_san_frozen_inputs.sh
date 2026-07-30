@@ -22,6 +22,7 @@ DRY_RUN=0
 VERIFY_ONLY=0
 FULL_VERIFY=0
 LIST_ONLY=0
+SKIP_DERIVED=0
 PROFILES=()
 DOWNLOADED=0
 SKIPPED=0
@@ -36,13 +37,13 @@ DERIVED_T0_RELATIVE="derived_inputs/uniprot/cafa3_target_taxa/2025_01/uniprot_tr
 DERIVED_T1_ROLE="uniprot_trembl_cafa3_targets_t1"
 DERIVED_T1_RELEASE="2026_02"
 DERIVED_T1_RELATIVE="derived_inputs/uniprot/cafa3_target_taxa/2026_02/uniprot_trembl_cafa3_targets.dat.gz"
-HOMOLOGY_CACHE_ROLE="homology_common_preprocessing_2026_02"
+HOMOLOGY_CACHE_ROLE="homology_uniref50_common_preprocessing_2026_02"
 HOMOLOGY_CACHE_SCOPE="sprot-and-trembl"
-HOMOLOGY_CACHE_RELATIVE="derived_inputs/homology/2026_02/goa_234/sprot-and-trembl/common_preprocessing"
+HOMOLOGY_CACHE_RELATIVE="derived_inputs/homology/2026_02/goa_234/sprot-and-trembl/uniref50/common_preprocessing"
 HOMOLOGY_CACHE_ALLOWANCE_GB="${HOMOLOGY_CACHE_ALLOWANCE_GB:-50}"
 CACHE_MARKER="CACHE_COMPLETE.json"
-HOMOLOGY_CLUSTER_CACHE_ROOT_ROLE="homology_mmseqs_cluster_cache_root_2026_02"
-HOMOLOGY_CLUSTER_CACHE_ROOT_RELATIVE="derived_inputs/homology/2026_02/mmseqs_cluster_cache"
+HOMOLOGY_CLUSTER_CACHE_ROOT_ROLE="homology_uniref50_mmseqs_cluster_cache_root_2026_02_sensitivity_4"
+HOMOLOGY_CLUSTER_CACHE_ROOT_RELATIVE="derived_inputs/homology/2026_02/mmseqs_cluster_assignments/uniref50_sensitivity_4"
 HOMOLOGY_CLUSTER_CACHE_ROOT_MARKER="CLUSTER_CACHE_ROOT.json"
 
 usage() {
@@ -61,6 +62,8 @@ Options:
   --verify-only         Require every selected file and fully verify it offline.
   --full-verify         Rehash and structurally inspect existing files. Newly
                         downloaded and derived files are always fully verified.
+  --skip-derived        Acquire/verify selected source files only. Do not build
+                        temporal derivatives or homology cache products.
   --list                List selected catalogue entries and exit.
   --help                Show this help.
 
@@ -115,6 +118,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --full-verify)
             FULL_VERIFY=1
+            shift
+            ;;
+        --skip-derived)
+            SKIP_DERIVED=1
             shift
             ;;
         --list)
@@ -613,7 +620,7 @@ homology_input_url() {
 homology_expected_sha_arguments() {
     local spec_role logical_role source_path
     for binding in \
-        "uniref90_t1|uniref90_fasta" \
+        "uniref50_t1|uniref50_fasta" \
         "idmapping_t1|idmapping" \
         "uniprot_sprot_t1|uniprot_sprot_sequences" \
         "uniprot_trembl_t1|uniprot_trembl_sequences" \
@@ -647,6 +654,7 @@ process_homology_derived_inputs() {
     verify_args+=(
         --cache-dir "$destination"
         --source-scope "$HOMOLOGY_CACHE_SCOPE"
+        --uniref-level 50
     )
     [[ "$FULL_VERIFY" == "1" ]] && verify_args+=(--full-hashes)
 
@@ -681,9 +689,10 @@ process_homology_derived_inputs() {
         --policy-out "$policy" \
         --source-scope "$HOMOLOGY_CACHE_SCOPE" \
         --framework-revision "$revision" \
-        --uniref90-fasta "$(homology_input_path uniref90_t1)" \
-        --uniref90-fasta-url "$(homology_input_url uniref90_t1)" \
-        --uniref90-fasta-acquisition provided-persistent-store \
+        --uniref-level 50 \
+        --uniref50-fasta "$(homology_input_path uniref50_t1)" \
+        --uniref50-fasta-url "$(homology_input_url uniref50_t1)" \
+        --uniref50-fasta-acquisition provided-persistent-store \
         --idmapping "$(homology_input_path idmapping_t1)" \
         --idmapping-url "$(homology_input_url idmapping_t1)" \
         --idmapping-acquisition provided-persistent-store \
@@ -705,7 +714,8 @@ process_homology_derived_inputs() {
         --work-dir "$work_root/build"
         --frozen-input-manifest "$manifest"
         --source-scope "$HOMOLOGY_CACHE_SCOPE"
-        --uniref90-fasta "$(homology_input_path uniref90_t1)"
+        --uniref-level 50
+        --uniref50-fasta "$(homology_input_path uniref50_t1)"
         --idmapping "$(homology_input_path idmapping_t1)"
         --uniprot-sprot-sequences "$(homology_input_path uniprot_sprot_t1)"
         --uniprot-trembl-sequences "$(homology_input_path uniprot_trembl_t1)"
@@ -718,6 +728,7 @@ process_homology_derived_inputs() {
     local final_verify_args=(
         --cache-dir "$destination"
         --source-scope "$HOMOLOGY_CACHE_SCOPE"
+        --uniref-level 50
         --full-hashes
     )
     for binding in "${expected_bindings[@]}"; do
@@ -899,7 +910,7 @@ while IFS=$'\t' read -r profiles role release relative_path url expected_bytes \
     fi
 done < "$SPEC_FILE"
 
-if profile_selected temporal; then
+if [[ "$SKIP_DERIVED" == "0" ]] && profile_selected temporal; then
     selected_count=$((selected_count + 2))
     for derived_entry in \
         "$DERIVED_T0_ROLE|$DERIVED_T0_RELATIVE" \
@@ -917,7 +928,7 @@ if profile_selected temporal; then
     done
 fi
 
-if profile_selected homology; then
+if [[ "$SKIP_DERIVED" == "0" ]] && profile_selected homology; then
     selected_count=$((selected_count + 2))
     destination="$ROOT/$HOMOLOGY_CACHE_RELATIVE/$CACHE_MARKER"
     if [[ ! -s "$destination" ]]; then
@@ -1073,9 +1084,14 @@ if [[ "$needs_goa_guard" == "1" ]]; then
         die "GOA current release metadata changed during acquisition"
 fi
 
-process_temporal_derived_inputs
-process_homology_derived_inputs
-process_homology_cluster_cache_root
+if [[ "$SKIP_DERIVED" == "0" ]]; then
+    process_temporal_derived_inputs
+    process_homology_derived_inputs
+    process_homology_cluster_cache_root
+else
+    echo
+    echo "Skipping derived products by explicit request"
+fi
 
 catalog_metadata
 write_artifact_path_catalog

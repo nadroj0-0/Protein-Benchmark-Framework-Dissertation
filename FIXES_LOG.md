@@ -490,3 +490,30 @@ correction changes contemporary temporal text inputs from the accidentally
 effective 2016 cutoff to the declared 2025 cutoff, so every contemporary model
 that consumes text must be retrained and reevaluated. Existing text artefacts
 remain immutable evidence and must not be merged with their replacements.
+
+## 2026-07-30 - `[compat]` Make UniRef50 the active homology acquisition scaffold
+
+### Observed constraint
+
+Production-scale UniRef90 clustering remained incomplete after multi-day runs. Daniel recommended
+using the pre-clustered UniRef50 scaffold for the sub-50% identity experiments and sensitivity `4`.
+The builder already supported that explicit profile, but the authoritative SAN acquisition
+catalogue and derived-cache path still selected UniRef90.
+
+### Compatibility change
+
+- Replace the active homology catalogue row with release-`2026_02` UniRef50, pinned to the exact
+  byte size and MD5 published in UniProt's `RELEASE.metalink`.
+- Bind the main homology preprocessing cache to UniRef50, idmapping column 10, and a separate
+  `uniref50/common_preprocessing` namespace.
+- Add `--skip-derived` so acquisition and cache construction can be scheduled and reviewed as
+  separate stages.
+- Pin the Grid Engine acquisition checkout when `FRAMEWORK_COMMIT` is supplied.
+- Leave all existing UniRef90 files and caches untouched; retirement is a later storage decision.
+
+### Scientific behavior
+
+This selects a different, explicitly recorded clustering scaffold and is not a byte-identical
+acceleration of the UniRef90 experiment. GOA, UniProt, ontology, evidence-code, split and label
+policies are unchanged. UniRef90 builder support and prior artefacts remain available as legacy
+evidence, but their common and threshold-specific caches are incompatible with UniRef50.

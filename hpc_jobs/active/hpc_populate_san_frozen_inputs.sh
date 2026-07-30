@@ -13,6 +13,7 @@ set -euo pipefail
 
 WORK="/scratch0/san_frozen_inputs_${JOB_ID:-manual}"
 FRAMEWORK_REPO_URL="${FRAMEWORK_REPO_URL:-https://github.com/nadroj0-0/Protein-Benchmark-Framework-Dissertation.git}"
+FRAMEWORK_COMMIT="${FRAMEWORK_COMMIT:-}"
 FRAMEWORK_DIR="$WORK/Protein-Benchmark-Framework-Dissertation"
 SAN_ROOT="${SAN_ROOT:-/SAN/bioinf/bmpfp}"
 SAN_INPUT_PROFILES="${SAN_INPUT_PROFILES:-all}"
@@ -44,8 +45,17 @@ echo "Cache work  : $HOMOLOGY_CACHE_WORK_DIR"
 }
 
 mkdir -p "$WORK"
-git clone "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"
+git clone --no-checkout "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"
 cd "$FRAMEWORK_DIR"
+if [[ -n "$FRAMEWORK_COMMIT" ]]; then
+    [[ "$FRAMEWORK_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]] || {
+        echo "FRAMEWORK_COMMIT must be a 40-character Git revision" >&2
+        exit 2
+    }
+    git checkout --detach "$FRAMEWORK_COMMIT"
+else
+    git checkout --detach origin/main
+fi
 FRAMEWORK_REVISION="$(git rev-parse HEAD)"
 echo "Framework revision: $FRAMEWORK_REVISION"
 

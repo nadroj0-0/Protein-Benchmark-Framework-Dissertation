@@ -59,8 +59,8 @@ job-owned scratch directory, writes large inputs directly to
 `/SAN/bioinf/bmpfp`, and always removes the scratch checkout. Interrupted SAN
 downloads remain as resumable `.partial` files.
 
-The `homology` profile also creates the shared pre-MMseqs preprocessing cache in
-SAN. That one-time build uses job scratch for its SQLite/spool intermediates;
+The `homology` profile also creates the UniRef50-specific shared pre-MMseqs
+preprocessing cache in SAN. That one-time build uses job scratch for its SQLite/spool intermediates;
 subsequent invocations validate its derivation contract and skip it.
 
 Submit the full catalogue with:
@@ -75,6 +75,18 @@ Select profiles without editing the wrapper:
 qsub -v SAN_INPUT_PROFILES=homology,tools \
   hpc_jobs/active/hpc_populate_san_frozen_inputs.sh
 ```
+
+For a staged migration, acquire and authenticate the UniRef50 source without
+starting any derived-cache work:
+
+```bash
+qsub -v SAN_INPUT_PROFILES=homology,FRAMEWORK_COMMIT=REVIEWED_COMMIT \
+  hpc_jobs/active/hpc_populate_san_frozen_inputs.sh --skip-derived
+```
+
+After that job publishes and verifies the UniRef50 FASTA, submit
+`hpc_homology_uniref50_common_cache.sh`. Neither stage removes or overwrites the
+legacy UniRef90 FASTA or common cache.
 
 The scheduler-neutral implementation and complete inventory are documented in
 [`scripts/data_acquisition/README.md`](../scripts/data_acquisition/README.md).
@@ -502,7 +514,7 @@ qsub hpc_jobs/active/hpc_homology_cluster_runtime_array.sh
 The array maps tasks `1-6` to `30, 25, 20, 15, 10, 5%` and uses `-tc 6`, so all six independent
 tasks are eligible to run concurrently when Grid Engine can place them. Node-local scratch is not
 shared between array tasks. When the portable artifact catalogue contains
-`homology_common_preprocessing_2026_02`, each task stages that cache and skips the repeated
+the legacy `homology_common_preprocessing_2026_02`, each UniRef90 task stages that cache and skips the repeated
 pre-MMseqs scans; otherwise every task retains the original raw-input/download fallback.
 The 30% diagnostic pilot requests approximately `300G` scratch in total. UCL Grid Engine accounts
 the consumable `tmem` and `tscratch` requests per SMP slot. The pilot uses four slots at
@@ -532,8 +544,8 @@ fails before clustering unless both that cache root and the precomputed shared p
 are available, preventing a fallback rebuild or scratch cleanup from discarding the expensive
 scientific result.
 
-The UniRef50 route is a second, separately namespaced alternative. It leaves all UniRef90 scripts,
-inputs, caches, and outputs intact:
+The UniRef50 route is the active homology acquisition profile and remains separately namespaced.
+It leaves all existing UniRef90 scripts, inputs, caches, and outputs intact:
 
 ```text
 hpc_jobs/active/hpc_homology_uniref50_common_cache.sh
@@ -548,21 +560,21 @@ The six-task array refuses to start without that cache. It then selects `UNIREF_
 `uniref50_sensitivity_4` paths. A different UniRef50 sensitivity can be tested by overriding
 `MMSEQS_SENSITIVITY`, but it produces a distinct contract-keyed cluster cache and result namespace.
 
-Do not submit either job before the UniRef50 FASTA is present. Once it is staged, the intended order is:
+Do not submit the cache or clustering job before the UniRef50 FASTA is present. The intended order is:
 
 ```bash
-bash scripts/data_acquisition/download_uniref50_for_homology.sh \
-  /SAN/bioinf/bmpfp/frozen_inputs/uniref50/2026_02/uniref50.fasta.gz
+qsub -v SAN_INPUT_PROFILES=homology,FRAMEWORK_COMMIT=REVIEWED_COMMIT \
+  hpc_jobs/active/hpc_populate_san_frozen_inputs.sh --skip-derived
 qsub hpc_jobs/active/hpc_homology_uniref50_common_cache.sh
 # Submit only after the cache job completes and verifies successfully.
 qsub hpc_jobs/active/hpc_homology_cluster_runtime_array_24core_uniref50.sh
 ```
 
-The download helper is intentionally separate and was not run during implementation. It refuses
-to overwrite an existing file, requires the mutable UniProt endpoint to still report release
-`2026_02` before and after transfer, validates gzip/FASTA structure, and publishes SHA-256 and
-provenance sidecars atomically. This allows UniRef90 to be archived or removed under a separate,
-explicit storage decision before any UniRef50 bytes are written.
+The download helper remains a focused convenience entrypoint. It refuses to overwrite an existing
+file, requires the mutable UniProt endpoint to still report release `2026_02` before and after
+transfer, checks the official `RELEASE.metalink` size and MD5, validates gzip/FASTA structure, and
+publishes SHA-256 and provenance sidecars atomically. The authoritative SAN catalogue now enforces
+the same size and MD5 through the normal `homology` profile.
 
 Both wrappers delegate to
 `scripts/benchmark_generation/run_homology_cluster_runtime_hpc.sh`. That driver:

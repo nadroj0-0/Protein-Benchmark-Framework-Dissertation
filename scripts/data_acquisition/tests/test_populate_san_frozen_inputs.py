@@ -344,11 +344,63 @@ class SanAcquisitionTest(unittest.TestCase):
         self.assertNotIn("goa/current_release_numbers.txt", specification)
         self.assertNotIn("goa_t1_md5", specification)
 
+    def test_homology_profile_uses_pinned_uniref50_scaffold(self) -> None:
+        specification = PRODUCTION_SPEC.read_text(encoding="utf-8")
+        matching = [
+            line
+            for line in specification.splitlines()
+            if "\tuniref50_t1\t2026_02\t" in line
+        ]
+        self.assertEqual(len(matching), 1)
+        fields = matching[0].split("\t")
+        self.assertEqual(fields[0], "homology")
+        self.assertEqual(
+            fields[3], "frozen_inputs/uniref50/2026_02/uniref50.fasta.gz"
+        )
+        self.assertEqual(
+            fields[4],
+            "https://ftp.uniprot.org/pub/databases/uniprot/current_release/"
+            "uniref/uniref50/uniref50.fasta.gz",
+        )
+        self.assertEqual(fields[5], "8770260598")
+        self.assertEqual(fields[6], "md5")
+        self.assertEqual(fields[7], "3228886e9d749f050f60e9a0ce1f727d")
+        self.assertNotIn("\tuniref90_t1\t", specification)
+
+    def test_skip_derived_keeps_dry_run_source_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            spec = workspace / "spec.tsv"
+            spec.write_text(
+                "# profiles\trole\trelease\trelative_path\turl\texpected_bytes\t"
+                "checksum_algorithm\texpected_checksum\tvalidator\n"
+                "homology\tuniref50_t1\ttest\tfrozen/uniref50.fasta.gz\t"
+                "https://example.invalid/uniref50.fasta.gz\t10\t-\t-\tfasta-gzip\n",
+                encoding="ascii",
+            )
+            root = workspace / "not-created"
+            result = self.run_script(
+                root,
+                spec,
+                "--profile",
+                "homology",
+                "--skip-derived",
+                "--dry-run",
+            )
+            self.assertIn("uniref50_t1", result.stdout)
+            self.assertNotIn("homology_uniref50_common_preprocessing", result.stdout)
+            self.assertFalse(root.exists())
+
     def test_homology_profile_defines_idempotent_common_preprocessing_cache(self) -> None:
         script = SCRIPT.read_text(encoding="utf-8")
         self.assertIn(
-            'HOMOLOGY_CACHE_ROLE="homology_common_preprocessing_2026_02"', script
+            'HOMOLOGY_CACHE_ROLE="homology_uniref50_common_preprocessing_2026_02"',
+            script,
         )
+        self.assertIn('"uniref50_t1|uniref50_fasta"', script)
+        self.assertIn('--uniref-level 50', script)
+        self.assertIn('--uniref50-fasta "$(homology_input_path uniref50_t1)"', script)
+        self.assertNotIn('--uniref90-fasta "$(homology_input_path uniref90_t1)"', script)
         self.assertIn("process_homology_derived_inputs()", script)
         self.assertIn("homology_cluster_benchmark.common_cache", script)
         self.assertIn('verify "${verify_args[@]}"', script)
@@ -357,7 +409,7 @@ class SanAcquisitionTest(unittest.TestCase):
         self.assertIn("process_homology_derived_inputs", script)
         self.assertIn("$HOMOLOGY_CACHE_RELATIVE/$CACHE_MARKER", script)
         self.assertIn(
-            'HOMOLOGY_CLUSTER_CACHE_ROOT_ROLE="homology_mmseqs_cluster_cache_root_2026_02"',
+            'HOMOLOGY_CLUSTER_CACHE_ROOT_ROLE="homology_uniref50_mmseqs_cluster_cache_root_2026_02_sensitivity_4"',
             script,
         )
         self.assertIn("process_homology_cluster_cache_root()", script)
@@ -365,6 +417,7 @@ class SanAcquisitionTest(unittest.TestCase):
         self.assertIn("init-root --cache-root", script)
         self.assertIn("verify-root --cache-root", script)
         self.assertIn("process_homology_cluster_cache_root", script)
+        self.assertIn('if [[ "$SKIP_DERIVED" == "0" ]]; then', script)
 
 
 if __name__ == "__main__":

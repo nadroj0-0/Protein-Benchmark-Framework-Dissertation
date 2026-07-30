@@ -11,6 +11,8 @@ DESTINATION="${1:-}"
 
 URL="https://ftp.uniprot.org/pub/databases/uniprot/current_release/uniref/uniref50/uniref50.fasta.gz"
 RELNOTES_URL="https://ftp.uniprot.org/pub/databases/uniprot/current_release/relnotes.txt"
+EXPECTED_BYTES=8770260598
+EXPECTED_MD5=3228886e9d749f050f60e9a0ce1f727d
 MINIMUM_FREE_GB="${MINIMUM_FREE_GB:-60}"
 [[ "$MINIMUM_FREE_GB" =~ ^[1-9][0-9]*$ ]] || {
     echo "MINIMUM_FREE_GB must be a positive integer" >&2
@@ -20,6 +22,14 @@ MINIMUM_FREE_GB="${MINIMUM_FREE_GB:-60}"
 mkdir -p "$(dirname "$DESTINATION")"
 if [[ -s "$DESTINATION" && -s "$DESTINATION.sha256" ]]; then
     (cd "$(dirname "$DESTINATION")" && sha256sum -c "$(basename "$DESTINATION").sha256")
+    [[ "$(stat -c '%s' "$DESTINATION")" == "$EXPECTED_BYTES" ]] || {
+        echo "Existing UniRef50 input has the wrong byte size" >&2
+        exit 1
+    }
+    [[ "$(md5sum "$DESTINATION" | awk '{print $1}')" == "$EXPECTED_MD5" ]] || {
+        echo "Existing UniRef50 input does not match UniProt RELEASE.metalink" >&2
+        exit 1
+    }
     gzip -t "$DESTINATION"
     echo "Validated existing UniRef50 input: $DESTINATION"
     exit 0
@@ -58,6 +68,14 @@ grep -Eq 'UniProt Release[[:space:]]+2026_02([^0-9]|$)' "$relnotes_before" || {
 
 curl --fail --location --retry 5 --continue-at - --output "$partial" "$URL"
 [[ -s "$partial" ]] || { echo "Downloaded UniRef50 file is empty" >&2; exit 1; }
+[[ "$(stat -c '%s' "$partial")" == "$EXPECTED_BYTES" ]] || {
+    echo "Downloaded UniRef50 file has the wrong byte size" >&2
+    exit 1
+}
+[[ "$(md5sum "$partial" | awk '{print $1}')" == "$EXPECTED_MD5" ]] || {
+    echo "Downloaded UniRef50 file does not match UniProt RELEASE.metalink" >&2
+    exit 1
+}
 gzip -t "$partial"
 python3 - "$partial" <<'PY'
 import gzip
