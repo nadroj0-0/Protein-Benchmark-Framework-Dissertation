@@ -422,8 +422,12 @@ fi
 if [[ -n "$IA_FILE_DIR" ]]; then add_input_kb "$IA_FILE_DIR"; fi
 if [[ -n "$CLI_CONFIG" ]]; then add_input_kb "$CLI_CONFIG"; fi
 if [[ -n "$EXPECTED_METRICS" ]]; then add_input_kb "$EXPECTED_METRICS"; fi
-for evidence in "${BENCHMARK_EVIDENCE[@]}"; do add_input_kb "$evidence"; done
-for evidence in "${EMBEDDING_EVIDENCE[@]}"; do add_input_kb "$evidence"; done
+if [[ "$BENCHMARK_EVIDENCE_COUNT" -gt 0 ]]; then
+  for evidence in "${BENCHMARK_EVIDENCE[@]}"; do add_input_kb "$evidence"; done
+fi
+if [[ "$EMBEDDING_EVIDENCE_COUNT" -gt 0 ]]; then
+  for evidence in "${EMBEDDING_EVIDENCE[@]}"; do add_input_kb "$evidence"; done
+fi
 scratch_free_kb="$(df -Pk /scratch0 | awk 'END {print $4}')"
 required_kb=$((input_kb + 80 * 1024 * 1024))
 echo "Staged input estimate: ${input_kb} KiB"
