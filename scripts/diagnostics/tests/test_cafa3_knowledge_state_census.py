@@ -44,28 +44,29 @@ def add_tar_bytes(archive: tarfile.TarFile, name: str, value: str) -> None:
 
 
 def write_archive(path: Path, overlap: bool = False) -> None:
-    with tarfile.open(path, "w:gz") as archive:
+    # Match the organizer artifact: benchmark20171115.tar is uncompressed and
+    # contains the benchmark README, not the separate CAFA3 target package.
+    with tarfile.open(path, "w:") as archive:
         add_tar_bytes(archive, "benchmark20171115/00README.txt", "official benchmark\n")
-        add_tar_bytes(archive, "CAFA3_targets/00README.txt", "type definitions\n")
         for prefix in ROOTS:
             nk = f"{prefix.upper()}_NK\n"
-            lk = f"{prefix.upper()}_LK\n"
+            lk = f"{prefix.upper()}_LK\n{prefix.upper()}_TOOFEW\n"
             if overlap:
                 lk += f"{prefix.upper()}_NK\n"
             add_tar_bytes(
                 archive,
-                f"benchmark20171115/lists/{prefix}_all_type1.txt",
+                f"benchmark20171115/lists/{prefix}o_all_type1.txt",
                 nk,
             )
             add_tar_bytes(
                 archive,
-                f"benchmark20171115/lists/{prefix}_all_type2.txt",
+                f"benchmark20171115/lists/{prefix}o_all_type2.txt",
                 lk,
             )
             add_tar_bytes(
                 archive,
-                f"benchmark20171115/lists/{prefix}_all_typex.txt",
-                nk + f"{prefix.upper()}_LK\n",
+                f"benchmark20171115/lists/{prefix}o_all_typex.txt",
+                nk + f"{prefix.upper()}_LK\n{prefix.upper()}_TOOFEW\n",
             )
             add_tar_bytes(
                 archive,
@@ -94,7 +95,7 @@ class Cafa3KnowledgeStateCensusTests(unittest.TestCase):
         for prefix in ROOTS:
             for split in ("training", "validation", "test"):
                 write_csv(csv_dir / f"{prefix}-{split}.csv", prefix, split)
-        archive = root / "data-cafa.tar.gz"
+        archive = root / "benchmark20171115.tar"
         write_archive(archive, overlap=overlap)
         output = root / "output"
         completed = subprocess.run(
@@ -139,6 +140,43 @@ class Cafa3KnowledgeStateCensusTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("type1/type2 lists overlap", completed.stderr)
+        self.assertFalse(output.exists())
+
+    def test_rejects_processed_archive_without_organizer_lists_with_actionable_error(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        csv_dir = root / "csvs"
+        csv_dir.mkdir()
+        for prefix in ROOTS:
+            for split in ("training", "validation", "test"):
+                write_csv(csv_dir / f"{prefix}-{split}.csv", prefix, split)
+        archive = root / "data-cafa.tar.gz"
+        with tarfile.open(archive, "w:gz") as handle:
+            add_tar_bytes(
+                handle,
+                "benchmark20171115/groundtruth/leafonly_all.txt",
+                "BP_NK GO:1000001\n",
+            )
+        output = root / "output"
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--published-csv-dir",
+                str(csv_dir),
+                "--official-cafa-archive",
+                str(archive),
+                "--output-dir",
+                str(output),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("benchmark20171115.tar", completed.stderr)
+        self.assertIn("not the processed DeepGOPlus", completed.stderr)
         self.assertFalse(output.exists())
 
 

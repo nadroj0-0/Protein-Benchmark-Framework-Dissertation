@@ -164,7 +164,7 @@ snapshot:
 ```bash
 python scripts/diagnostics/build_cafa3_knowledge_state_census.py \
   --published-csv-dir /path/to/zijian-nine-csvs \
-  --official-cafa-archive /path/to/data-cafa.tar.gz \
+  --official-cafa-archive /path/to/benchmark20171115.tar \
   --output-dir /path/to/new/cafa3-knowledge-census
 ```
 
@@ -173,6 +173,11 @@ This classifies test rows with CAFA3's official `type1` (no-knowledge) and
 CSVs, retains the same state labels for organizer `too_few` targets while
 marking them separately, and cross-tabulates each state against root-only/non-root
 observed truth.
+
+`benchmark20171115.tar` is the organizer benchmark bundled inside the CAFA3
+report's public Figshare supplement (`10.6084/m9.figshare.8135393.v3`). Do not
+substitute DeepGOPlus's processed `data-cafa.tar.gz`; it contains ground truth
+but not the organizer `type1`/`type2` target lists required for this census.
 The official lists apply only to challenge targets, so training and validation
 receive root-state counts but no invented CAFA knowledge-state label.
 

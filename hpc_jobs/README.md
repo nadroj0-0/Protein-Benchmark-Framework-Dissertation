@@ -33,10 +33,12 @@ no-knowledge, cross-ontology-known and same-ontology-partial cohort counts.
 
 `active/hpc_cafa3_knowledge_state_census.sh` is the inexpensive CPU-only CAFA3
 counterpart. It reads Zijian's exact nine published CSVs and the organizer's
-`type1`/`type2` target lists from `data-cafa.tar.gz`, then publishes the NK/LK
+`type1`/`type2` target lists from the CAFA3 report's `benchmark20171115.tar`,
+then publishes the NK/LK
 composition, official-list alignment and root-only/non-root truth cross-tabs.
-It does not download or approximate the private challenge endpoint with a later
-public GOA release.
+The wrapper pins the official archive by SHA-256. It does not substitute
+DeepGOPlus's processed `data-cafa.tar.gz`, download a later GOA release, or
+approximate the private challenge endpoint.
 
 Use `configs/pfp_benchmark_run.cafa3.json`,
 `configs/pfp_benchmark_run.temporal.json`, or

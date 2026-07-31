@@ -48,7 +48,8 @@ done
 [[ ! -e "$OUTPUT_DIR" ]] || die "Output directory already exists: $OUTPUT_DIR"
 
 PUBLISHED_CSV_DIR="${PUBLISHED_CSV_DIR:-/SAN/bioinf/bmpfp/reference_artifacts/canonical_cafa3}"
-OFFICIAL_CAFA_ARCHIVE="${OFFICIAL_CAFA_ARCHIVE:-/SAN/bioinf/bmpfp/reference_artifacts/deepgoplus/data-cafa.tar.gz}"
+OFFICIAL_CAFA_ARCHIVE="${OFFICIAL_CAFA_ARCHIVE:-/SAN/bioinf/bmpfp/reference_artifacts/cafa3_official/benchmark20171115.tar}"
+OFFICIAL_CAFA_ARCHIVE_SHA256="${OFFICIAL_CAFA_ARCHIVE_SHA256:-d41dd38436461f4aa8072fca0e3c7476f36475e68cf1dc2555e78ccbdb15d70c}"
 
 for prefix in bp cc mf; do
   for split in training validation test; do
@@ -58,6 +59,11 @@ for prefix in bp cc mf; do
 done
 [[ -s "$OFFICIAL_CAFA_ARCHIVE" ]] || \
   die "Official CAFA3 archive is missing or empty: $OFFICIAL_CAFA_ARCHIVE"
+[[ "$OFFICIAL_CAFA_ARCHIVE_SHA256" =~ ^[0-9a-fA-F]{64}$ ]] || \
+  die "OFFICIAL_CAFA_ARCHIVE_SHA256 must be a SHA-256 digest"
+OBSERVED_CAFA_SHA256="$(sha256sum "$OFFICIAL_CAFA_ARCHIVE" | awk '{print $1}')"
+[[ "$OBSERVED_CAFA_SHA256" == "${OFFICIAL_CAFA_ARCHIVE_SHA256,,}" ]] || \
+  die "Official CAFA3 archive SHA-256 mismatch: expected $OFFICIAL_CAFA_ARCHIVE_SHA256, observed $OBSERVED_CAFA_SHA256"
 
 JOB_TOKEN="${JOB_ID:-manual_$$}"
 WORK="/scratch0/c3_cohort_${JOB_TOKEN}"
@@ -94,6 +100,7 @@ echo "Job ID           : ${JOB_ID:-manual}"
 echo "Analysis         : official CAFA3 knowledge-state census"
 echo "Published CSVs   : $PUBLISHED_CSV_DIR"
 echo "Official archive : $OFFICIAL_CAFA_ARCHIVE"
+echo "Archive SHA-256  : $OBSERVED_CAFA_SHA256"
 echo "SAN output       : $OUTPUT_DIR"
 echo "Started          : $(date -Is)"
 

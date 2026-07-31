@@ -95,7 +95,13 @@ class ContemporaryFollowupWrapperTests(unittest.TestCase):
     def test_cafa3_census_uses_official_lists_and_published_csvs(self):
         source = CAFA3_CENSUS.read_text(encoding="utf-8")
         self.assertIn("canonical_cafa3", source)
-        self.assertIn("data-cafa.tar.gz", source)
+        self.assertIn("cafa3_official/benchmark20171115.tar", source)
+        self.assertIn(
+            "d41dd38436461f4aa8072fca0e3c7476f36475e68cf1dc2555e78ccbdb15d70c",
+            source,
+        )
+        self.assertIn("Official CAFA3 archive SHA-256 mismatch", source)
+        self.assertNotIn("deepgoplus/data-cafa.tar.gz", source)
         self.assertIn("build_cafa3_knowledge_state_census.py", source)
         self.assertNotIn("goa_uniprot", source)
         self.assertNotIn("train.py", source)

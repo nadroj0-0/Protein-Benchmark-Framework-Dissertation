@@ -37,11 +37,8 @@ KNOWLEDGE_STATES = (
     "limited_knowledge",
     "unclassified_by_official_lists",
 )
-OFFICIAL_LIST_TEMPLATE = "benchmark20171115/lists/{prefix}_all_{kind}.txt"
-OFFICIAL_READMES = (
-    "benchmark20171115/00README.txt",
-    "CAFA3_targets/00README.txt",
-)
+OFFICIAL_LIST_TEMPLATE = "benchmark20171115/lists/{prefix}o_all_{kind}.txt"
+OFFICIAL_READMES = ("benchmark20171115/00README.txt",)
 TOO_FEW_PATTERN = re.compile(
     r"^benchmark20171115/lists/too_few/(bp|cc|mf)o_[^/]+_(type1|type2)\.txt$"
 )
@@ -153,7 +150,14 @@ def _read_archive_members(
 
     payloads: dict[str, bytes] = {}
     source_members: dict[str, dict[str, Any]] = {}
-    with tarfile.open(archive_path, mode="r:gz") as archive:
+    try:
+        archive = tarfile.open(archive_path, mode="r:*")
+    except tarfile.ReadError as exc:
+        raise ValueError(
+            "Official CAFA3 benchmark input is not a readable tar archive: "
+            f"{archive_path}"
+        ) from exc
+    with archive:
         for member in archive:
             normalized = member.name.lstrip("./")
             matches = [name for name in expected if _match_tar_member(member.name, name)]
@@ -190,7 +194,11 @@ def _read_archive_members(
 
     missing = sorted(expected - payloads.keys())
     if missing:
-        raise ValueError(f"CAFA archive lacks required organizer files: {missing}")
+        raise ValueError(
+            "CAFA archive lacks required organizer files. Supply the organizer "
+            "benchmark20171115.tar from the CAFA3 report supplement, not the "
+            f"processed DeepGOPlus data-cafa.tar.gz archive. Missing: {missing}"
+        )
     return payloads, source_members
 
 
@@ -253,10 +261,12 @@ def _build_summary(
             else:
                 state = "unclassified_by_official_lists"
                 official_type = ""
-            if protein_id in by_type["main_type1"] or protein_id in by_type["main_type2"]:
-                official_list_group = "main_all"
-            elif protein_id in by_type["too_few_type1"] or protein_id in by_type["too_few_type2"]:
+            # The organizer's aggregate all-target lists include the targets
+            # repeated under too_few, so test the narrower diagnostic first.
+            if protein_id in by_type["too_few_type1"] or protein_id in by_type["too_few_type2"]:
                 official_list_group = "too_few"
+            elif protein_id in by_type["main_type1"] or protein_id in by_type["main_type2"]:
+                official_list_group = "main_all"
             else:
                 official_list_group = ""
             truth = test[protein_id]
