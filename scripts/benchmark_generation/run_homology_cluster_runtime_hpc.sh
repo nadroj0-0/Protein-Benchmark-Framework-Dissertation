@@ -36,7 +36,7 @@ case "$UNIPROT_SOURCE_SCOPE" in
     *) echo "Unsupported UNIPROT_SOURCE_SCOPE=$UNIPROT_SOURCE_SCOPE" >&2; exit 2 ;;
 esac
 
-SPLIT_POLICY="${SPLIT_POLICY:-sequence-balanced}"
+SPLIT_POLICY="${SPLIT_POLICY:-cluster-count-random}"
 TRAINING_POPULATION="${TRAINING_POPULATION:-annotated-only}"
 SEED="${SEED:-0}"
 MIN_COUNT="${MIN_COUNT:-50}"

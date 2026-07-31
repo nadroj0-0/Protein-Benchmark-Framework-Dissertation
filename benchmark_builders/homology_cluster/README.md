@@ -269,6 +269,10 @@ The two split policies assign indivisible, deterministically ordered MMseqs2 clu
 - `sequence-balanced` targets UniRef90 member counts with deterministic bounded candidate, move,
   and swap refinement.
 
+Production defaults to `cluster-count-random`, matching Daniel's random whole-cluster split.
+`sequence-balanced` remains available for the earlier sensitivity analysis and exact reproduction
+of outputs that recorded that policy.
+
 Achieved ratios and the largest indivisible cluster are reported. Split deviations are governed by
 the reviewed attrition policy; there is no hidden hard-coded biological tolerance.
 
@@ -486,7 +490,7 @@ export GO_OBO='/persistent/inputs/go-basic.obo'
 export GO_OBO_SHA256='<reviewed-64-hex>'
 export MMSEQS_BIN='/path/on/compute/node/mmseqs'
 export EXPECTED_MMSEQS_VERSION='<exact-mmseqs-version-token>'
-export SPLIT_POLICY=sequence-balanced
+export SPLIT_POLICY=cluster-count-random
 export TRAINING_POPULATION=annotated-only
 export SEED=0
 export MIN_COUNT=50

@@ -12,7 +12,7 @@ artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 IDENTITY="${IDENTITY:-30}"
-SPLIT_POLICY="${SPLIT_POLICY:-sequence-balanced}"
+SPLIT_POLICY="${SPLIT_POLICY:-cluster-count-random}"
 TRAINING_POPULATION="${TRAINING_POPULATION:-annotated-only}"
 UNIPROT_SOURCE_SCOPE="${UNIPROT_SOURCE_SCOPE:-}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-$FRAMEWORK_ROOT/results/homology_cluster_benchmark}"

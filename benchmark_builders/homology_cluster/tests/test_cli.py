@@ -32,6 +32,7 @@ class CLITests(unittest.TestCase):
             text = output.getvalue()
             self.assertIn('"uniref_level": 50', text)
             self.assertIn('"sensitivity": 4.0', text)
+            self.assertIn("/cluster-count-random/annotated-only/", text)
             self.assertIn("uniref50_db", text)
             self.assertIn("uniref50_sensitivity_4", text)
 

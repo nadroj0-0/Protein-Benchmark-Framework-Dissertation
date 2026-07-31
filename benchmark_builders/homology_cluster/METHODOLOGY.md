@@ -25,6 +25,11 @@ namespaced UniRef50/`4` profile. This is treated as a methodological profile cha
 byte-identical acceleration: UniRef50's existing 50% groups and representatives become the input
 scaffold before the lower-identity MMseqs2 clustering.
 
+The selected production split is `cluster-count-random`: retained clusters are shuffled with the
+fixed seed and allocated by cluster count while remaining indivisible. The earlier
+`sequence-balanced` policy remains implemented only for recorded sensitivity comparisons and
+reproduction of historical framework outputs.
+
 ### Required by established PFP and benchmark contracts
 
 - The nine BP/CC/MF training/validation/test CSVs begin with `proteins,sequences`.

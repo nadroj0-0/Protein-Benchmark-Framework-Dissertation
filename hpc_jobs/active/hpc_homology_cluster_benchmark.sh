@@ -160,7 +160,7 @@ if [[ "$TEST_MODE" != "1" ]]; then
     done
 fi
 
-SPLIT_POLICY="${SPLIT_POLICY:-sequence-balanced}"
+SPLIT_POLICY="${SPLIT_POLICY:-cluster-count-random}"
 SEED="${SEED:-0}"
 MIN_COUNT="${MIN_COUNT:-50}"
 case "$SPLIT_POLICY" in

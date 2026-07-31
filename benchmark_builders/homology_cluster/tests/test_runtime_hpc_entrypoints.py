@@ -87,6 +87,7 @@ class RuntimeHPCEntrypointTests(unittest.TestCase):
         self.assertIn("#$ -t 1\n", worker)
         self.assertIn("export UNIREF_LEVEL=50", worker)
         self.assertIn("export MMSEQS_SENSITIVITY=4", worker)
+        self.assertIn("export SPLIT_POLICY=cluster-count-random", worker)
         self.assertIn("supervisor_daniel_buchan", worker)
         self.assertIn("EXTERNAL_CLUSTER_ASSIGNMENTS", worker)
         self.assertIn("EXTERNAL_CLUSTER_PROVENANCE", worker)

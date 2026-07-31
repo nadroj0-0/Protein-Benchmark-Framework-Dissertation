@@ -20,7 +20,7 @@
   "schema_name": "homology-cluster-pilot-approval",
   "schema_version": 1,
   "scratch_peak_bytes": 0,
-  "split_policy": "sequence-balanced",
+  "split_policy": "cluster-count-random",
   "successful_completion_marker_sha256": "REPLACE_WITH_64_HEX_SHA256",
   "training_population": "annotated-only",
   "uniprot_source_scope": "REPLACE_WITH_EXPLICIT_SCOPE",

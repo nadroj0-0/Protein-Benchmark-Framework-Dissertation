@@ -16,6 +16,7 @@ FRAMEWORK_ROOT="${FRAMEWORK_SOURCE_ROOT:-${SGE_O_WORKDIR:-$PWD}}"
 SUPERVISOR_ROOT="/SAN/bioinf/bmpfp/derived_inputs/homology/2026_02/supervisor_daniel_buchan/mmseqs_cluster_assignments/uniref50_sensitivity_4/identity_30/raw"
 
 export HOMOLOGY_RUNTIME_KIND=pilot
+export SPLIT_POLICY=cluster-count-random
 export MMSEQS_PROFILE=daniel-aligned-defaults
 export UNIREF_LEVEL=50
 export MMSEQS_SENSITIVITY=4

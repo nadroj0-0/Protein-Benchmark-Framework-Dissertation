@@ -93,7 +93,7 @@ class BuildConfig:
     goa: InputSpec
     go_obo: InputSpec
     uniref_level: int = 90
-    split_policy: str = "sequence-balanced"
+    split_policy: str = "cluster-count-random"
     training_population: str = "annotated-only"
     mmseqs_bin: str = "mmseqs"
     expected_mmseqs_version: str | None = None

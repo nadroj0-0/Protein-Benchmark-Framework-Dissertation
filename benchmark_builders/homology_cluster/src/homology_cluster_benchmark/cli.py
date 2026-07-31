@@ -54,7 +54,11 @@ def _parser() -> argparse.ArgumentParser:
         "--identity", action="append", default=[], metavar="{30,25,20,15,10,5,all}",
         help="Locked identity percentage; repeat or use 'all'",
     )
-    build.add_argument("--split-policy", choices=("cluster-count-random", "sequence-balanced"), default="sequence-balanced")
+    build.add_argument(
+        "--split-policy",
+        choices=("cluster-count-random", "sequence-balanced"),
+        default="cluster-count-random",
+    )
     build.add_argument(
         "--training-population", choices=("annotated-only", "all-cluster-members"),
         default="annotated-only",
