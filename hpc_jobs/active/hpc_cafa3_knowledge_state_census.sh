@@ -109,22 +109,30 @@ fi
 echo "Framework commit : $FRAMEWORK_COMMIT"
 
 cd "$FRAMEWORK_DIR"
-python3 scripts/diagnostics/build_cafa3_knowledge_state_census.py \
+source scripts/reproduction_common.sh
+load_framework_paths "$FRAMEWORK_DIR"
+add_mmfp_singularity_bind "$WORK"
+add_mmfp_singularity_bind /SAN/bioinf/bmpfp
+activate_or_create_mmfp_env
+PYTHON_BIN="$(command -v python)"
+"$PYTHON_BIN" -c 'import sys; assert sys.version_info >= (3, 10), sys.version'
+
+"$PYTHON_BIN" scripts/diagnostics/build_cafa3_knowledge_state_census.py \
   --published-csv-dir "$PUBLISHED_CSV_DIR" \
   --official-cafa-archive "$OFFICIAL_CAFA_ARCHIVE" \
   --output-dir "$ANALYSIS_OUTPUT" \
-  >"$LOG_FILE" 2>&1
+  2>&1 | tee "$LOG_FILE"
 
 echo "==> Publishing census atomically"
 mkdir -p "$PUBLISH_STAGE/logs"
 cp -a "$ANALYSIS_OUTPUT" "$PUBLISH_STAGE/analysis"
 cp -p "$LOG_FILE" "$PUBLISH_STAGE/logs/"
-python3 scripts/model_execution/manage_output_manifest.py write \
+"$PYTHON_BIN" scripts/model_execution/manage_output_manifest.py write \
   --root "$PUBLISH_STAGE" --include-nested-control-files
-MANIFEST_SHA256="$(python3 -c 'import hashlib,pathlib,sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())' "$PUBLISH_STAGE/output_manifest.json")"
-python3 -c 'import json,pathlib,sys; pathlib.Path(sys.argv[1]).write_text(json.dumps({"complete":True,"analysis_kind":"cafa3_official_knowledge_state_census","framework_commit":sys.argv[2],"manifest":"output_manifest.json","manifest_sha256":sys.argv[3]},indent=2)+"\n")' \
+MANIFEST_SHA256="$("$PYTHON_BIN" -c 'import hashlib,pathlib,sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())' "$PUBLISH_STAGE/output_manifest.json")"
+"$PYTHON_BIN" -c 'import json,pathlib,sys; pathlib.Path(sys.argv[1]).write_text(json.dumps({"complete":True,"analysis_kind":"cafa3_official_knowledge_state_census","framework_commit":sys.argv[2],"manifest":"output_manifest.json","manifest_sha256":sys.argv[3]},indent=2)+"\n")' \
   "$PUBLISH_STAGE/WORKFLOW_COMPLETE.json" "$FRAMEWORK_COMMIT" "$MANIFEST_SHA256"
-python3 scripts/model_execution/manage_output_manifest.py verify \
+"$PYTHON_BIN" scripts/model_execution/manage_output_manifest.py verify \
   --root "$PUBLISH_STAGE" --include-nested-control-files
 mkdir "$PUBLISH_LOCK"
 LOCK_HELD=1

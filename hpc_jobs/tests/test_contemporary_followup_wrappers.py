@@ -100,6 +100,9 @@ class ContemporaryFollowupWrapperTests(unittest.TestCase):
         self.assertNotIn("goa_uniprot", source)
         self.assertNotIn("train.py", source)
         self.assertIn("#$ -pe smp 1", source)
+        self.assertIn("activate_or_create_mmfp_env", source)
+        self.assertIn('PYTHON_BIN="$(command -v python)"', source)
+        self.assertIn('2>&1 | tee "$LOG_FILE"', source)
 
 
 if __name__ == "__main__":
