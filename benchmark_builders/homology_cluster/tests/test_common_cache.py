@@ -166,6 +166,54 @@ class CommonPreprocessingCacheTests(unittest.TestCase):
             self.assertEqual(payload["uniprot_source_scope"], "sprot-only")
             self.assertEqual(payload["schema_version"], CACHE_SCHEMA_VERSION)
 
+    def test_schema_v3_ignores_legacy_nonproducer_source_hashes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config, manifest = self._fixture_manifest(root)
+            specs = _input_specs(config)
+            cache = build_common_preprocessing_cache(
+                root / "common-cache",
+                root / "cache-work",
+                manifest.path,
+                {name: spec.path for name, spec in specs.items() if spec.path is not None},
+                source_scope=config.uniprot_source_scope,
+                fixture_mode=True,
+            )
+            marker = cache / CACHE_MARKER
+            payload = json.loads(marker.read_text(encoding="utf-8"))
+            payload["preprocessing_source_sha256"]["config.py"] = "a" * 64
+            marker.write_text(
+                json.dumps(payload, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            inspected = inspect_common_preprocessing_cache(cache)
+            self.assertEqual(inspected["schema_version"], CACHE_SCHEMA_VERSION)
+
+    def test_schema_v3_still_rejects_changed_preprocessing_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config, manifest = self._fixture_manifest(root)
+            specs = _input_specs(config)
+            cache = build_common_preprocessing_cache(
+                root / "common-cache",
+                root / "cache-work",
+                manifest.path,
+                {name: spec.path for name, spec in specs.items() if spec.path is not None},
+                source_scope=config.uniprot_source_scope,
+                fixture_mode=True,
+            )
+            marker = cache / CACHE_MARKER
+            payload = json.loads(marker.read_text(encoding="utf-8"))
+            payload["preprocessing_source_sha256"]["goa.py"] = "0" * 64
+            marker.write_text(
+                json.dumps(payload, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "unsupported preprocessing code"):
+                inspect_common_preprocessing_cache(cache)
+
     def test_schema_v2_main_module_state_is_loaded_compatibly(self):
         with tempfile.TemporaryDirectory() as tmp:
             state_path = Path(tmp) / "legacy.pkl.gz"

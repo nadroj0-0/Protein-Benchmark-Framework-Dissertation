@@ -46,7 +46,6 @@ COLLISION_REPORT_FILE = "uniprot_accession_collisions.tsv.gz"
 # preprocessing changes. Threshold-specific MMseqs/splitting code is deliberately absent.
 PREPROCESSING_SOURCE_FILES = (
     "common_cache.py",
-    "config.py",
     "goa.py",
     "idmapping.py",
     "inputs.py",
@@ -56,6 +55,12 @@ PREPROCESSING_SOURCE_FILES = (
     "uniref.py",
     "uniref_scaffold.py",
 )
+
+# ``config.py`` is intentionally not source-bound here. This module imports only
+# SUPERVISOR_EVIDENCE_CODES from it, and those exact values are already bound in
+# the cache policy. Unrelated runtime/config additions must not invalidate a
+# multi-hour preprocessing cache whose inputs, policy, schema, and producer
+# modules are otherwise unchanged.
 
 # Schema 2 was produced by the first SAN cache build. Its CLI executed this
 # module with ``python -m``, which made the wrapper dataclass pickle as
@@ -307,7 +312,17 @@ def inspect_common_preprocessing_cache(
         SCHEMA_V2_PREPROCESSING_SOURCE_SHA256
         if schema_version == 2 else _source_hashes()
     )
-    if observed_source_hashes != expected_source_hashes:
+    if schema_version == 2:
+        source_hashes_match = observed_source_hashes == expected_source_hashes
+    else:
+        source_hashes_match = (
+            isinstance(observed_source_hashes, dict)
+            and all(
+                observed_source_hashes.get(name) == digest
+                for name, digest in expected_source_hashes.items()
+            )
+        )
+    if not source_hashes_match:
         raise ValueError(
             "Common preprocessing cache was produced by unsupported preprocessing code"
         )
