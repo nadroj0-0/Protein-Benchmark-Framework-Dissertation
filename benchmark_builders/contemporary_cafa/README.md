@@ -23,6 +23,9 @@ in an ontology where it had no qualifying `t0` annotation even if another
 ontology was already annotated. The supervisor profile uses the stricter global
 rule from the dissertation specification, so any qualifying `t0` annotation
 places the protein in training and excludes it from every test ontology.
+The `supervisor-nk-lk` profile changes only that eligibility rule, retaining all
+other supervisor policies while admitting CAFA Type 1 (NK) and Type 2 (LK)
+targets per ontology.
 
 ## Named profiles
 
@@ -31,6 +34,7 @@ places the protein in training and excludes it from every test ontology.
 | `cafa3-reconstructed` | all taxa | CAFA3 targets | final CAFA3 eight-code set | ontology-specific NK/LK | reviewed |
 | `contemporary-cafa3-style` | all taxa | CAFA3 targets | final CAFA3 eight-code set | ontology-specific NK/LK | reviewed |
 | `supervisor` | CAFA3 targets | CAFA3 targets | supervisor-specified set | globally unannotated at t0 | reviewed + unreviewed |
+| `supervisor-nk-lk` | CAFA3 targets | CAFA3 targets | supervisor-specified set | ontology-specific NK/LK | reviewed + unreviewed |
 
 All profiles include reviewed and unreviewed proteins in the target population
 when those UniProt records are supplied. This preserves the difference between
@@ -188,6 +192,20 @@ Choose the supervisor profile at submission time:
 qsub -v PROFILE=supervisor hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh
 ```
 
+Build the matched NK+LK extension into a separate durable namespace:
+
+```bash
+qsub -v PROFILE=supervisor-nk-lk,RESULTS_ROOT=/SAN/bioinf/bmpfp/benchmarks/contemporary/2025_01_to_2026_02_supervisor_nk_lk \
+  hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh
+```
+
+The NK+LK profile preserves within-ontology train/validation/test ID and exact-
+sequence isolation. A Type 2 target may remain in another ontology's
+development split because PFP trains BP, CC and MF as separate models. The
+reports include exact post-projection cohort membership and counts in
+`test_knowledge_cohort_membership.tsv` and
+`test_knowledge_cohort_summary.tsv`.
+
 The wrapper requests 64 GB RAM and 200 GB scratch. It copies any explicitly
 selected inputs, resolves any remaining files through the optional artifact
 catalogue, downloads anything still missing directly into scratch, activates
@@ -246,6 +264,8 @@ build_manifest.json
 protein_flow.tsv
 exclusion_reasons.tsv
 annotation_gain_summary.tsv
+test_knowledge_cohort_membership.tsv
+test_knowledge_cohort_summary.tsv
 taxon_summary.tsv
 evidence_summary.tsv
 input_checksums.sha256

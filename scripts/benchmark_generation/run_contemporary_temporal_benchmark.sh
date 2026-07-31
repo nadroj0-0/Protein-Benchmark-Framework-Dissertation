@@ -399,9 +399,9 @@ ensure_default_uniprot_inputs() {
 }
 
 case "$PROFILE" in
-    contemporary-cafa3-style|supervisor) ;;
+    contemporary-cafa3-style|supervisor|supervisor-nk-lk) ;;
     *)
-        echo "The 2025->2026 runner supports contemporary-cafa3-style or supervisor, got: $PROFILE" >&2
+        echo "The 2025->2026 runner supports contemporary-cafa3-style, supervisor, or supervisor-nk-lk, got: $PROFILE" >&2
         exit 1
         ;;
 esac

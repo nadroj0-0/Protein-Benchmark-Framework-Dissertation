@@ -659,6 +659,60 @@ def _write_reports(
     reports["taxon_report"] = taxon_path
 
     selected_flow = [row for row in flow if row["status"] == "selected"]
+    selected_flow_by_id = {str(row["t0_id"]): row for row in selected_flow}
+    cohort_rows = []
+    cohort_counts: Counter[tuple[str, str]] = Counter()
+    for prefix, namespace in sorted(PREFIX_TO_NAMESPACE.items()):
+        final_test_ids = set(pd.read_csv(written[f"{prefix}-test"])["proteins"].astype(str))
+        for protein_id in sorted(final_test_ids):
+            row = selected_flow_by_id.get(protein_id)
+            if row is None:
+                raise ValueError(
+                    f"Final {prefix} test protein is absent from the selected target flow: "
+                    f"{protein_id}"
+                )
+            eligible = set(filter(None, str(row["eligible_ontologies"]).split(",")))
+            if namespace not in eligible:
+                if config.test_annotations_file is None:
+                    raise ValueError(
+                        f"Final {prefix} test protein lacks matching eligibility provenance: "
+                        f"{protein_id}"
+                    )
+                blocked = set()
+                cohort = "not-classified"
+            else:
+                blocked = set(filter(None, str(row["blocked_ontologies"]).split(",")))
+                cohort = "limited-knowledge" if blocked else "no-knowledge"
+            cohort_counts[(prefix, cohort)] += 1
+            cohort_rows.append({
+                "ontology": prefix,
+                "protein": protein_id,
+                "cohort": cohort,
+                "t0_known_ontologies": ",".join(sorted(blocked)),
+            })
+
+    cohort_path = report_dir / "test_knowledge_cohort_membership.tsv"
+    _write_tsv(cohort_path, [
+        "ontology", "protein", "cohort", "t0_known_ontologies",
+    ], cohort_rows)
+    reports["test_knowledge_cohort_membership"] = cohort_path
+
+    cohort_summary_rows = []
+    for prefix in sorted(PREFIX_TO_NAMESPACE):
+        for cohort in ("no-knowledge", "limited-knowledge", "not-classified"):
+            cohort_summary_rows.append({
+                "ontology": prefix,
+                "cohort": cohort,
+                "proteins": cohort_counts[(prefix, cohort)],
+            })
+    cohort_summary_path = report_dir / "test_knowledge_cohort_summary.tsv"
+    _write_tsv(
+        cohort_summary_path,
+        ["ontology", "cohort", "proteins"],
+        cohort_summary_rows,
+    )
+    reports["test_knowledge_cohort_summary"] = cohort_summary_path
+
     gain_rows = []
     for prefix, namespace in sorted(PREFIX_TO_NAMESPACE.items()):
         namespace_terms = {
@@ -683,6 +737,15 @@ def _write_reports(
         "training_proteins_before_split": len(train_df),
         "selected_test_proteins_before_ontology_export": len(test_df),
         "selected_target_flow_rows": len(selected_flow),
+        "test_knowledge_cohorts": {
+            prefix: {
+                cohort: cohort_counts[(prefix, cohort)]
+                for cohort in (
+                    "no-knowledge", "limited-knowledge", "not-classified",
+                )
+            }
+            for prefix in sorted(PREFIX_TO_NAMESPACE)
+        },
         "training_defined_terms": len(terms_df),
         "csv_outputs": csv_stats,
         "csv_overlap_validation_policy": "per-ontology-disjoint",

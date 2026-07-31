@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+from dataclasses import fields
 from pathlib import Path
 import json
 
@@ -13,11 +14,13 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from cafa_benchmark_builder.builder import (
     build_benchmark,
+    export_pfp_csvs,
     export_from_deepgoplus_pickles,
     generate_deepgoplus_pickles_from_cafa_files,
 )
 from cafa_benchmark_builder.config import BENCHMARK_PROFILES, BuildConfig, EVIDENCE_POLICIES
 from cafa_benchmark_builder.goa import load_annotation_map
+from cafa_benchmark_builder.ontology import Ontology
 from cafa_benchmark_builder.parsers import iter_uniprot
 from cafa_benchmark_builder.snapshot import _validate_csv_outputs
 
@@ -236,6 +239,7 @@ class BenchmarkBuilderSmokeTest(unittest.TestCase):
     def test_profiles_separate_training_and_target_policy(self):
         cafa = BENCHMARK_PROFILES["contemporary-cafa3-style"]
         supervisor = BENCHMARK_PROFILES["supervisor"]
+        supervisor_nk_lk = BENCHMARK_PROFILES["supervisor-nk-lk"]
         self.assertEqual(cafa.training_taxon_policy, "all")
         self.assertEqual(cafa.target_taxon_policy, "cafa3-targets")
         self.assertEqual(cafa.test_eligibility_policy, "ontology-no-knowledge")
@@ -244,6 +248,118 @@ class BenchmarkBuilderSmokeTest(unittest.TestCase):
         self.assertEqual(supervisor.training_taxon_policy, "cafa3-targets")
         self.assertEqual(supervisor.evidence_policy, "supervisor")
         self.assertEqual(supervisor.test_eligibility_policy, "global-no-knowledge")
+        self.assertEqual(
+            supervisor_nk_lk.test_eligibility_policy,
+            "ontology-no-knowledge",
+        )
+        for field in fields(supervisor):
+            if field.name in {"name", "test_eligibility_policy"}:
+                continue
+            self.assertEqual(
+                getattr(supervisor_nk_lk, field.name),
+                getattr(supervisor, field.name),
+                field.name,
+            )
+
+    def test_nk_lk_export_keeps_cross_ontology_training_but_isolates_test_aspect(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            go = Ontology(FIXTURES / "go-mini.obo")
+            train = pd.DataFrame({
+                "proteins": ["P_LK", "P_BP", "P_BP_DUP"],
+                "sequences": ["MAAAA", "MBBBB", "MAAAA"],
+                "annotations": [
+                    {"GO:0005488", "GO:0003674"},
+                    {"GO:0009987", "GO:0008150"},
+                    {"GO:0009987", "GO:0008150"},
+                ],
+            })
+            valid = pd.DataFrame(
+                columns=["proteins", "sequences", "annotations"]
+            )
+            test = pd.DataFrame({
+                "proteins": ["P_LK"],
+                "sequences": ["MAAAA"],
+                "annotations": [{"GO:0009987", "GO:0008150"}],
+            })
+            terms = pd.DataFrame({"terms": [
+                "GO:0008150", "GO:0009987", "GO:0003674", "GO:0005488",
+                "GO:0005575",
+            ]})
+
+            written = export_pfp_csvs(go, train, valid, test, terms, root)
+            _, diagnostics = _validate_csv_outputs(written, strict=False)
+
+            bp_train = pd.read_csv(written["bp-training"])
+            bp_test = pd.read_csv(written["bp-test"])
+            mf_train = pd.read_csv(written["mf-training"])
+            self.assertEqual(set(bp_test["proteins"]), {"P_LK"})
+            self.assertNotIn("P_LK", set(bp_train["proteins"]))
+            self.assertNotIn("P_BP_DUP", set(bp_train["proteins"]))
+            self.assertIn("P_LK", set(mf_train["proteins"]))
+            self.assertEqual(diagnostics["global_training_test_protein_ids"], 1)
+            self.assertEqual(diagnostics["global_training_test_exact_sequences"], 1)
+
+    def test_nk_lk_snapshot_reports_post_projection_cohorts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            t1_gaf = root / "goa-t1-with-lk.gaf"
+            t1_gaf.write_text(
+                (FIXTURES / "goa-t1.gaf").read_text()
+                + "UniProtKB\tP00002\tP2\t\tGO:0009987\tPMID:8\tIDA\t\tP\t"
+                "Protein two\t\tprotein\ttaxon:9606\t20260101\tUniProt\t\t\n"
+            )
+            out = root / "out"
+            build_benchmark(BuildConfig(
+                uniprot_t0=(FIXTURES / "uniprot-t0.fasta",),
+                uniprot_t1=(FIXTURES / "uniprot-t1.fasta",),
+                goa_t0=FIXTURES / "goa-t0.gaf",
+                goa_t1=t1_gaf,
+                go_obo=FIXTURES / "go-mini.obo",
+                output_dir=out,
+                profile_name="supervisor-nk-lk",
+                training_taxa=frozenset({"9606"}),
+                target_taxa=frozenset({"9606"}),
+                test_eligibility_policy="ontology-no-knowledge",
+                min_count=1,
+                t0_cutoff="20250131",
+                write_checksums=False,
+                strict_qc=False,
+            ))
+
+            bp_test = pd.read_csv(out / "bp-test.csv")
+            bp_development = set(pd.read_csv(out / "bp-training.csv")["proteins"])
+            bp_development.update(pd.read_csv(out / "bp-validation.csv")["proteins"])
+            mf_development = set(pd.read_csv(out / "mf-training.csv")["proteins"])
+            mf_development.update(pd.read_csv(out / "mf-validation.csv")["proteins"])
+            self.assertEqual(set(bp_test["proteins"]), {"P00002", "P00004"})
+            self.assertNotIn("P00002", bp_development)
+            self.assertIn("P00002", mf_development)
+
+            membership = pd.read_csv(
+                out / "reports" / "test_knowledge_cohort_membership.tsv",
+                sep="\t",
+            )
+            p2_bp = membership.loc[
+                (membership["ontology"] == "bp")
+                & (membership["protein"] == "P00002")
+            ].iloc[0]
+            self.assertEqual(p2_bp["cohort"], "limited-knowledge")
+            self.assertEqual(p2_bp["t0_known_ontologies"], "molecular_function")
+            p4_bp = membership.loc[
+                (membership["ontology"] == "bp")
+                & (membership["protein"] == "P00004")
+            ].iloc[0]
+            self.assertEqual(p4_bp["cohort"], "no-knowledge")
+
+            stats = json.loads(
+                (out / "reports" / "benchmark_statistics.json").read_text()
+            )
+            self.assertEqual(stats["test_knowledge_cohorts"]["bp"], {
+                "limited-knowledge": 1,
+                "no-knowledge": 1,
+                "not-classified": 0,
+            })
 
     def test_csv_qc_reports_cross_ontology_overlap_but_keeps_it_nonfatal(self):
         with tempfile.TemporaryDirectory() as tmp:

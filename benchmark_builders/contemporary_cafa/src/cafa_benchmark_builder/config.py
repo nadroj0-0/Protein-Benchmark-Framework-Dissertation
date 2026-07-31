@@ -82,6 +82,17 @@ BENCHMARK_PROFILES = {
         t1_cutoff="20260617",
         test_eligibility_policy="global-no-knowledge",
     ),
+    "supervisor-nk-lk": BenchmarkProfile(
+        name="supervisor-nk-lk",
+        training_taxon_policy="cafa3-targets",
+        target_taxon_policy="cafa3-targets",
+        evidence_policy="supervisor",
+        training_reviewed_only=False,
+        target_reviewed_only=False,
+        t0_cutoff="20250308",
+        t1_cutoff="20260617",
+        test_eligibility_policy="ontology-no-knowledge",
+    ),
 }
 
 ASPECT_TO_PREFIX = {"P": "bp", "C": "cc", "F": "mf"}
