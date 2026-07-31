@@ -28,11 +28,17 @@ CENSUS = (
     / "active"
     / "hpc_contemporary_knowledge_cohort_census.sh"
 )
+CAFA3_CENSUS = (
+    REPOSITORY_ROOT
+    / "hpc_jobs"
+    / "active"
+    / "hpc_cafa3_knowledge_state_census.sh"
+)
 
 
 class ContemporaryFollowupWrapperTests(unittest.TestCase):
     def test_wrappers_are_executable_and_valid_bash(self):
-        for path in (CAPTURE, ANALYSIS):
+        for path in (CAPTURE, ANALYSIS, CAFA3_CENSUS):
             self.assertTrue(os.access(path, os.X_OK), path)
             completed = subprocess.run(
                 ["bash", "-n", str(path)],
@@ -85,6 +91,15 @@ class ContemporaryFollowupWrapperTests(unittest.TestCase):
         self.assertIn(
             '--root "$PUBLISH_STAGE" --include-nested-control-files', source
         )
+
+    def test_cafa3_census_uses_official_lists_and_published_csvs(self):
+        source = CAFA3_CENSUS.read_text(encoding="utf-8")
+        self.assertIn("canonical_cafa3", source)
+        self.assertIn("data-cafa.tar.gz", source)
+        self.assertIn("build_cafa3_knowledge_state_census.py", source)
+        self.assertNotIn("goa_uniprot", source)
+        self.assertNotIn("train.py", source)
+        self.assertIn("#$ -pe smp 1", source)
 
 
 if __name__ == "__main__":

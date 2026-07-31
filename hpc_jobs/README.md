@@ -31,6 +31,13 @@ UniProt, GOA and ontology inputs. It verifies the accepted global-no-knowledge
 test labels exactly before publishing a reusable temporal ledger and descriptive
 no-knowledge, cross-ontology-known and same-ontology-partial cohort counts.
 
+`active/hpc_cafa3_knowledge_state_census.sh` is the inexpensive CPU-only CAFA3
+counterpart. It reads Zijian's exact nine published CSVs and the organizer's
+`type1`/`type2` target lists from `data-cafa.tar.gz`, then publishes the NK/LK
+composition, official-list alignment and root-only/non-root truth cross-tabs.
+It does not download or approximate the private challenge endpoint with a later
+public GOA release.
+
 Use `configs/pfp_benchmark_run.cafa3.json`,
 `configs/pfp_benchmark_run.temporal.json`, or
 `configs/pfp_benchmark_run.homology.json` to select the scientific overlap and

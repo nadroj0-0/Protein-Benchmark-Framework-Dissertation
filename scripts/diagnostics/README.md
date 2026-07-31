@@ -157,6 +157,25 @@ labelled `descriptive_test_oracle_fixed`. No binwise result is canonical CAFA
 
 ## Policy-bound temporal cohort states
 
+For Zijian's published CAFA3 benchmark, use the organizer classifications
+instead of reconstructing organizer-private historical state from a later GOA
+snapshot:
+
+```bash
+python scripts/diagnostics/build_cafa3_knowledge_state_census.py \
+  --published-csv-dir /path/to/zijian-nine-csvs \
+  --official-cafa-archive /path/to/data-cafa.tar.gz \
+  --output-dir /path/to/new/cafa3-knowledge-census
+```
+
+This classifies test rows with CAFA3's official `type1` (no-knowledge) and
+`type2` (limited-knowledge) lists, audits their alignment with the published
+CSVs, retains the same state labels for organizer `too_few` targets while
+marking them separately, and cross-tabulates each state against root-only/non-root
+observed truth.
+The official lists apply only to challenge targets, so training and validation
+receive root-state counts but no invented CAFA knowledge-state label.
+
 The accepted contemporary `supervisor` benchmark is global qualifying
 no-knowledge, so its existing test predictions have no known-protein comparator.
 `build_temporal_annotation_ledger.py` therefore builds a new Layer-B state
