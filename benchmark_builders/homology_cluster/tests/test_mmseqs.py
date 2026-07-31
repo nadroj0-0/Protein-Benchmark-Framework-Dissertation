@@ -46,6 +46,10 @@ class MMseqsTests(unittest.TestCase):
             cluster = by_stage["cluster"]
             self.assertEqual(cluster[cluster.index("-s") + 1], "4")
             self.assertTrue(any(value.endswith("uniref50_db") for value in by_stage["createdb"]))
+            self.assertEqual(
+                by_stage["createdb"][by_stage["createdb"].index("--threads") + 1],
+                str(config.threads),
+            )
             self.assertTrue(
                 any(value.endswith("uniref50_clusters.tsv") for value in by_stage["createtsv"])
             )
@@ -136,6 +140,10 @@ class MMseqsTests(unittest.TestCase):
             by_stage = {command.stage: command.argv for command in commands}
 
             self.assertNotIn("--shuffle", by_stage["createdb"])
+            self.assertEqual(
+                by_stage["createdb"][by_stage["createdb"].index("--threads") + 1],
+                "24",
+            )
             self.assertNotIn("-e", by_stage["cluster"])
             self.assertNotIn("--cluster-reassign", by_stage["cluster"])
             self.assertEqual(

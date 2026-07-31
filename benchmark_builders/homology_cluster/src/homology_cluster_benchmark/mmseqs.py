@@ -67,6 +67,7 @@ def build_mmseqs_commands(config: BuildConfig, fasta: Path, work_dir: Path) -> t
 
     createdb = [
         config.mmseqs_bin, "createdb", str(fasta), str(database), "--dbtype", "1",
+        "--threads", str(config.threads),
     ]
     if config.createdb_shuffle is not None:
         createdb.extend(("--shuffle", str(config.createdb_shuffle)))
