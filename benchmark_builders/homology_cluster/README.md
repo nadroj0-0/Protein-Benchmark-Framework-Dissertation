@@ -90,6 +90,19 @@ Starting from UniRef50 is a new benchmark profile, not a byte-identical accelera
 the pre-existing 50% UniRef groups become the scaffold before the six lower-identity clusterings.
 Reports therefore record the scaffold level and sensitivity, and profile outputs must not be mixed.
 
+### Externally generated supervisor clusters
+
+Production continuation from a supervisor-generated `createtsv` artifact uses the separate
+`--external-cluster-assignments` and `--external-cluster-provenance` options. The provenance JSON
+must bind the assignment hash, UniRef release and hash, record count, identity, coverage, MMseqs
+profile and sensitivity. The builder then validates every member against the frozen UniRef index,
+rejects duplicates, missing or unknown members, and checks the final member and cluster counts.
+
+External assignments cannot be inserted into a framework-generated cluster cache. Their outputs
+must use a separate publication namespace and remain provisional until compared with an
+independent framework run. `hpc_jobs/active/hpc_homology_supervisor_daniel_30.sh` implements this
+route for Daniel Buchan's 30% UniRef50 artifact.
+
 ### Identity selection
 
 The Python CLI can build one locked threshold, any explicit subset, or all six:

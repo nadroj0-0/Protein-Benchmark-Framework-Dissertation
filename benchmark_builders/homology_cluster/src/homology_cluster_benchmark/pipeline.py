@@ -51,6 +51,10 @@ from .common_cache import (
 )
 from .config import PREFIX_TO_NAMESPACE, SPLITS, SUPPORTED_IDENTITIES, BuildConfig
 from .export import export_all
+from .external_clusters import (
+    load_external_cluster_provenance,
+    validate_external_cluster_counts,
+)
 from .frozen_inputs import (
     FrozenInputManifest,
     bind_frozen_inputs,
@@ -170,6 +174,14 @@ def _parameters(config: BuildConfig) -> dict[str, object]:
         "ontology_release": config.release_ontology,
         "fixture_mode": config.fixture_mode,
         "precomputed_cluster_assignments": str(config.cluster_assignments.resolve()) if config.cluster_assignments else None,
+        "external_cluster_assignments": (
+            str(config.external_cluster_assignments.resolve())
+            if config.external_cluster_assignments else None
+        ),
+        "external_cluster_provenance": (
+            str(config.external_cluster_provenance.resolve())
+            if config.external_cluster_provenance else None
+        ),
         "cluster_cache_enabled": config.cluster_cache_root is not None,
         "require_cluster_cache": config.require_cluster_cache,
         "scratch_safety_multiplier": config.scratch_safety_multiplier,
@@ -353,6 +365,10 @@ def _disk_preflight(
     logical_input_bytes = sum(item.size_bytes for item in inputs.values())
     uniref_bytes = inputs[config.uniref_input_name].size_bytes
     common_cache_bytes = 0
+    external_assignment_bytes = (
+        config.external_cluster_assignments.expanduser().stat().st_size
+        if config.external_cluster_assignments is not None else 0
+    )
     if config.common_preprocessing_cache is not None:
         cache_root = common_cache_root(config.common_preprocessing_cache)
         common_cache_bytes = sum(
@@ -360,12 +376,16 @@ def _disk_preflight(
         )
         staged_input_bytes = (
             uniref_bytes + inputs["go_obo"].size_bytes + common_cache_bytes
+            + external_assignment_bytes
         )
         goa_bytes = 0
     else:
         staged_input_bytes = logical_input_bytes
         goa_bytes = inputs["goa"].size_bytes
-    mmseqs_work_estimate = int(uniref_bytes * config.mmseqs_work_multiplier)
+    mmseqs_work_estimate = (
+        0 if config.external_cluster_assignments is not None
+        else int(uniref_bytes * config.mmseqs_work_multiplier)
+    )
     parser_index_estimate = (
         0 if config.common_preprocessing_cache is not None else int(
             (goa_bytes + inputs["idmapping"].size_bytes)
@@ -429,6 +449,7 @@ def _disk_preflight(
         "staged_input_bytes": staged_input_bytes,
         "common_preprocessing_cache_bytes": common_cache_bytes,
         "common_preprocessing_cache_used": config.common_preprocessing_cache is not None,
+        "external_cluster_assignment_bytes": external_assignment_bytes,
         f"uniref{config.uniref_level}_bytes": uniref_bytes,
         "goa_bytes": goa_bytes,
         "persistent_results_root": str(persistent_path),
@@ -1470,11 +1491,11 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
     )
     try:
         mmseqs_runtime = resolve_mmseqs_runtime(config.mmseqs_bin)
-        if not config.fixture_mode:
+        if not config.fixture_mode and config.external_cluster_assignments is None:
             validate_exact_mmseqs_version(
                 str(config.expected_mmseqs_version), mmseqs_runtime
             )
-        elif config.cluster_assignments is None:
+        elif config.fixture_mode and config.cluster_assignments is None:
             if mmseqs_runtime.resolved_executable is None:
                 raise FileNotFoundError(
                     f"MMseqs2 executable is unavailable: {config.mmseqs_bin}"
@@ -1567,6 +1588,7 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
         loaded_common_cache = None
         loaded_cluster_cache = None
         loaded_cluster_checkpoint = None
+        external_cluster_payload = None
         cluster_cache_action = "disabled"
         LOGGER.info(
             "Stage completed: resolve and hash frozen inputs elapsed_seconds=%.1f",
@@ -1739,6 +1761,44 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                         config.expected_mmseqs_version
                     ),
                 })
+            elif config.external_cluster_assignments is not None:
+                source_clusters = config.external_cluster_assignments.expanduser().resolve()
+                provenance_path = config.external_cluster_provenance
+                if provenance_path is None:
+                    raise RuntimeError("External cluster provenance disappeared after validation")
+                external_cluster_payload = load_external_cluster_provenance(
+                    provenance_path,
+                    source_clusters,
+                    identity=config.identity,
+                    coverage=config.coverage,
+                    cov_mode=config.cov_mode,
+                    cluster_mode=config.cluster_mode,
+                    sensitivity=config.sensitivity,
+                    uniref_level=config.uniref_level,
+                    uniref_release=config.release_uniprot,
+                    uniref_sha256=inputs[config.uniref_input_name].sha256,
+                    uniref_records=uniref.count(),
+                )
+                external_log_dir = stage / "logs" / "mmseqs"
+                external_log_dir.mkdir(parents=True)
+                shutil.copyfile(
+                    provenance_path.expanduser().resolve(),
+                    stage / "external_cluster_provenance.json",
+                )
+                _json(external_log_dir / "EXTERNAL_ASSIGNMENTS_USED.json", {
+                    "lineage": "supervisor-generated",
+                    "mmseqs_execution": "not executed by this run",
+                    "cluster_assignments": str(source_clusters),
+                    "cluster_assignments_sha256": sha256_file(source_clusters),
+                    "provenance_path": str(provenance_path.expanduser().resolve()),
+                    "provenance_sha256": sha256_file(provenance_path.expanduser().resolve()),
+                    "framework_expected_command_preview": [
+                        command.display for command in core_commands
+                    ],
+                    "runtime_mmseqs_probe": mmseqs_runtime.as_dict(
+                        config.expected_mmseqs_version
+                    ),
+                })
             elif loaded_cluster_cache is not None:
                 source_clusters = loaded_cluster_cache.assignments
                 cache_log_dir = stage / "logs" / "mmseqs"
@@ -1813,6 +1873,12 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 has_header=loaded_cluster_cache is not None,
                 member_field=config.uniref_id_field,
             )
+            if external_cluster_payload is not None:
+                validate_external_cluster_counts(
+                    external_cluster_payload,
+                    members=cluster_index.member_count(),
+                    clusters=cluster_index.cluster_count(),
+                )
             if (
                 config.cluster_cache_root is not None
                 and loaded_cluster_cache is None
@@ -2069,6 +2135,19 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                     "sha256": sha256_file(source_clusters),
                     "mmseqs_execution": "not executed by this run",
                 }
+            if config.external_cluster_assignments is not None:
+                input_manifest["external_supervisor_cluster_assignments"] = {
+                    "resolved_path": str(source_clusters),
+                    "size_bytes": source_clusters.stat().st_size,
+                    "sha256": sha256_file(source_clusters),
+                    "provenance_file": "external_cluster_provenance.json",
+                    "provenance_sha256": sha256_file(
+                        stage / "external_cluster_provenance.json"
+                    ),
+                    "lineage": "supervisor-generated",
+                    "mmseqs_execution": "not executed by this run",
+                    "independent_framework_comparison": "pending",
+                }
             _json(stage / "input_manifest.json", input_manifest)
 
             if sha256_file(policy_source) != attrition_policy_sha256:
@@ -2320,6 +2399,23 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 expected_fixture_hash = fixture_record["cluster_assignments_sha256"]
                 if sha256_file(source_clusters) != expected_fixture_hash:
                     raise ValueError("Fixture cluster assignments changed while the run was in progress")
+            if config.external_cluster_assignments is not None:
+                external_record = json.loads(
+                    (stage / "logs" / "mmseqs" / "EXTERNAL_ASSIGNMENTS_USED.json").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                if sha256_file(source_clusters) != external_record["cluster_assignments_sha256"]:
+                    raise ValueError(
+                        "External cluster assignments changed while the run was in progress"
+                    )
+                provenance_path = config.external_cluster_provenance
+                if provenance_path is None or sha256_file(
+                    provenance_path.expanduser().resolve()
+                ) != external_record["provenance_sha256"]:
+                    raise ValueError(
+                        "External cluster provenance changed while the run was in progress"
+                    )
             write_output_manifest(stage)
             publish(stage, final_dir)
             try:

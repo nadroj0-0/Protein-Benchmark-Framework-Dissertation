@@ -98,6 +98,8 @@ class BuildConfig:
     mmseqs_bin: str = "mmseqs"
     expected_mmseqs_version: str | None = None
     cluster_assignments: Path | None = None
+    external_cluster_assignments: Path | None = None
+    external_cluster_provenance: Path | None = None
     cluster_cache_root: Path | None = None
     require_cluster_cache: bool = False
     common_preprocessing_cache: Path | None = None
@@ -214,7 +216,11 @@ class BuildConfig:
             raise ValueError(
                 "The legacy UniRef90 route remains methodologically locked to sensitivity 7.5"
             )
-        if self.mmseqs_profile == MMSEQS_PROFILE_DANIEL and self.cluster_cache_root is None:
+        if (
+            self.mmseqs_profile == MMSEQS_PROFILE_DANIEL
+            and self.cluster_cache_root is None
+            and self.external_cluster_assignments is None
+        ):
             raise ValueError(
                 "The Daniel-aligned MMseqs2 profile requires --cluster-cache-root so its "
                 "validated cluster assignments survive scratch cleanup"
@@ -252,10 +258,37 @@ class BuildConfig:
                 "Precomputed --cluster-assignments are fixture-only because their generating "
                 "MMseqs2 identity, coverage, command, and version cannot be proven by this run"
             )
+        external_pair = (
+            self.external_cluster_assignments is not None,
+            self.external_cluster_provenance is not None,
+        )
+        if external_pair[0] != external_pair[1]:
+            raise ValueError(
+                "--external-cluster-assignments and --external-cluster-provenance "
+                "must be supplied together"
+            )
+        if self.external_cluster_assignments is not None and self.fixture_mode:
+            raise ValueError("External production cluster artifacts cannot be used in fixture mode")
+        if self.cluster_assignments is not None and self.external_cluster_assignments is not None:
+            raise ValueError(
+                "Fixture and external production cluster assignments are mutually exclusive"
+            )
         if self.cluster_assignments is not None and self.cluster_cache_root is not None:
             raise ValueError(
                 "Fixture --cluster-assignments cannot be combined with a production cluster cache"
             )
+        if self.external_cluster_assignments is not None and self.cluster_cache_root is not None:
+            raise ValueError(
+                "Externally generated assignments must remain separate from the "
+                "framework-generated cluster cache"
+            )
+        if self.external_cluster_assignments is not None:
+            for label, path in (
+                ("external cluster assignments", self.external_cluster_assignments),
+                ("external cluster provenance", self.external_cluster_provenance),
+            ):
+                if path is None or not path.expanduser().is_file():
+                    raise ValueError(f"Configured {label} file does not exist: {path}")
         if self.require_cluster_cache and self.cluster_cache_root is None:
             raise ValueError("--require-cluster-cache requires --cluster-cache-root")
         if self.common_preprocessing_cache is not None:

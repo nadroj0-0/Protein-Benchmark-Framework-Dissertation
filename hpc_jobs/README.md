@@ -559,6 +559,17 @@ hpc_jobs/active/hpc_homology_uniref50_common_cache.sh
 hpc_jobs/active/hpc_homology_cluster_runtime_array_24core_uniref50.sh
 ```
 
+An externally generated 30% UniRef50 assignment from Daniel Buchan is handled by:
+
+```text
+hpc_jobs/active/hpc_homology_supervisor_daniel_30.sh
+```
+
+This job reads the raw assignment and provenance from the isolated
+`supervisor_daniel_buchan` SAN namespace, validates all UniRef50 members against the common cache,
+and publishes downstream benchmark artifacts beneath the matching supervisor namespace. It does
+not write to or reuse the framework-generated MMseqs cluster cache.
+
 The first job is run once after the frozen UniRef50 FASTA has been staged at
 `/SAN/bioinf/bmpfp/frozen_inputs/uniref50/2026_02/uniref50.fasta.gz`. It reads column 10 of the
 existing `idmapping_selected` input and publishes a separately validated shared preprocessing cache.

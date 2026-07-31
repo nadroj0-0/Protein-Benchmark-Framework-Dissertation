@@ -65,6 +65,48 @@ class ConfigAndInputTests(unittest.TestCase):
                     **{**overrides, "evalue": 1e-4},
                 ).validate(require_pinned_inputs=False)
 
+    def test_external_supervisor_assignments_are_production_only_and_cache_isolated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            assignments = root / "clusters.tsv.gz"
+            provenance = root / "provenance.json"
+            uniprot_dat = root / "uniprot_sprot.dat"
+            assignments.write_bytes(b"assignment\n")
+            provenance.write_text("{}")
+            uniprot_dat.write_text("ID   FIXTURE\n//\n")
+            base = uniref50_fixture_config(root / "out", root / "temp")
+            external = replace(
+                base,
+                fixture_mode=False,
+                min_count=50,
+                cluster_assignments=None,
+                uniprot_sprot_sequences=InputSpec(
+                    "uniprot_sprot_sequences",
+                    uniprot_dat,
+                    release="2026_02",
+                    source_population="sprot",
+                ),
+                external_cluster_assignments=assignments,
+                external_cluster_provenance=provenance,
+                mmseqs_profile=MMSEQS_PROFILE_DANIEL,
+                createdb_shuffle=None,
+                cluster_reassign=0,
+                evalue=None,
+            )
+            external.validate(require_pinned_inputs=False)
+            with self.assertRaisesRegex(ValueError, "supplied together"):
+                replace(external, external_cluster_provenance=None).validate(
+                    require_pinned_inputs=False
+                )
+            with self.assertRaisesRegex(ValueError, "separate"):
+                replace(external, cluster_cache_root=root / "cache").validate(
+                    require_pinned_inputs=False
+                )
+            with self.assertRaisesRegex(ValueError, "fixture mode"):
+                replace(external, fixture_mode=True, min_count=1).validate(
+                    require_pinned_inputs=False
+                )
+
     def test_binding_80_20_fraction_and_frozen_releases_are_locked(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

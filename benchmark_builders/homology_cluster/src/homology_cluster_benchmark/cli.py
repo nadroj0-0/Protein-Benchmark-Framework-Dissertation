@@ -78,6 +78,19 @@ def _parser() -> argparse.ArgumentParser:
     _add_input(build, "go-obo", "frozen GO OBO")
     build.add_argument("--cluster-assignments", type=Path, help="Precomputed MMseqs2 createtsv output; intended for validated fixture tests")
     build.add_argument(
+        "--external-cluster-assignments",
+        type=Path,
+        help=(
+            "Externally generated production MMseqs2 createtsv output. Requires a "
+            "separate provenance JSON and remains outside framework-generated caches."
+        ),
+    )
+    build.add_argument(
+        "--external-cluster-provenance",
+        type=Path,
+        help="Provenance JSON binding an external assignment artifact to its source and method",
+    )
+    build.add_argument(
         "--cluster-cache-root", type=Path,
         help=(
             "Persistent validated MMseqs2 assignment-cache root. A matching cache is reused; "
@@ -277,6 +290,8 @@ def _config(args: argparse.Namespace, identity: float) -> BuildConfig:
         mmseqs_bin=args.mmseqs_bin,
         expected_mmseqs_version=args.expected_mmseqs_version,
         cluster_assignments=args.cluster_assignments,
+        external_cluster_assignments=args.external_cluster_assignments,
+        external_cluster_provenance=args.external_cluster_provenance,
         cluster_cache_root=args.cluster_cache_root,
         require_cluster_cache=args.require_cluster_cache,
         frozen_input_manifest=args.frozen_input_manifest,

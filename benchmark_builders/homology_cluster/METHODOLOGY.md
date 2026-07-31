@@ -141,6 +141,13 @@ The headerless idmapping table is parsed as exactly 22 tab-separated columns wit
 collapse into one identifier. Absent idmapping rows remain lifecycle-unknown unless a separately
 frozen deleted-accession source is approved.
 
+Supervisor-generated cluster assignments are treated as a separate evidence lineage. They may
+continue into annotation retention, splitting and CSV generation only when a machine-readable
+provenance record binds the raw artifact to the same frozen UniRef input and declared clustering
+policy. Full member-universe validation is still mandatory. Such artifacts never seed the
+framework-generated cache, and agreement with an independently generated assignment remains a
+separate adjudication step.
+
 ### GOA, GAF, and GO
 
 - [GOA downloads](https://www.ebi.ac.uk/GOA/downloads.html)

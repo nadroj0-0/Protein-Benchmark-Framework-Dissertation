@@ -47,6 +47,18 @@ case "$UNIREF_LEVEL" in
     *) echo "UNIREF_LEVEL must be 90 or 50" >&2; exit 2 ;;
 esac
 MMSEQS_SENSITIVITY="${MMSEQS_SENSITIVITY:-$DEFAULT_MMSEQS_SENSITIVITY}"
+EXTERNAL_CLUSTER_ASSIGNMENTS="${EXTERNAL_CLUSTER_ASSIGNMENTS:-}"
+EXTERNAL_CLUSTER_PROVENANCE="${EXTERNAL_CLUSTER_PROVENANCE:-}"
+if [[ -n "$EXTERNAL_CLUSTER_ASSIGNMENTS" || -n "$EXTERNAL_CLUSTER_PROVENANCE" ]]; then
+    [[ -f "$EXTERNAL_CLUSTER_ASSIGNMENTS" && -f "$EXTERNAL_CLUSTER_PROVENANCE" ]] || {
+        echo "External cluster assignments and provenance must both be readable files" >&2
+        exit 2
+    }
+    [[ "$TASK_ID" == "1" && "$IDENTITY" == "30" ]] || {
+        echo "The currently supplied external supervisor artifact is locked to 30 percent" >&2
+        exit 2
+    }
+fi
 UNIREF_ROLE="uniref${UNIREF_LEVEL}_fasta"
 UNIREF_FILENAME="uniref${UNIREF_LEVEL}.fasta.gz"
 UNIREF_PATH_VARIABLE="UNIREF${UNIREF_LEVEL}_FASTA"
@@ -729,6 +741,23 @@ else
 fi
 stage_or_download go_obo "${GO_OBO:-}" "$GO_OBO_URL" \
     "$INPUT_ROOT/go-basic.obo" "${GO_OBO_SHA256:-}"
+if [[ -n "$EXTERNAL_CLUSTER_ASSIGNMENTS" ]]; then
+    echo "Staging external supervisor cluster artifact into job-owned scratch"
+    cp -p "$EXTERNAL_CLUSTER_ASSIGNMENTS" "$INPUT_ROOT/external_cluster_assignments.tsv.gz"
+    cp -p "$EXTERNAL_CLUSTER_PROVENANCE" "$INPUT_ROOT/external_cluster_provenance.json"
+    [[ -s "$INPUT_ROOT/external_cluster_assignments.tsv.gz" \
+       && -s "$INPUT_ROOT/external_cluster_provenance.json" ]] || {
+        echo "Staged external supervisor artifact is incomplete" >&2
+        exit 1
+    }
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+        external_cluster_assignments "$INPUT_ROOT/external_cluster_assignments.tsv.gz" \
+        "supervisor://daniel-buchan" provided-path-staged-to-scratch \
+        "$(stat -c '%s' "$INPUT_ROOT/external_cluster_assignments.tsv.gz")" \
+        "$(sha256sum "$INPUT_ROOT/external_cluster_assignments.tsv.gz" | awk '{print $1}')" \
+        >> "$ARTIFACTS/logs/runtime_input_staging.tsv"
+    checkpoint_disk_usage external-cluster-artifact-staged
+fi
 
 if [[ "$needs_uniprot_download" == "1" ]]; then
     download_file "$UNIPROT_RELNOTES_URL" "$ARTIFACTS/logs/uniprot_relnotes_after_download.txt"
@@ -909,6 +938,12 @@ if [[ -n "$HOMOLOGY_CLUSTER_CACHE_ROOT" ]]; then
     builder_environment+=(
         HOMOLOGY_CLUSTER_CACHE_ROOT="$HOMOLOGY_CLUSTER_CACHE_ROOT"
         REQUIRE_HOMOLOGY_CLUSTER_CACHE="$REQUIRE_HOMOLOGY_CLUSTER_CACHE"
+    )
+fi
+if [[ -n "$EXTERNAL_CLUSTER_ASSIGNMENTS" ]]; then
+    builder_environment+=(
+        EXTERNAL_CLUSTER_ASSIGNMENTS="$INPUT_ROOT/external_cluster_assignments.tsv.gz"
+        EXTERNAL_CLUSTER_PROVENANCE="$INPUT_ROOT/external_cluster_provenance.json"
     )
 fi
 if [[ -n "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then

@@ -27,6 +27,10 @@ UNIREF50_COMMON_CACHE = (
     WORKSPACE_ROOT / "hpc_jobs" / "active"
     / "hpc_homology_uniref50_common_cache.sh"
 )
+SUPERVISOR_DANIEL_30 = (
+    WORKSPACE_ROOT / "hpc_jobs" / "active"
+    / "hpc_homology_supervisor_daniel_30.sh"
+)
 GUARDED_WORKER = (
     WORKSPACE_ROOT / "hpc_jobs" / "active" / "hpc_homology_cluster_benchmark.sh"
 )
@@ -61,6 +65,17 @@ class RuntimeHPCEntrypointTests(unittest.TestCase):
         self.assertIn("/SAN/bioinf/bmpfp/benchmarks/homology/2026_02", worker)
         self.assertIn("/SAN/bioinf/bmpfp/derived_inputs/homology/2026_02", worker)
         self.assertIn('export MINIMUM_SCRATCH_GB="${MINIMUM_SCRATCH_GB:-400}"', worker)
+        self.assertNotIn("qsub", worker)
+
+    def test_supervisor_external_job_is_provenance_isolated(self):
+        worker = SUPERVISOR_DANIEL_30.read_text()
+        self.assertIn("#$ -t 1\n", worker)
+        self.assertIn("export UNIREF_LEVEL=50", worker)
+        self.assertIn("export MMSEQS_SENSITIVITY=4", worker)
+        self.assertIn("supervisor_daniel_buchan", worker)
+        self.assertIn("EXTERNAL_CLUSTER_ASSIGNMENTS", worker)
+        self.assertIn("EXTERNAL_CLUSTER_PROVENANCE", worker)
+        self.assertIn("unset HOMOLOGY_CLUSTER_CACHE_ROOT", worker)
         self.assertNotIn("qsub", worker)
 
     def _environment(self, root: Path, kind: str, task: str) -> tuple[dict[str, str], Path]:
