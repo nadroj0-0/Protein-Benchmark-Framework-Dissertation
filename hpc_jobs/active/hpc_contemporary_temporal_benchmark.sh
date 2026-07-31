@@ -27,6 +27,7 @@ WORK="/scratch0/contemporary_cafa_${JOB_ID:-manual}"
 SOURCE_DB_ROOT="${PROTEIN_DATABASE_ROOT:-}"
 RESULTS_ROOT="${RESULTS_ROOT:-$HOME/contemporary_cafa_benchmark_results}"
 FRAMEWORK_REPO_URL="${FRAMEWORK_REPO_URL:-https://github.com/nadroj0-0/Protein-Benchmark-Framework-Dissertation.git}"
+FRAMEWORK_REVISION="${FRAMEWORK_REVISION:-}"
 FRAMEWORK_DIR="$WORK/Protein-Benchmark-Framework-Dissertation"
 STAGED_DB_ROOT="$WORK/protein_databases"
 RUN_TAG="${JOB_ID:-manual}_$(date +%Y%m%d_%H%M%S)"
@@ -183,6 +184,16 @@ printf 'action\tartifact_or_path\tsource_or_destination\n' > "$SCRATCH_RUN_ROOT/
 echo "Cloning dissertation framework into scratch"
 git clone "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"
 cd "$FRAMEWORK_DIR"
+if [[ -n "$FRAMEWORK_REVISION" ]]; then
+    git checkout "$FRAMEWORK_REVISION"
+    ACTUAL_FRAMEWORK_REVISION="$(git rev-parse HEAD)"
+    EXPECTED_FRAMEWORK_REVISION="$(git rev-parse "$FRAMEWORK_REVISION^{commit}")"
+    if [[ "$ACTUAL_FRAMEWORK_REVISION" != "$EXPECTED_FRAMEWORK_REVISION" ]]; then
+        echo "Framework revision mismatch after checkout" >&2
+        exit 1
+    fi
+    echo "Pinned framework revision: $ACTUAL_FRAMEWORK_REVISION"
+fi
 source scripts/reproduction_common.sh
 export ARTIFACT_CATALOG="$CLI_ARTIFACT_CATALOG"
 load_framework_paths "$FRAMEWORK_DIR"

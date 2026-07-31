@@ -195,7 +195,7 @@ qsub -v PROFILE=supervisor hpc_jobs/active/hpc_contemporary_temporal_benchmark.s
 Build the matched NK+LK extension into a separate durable namespace:
 
 ```bash
-qsub -v PROFILE=supervisor-nk-lk,RESULTS_ROOT=/SAN/bioinf/bmpfp/benchmarks/contemporary/2025_01_to_2026_02_supervisor_nk_lk \
+qsub -v PROFILE=supervisor-nk-lk,FRAMEWORK_REVISION=<commit>,RESULTS_ROOT=/SAN/bioinf/bmpfp/benchmarks/contemporary/2025_01_to_2026_02_supervisor_nk_lk \
   hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh
 ```
 
