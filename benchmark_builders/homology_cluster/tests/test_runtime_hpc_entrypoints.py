@@ -23,6 +23,10 @@ UNIREF50_ARRAY = (
     WORKSPACE_ROOT / "hpc_jobs" / "active"
     / "hpc_homology_cluster_runtime_array_24core_uniref50.sh"
 )
+UNIREF50_ARRAY_12CORE = (
+    WORKSPACE_ROOT / "hpc_jobs" / "active"
+    / "hpc_homology_cluster_runtime_array_12core_uniref50.sh"
+)
 UNIREF50_COMMON_CACHE = (
     WORKSPACE_ROOT / "hpc_jobs" / "active"
     / "hpc_homology_uniref50_common_cache.sh"
@@ -47,6 +51,17 @@ class RuntimeHPCEntrypointTests(unittest.TestCase):
         self.assertIn("uniref50/common_preprocessing", array)
         self.assertIn("export REQUIRE_HOMOLOGY_COMMON_CACHE=1", array)
         self.assertNotIn("qsub", array)
+
+        array_12core = UNIREF50_ARRAY_12CORE.read_text()
+        self.assertIn("#$ -pe smp 12", array_12core)
+        self.assertIn("#$ -t 1-6", array_12core)
+        self.assertIn("#$ -tc 6", array_12core)
+        self.assertIn("export UNIREF_LEVEL=50", array_12core)
+        self.assertIn('MMSEQS_SENSITIVITY="${MMSEQS_SENSITIVITY:-4}"', array_12core)
+        self.assertIn("export MMSEQS_PROFILE=daniel-aligned-defaults", array_12core)
+        self.assertIn("uniref50_sensitivity_4_daniel_aligned_12core", array_12core)
+        self.assertIn('export MINIMUM_SCRATCH_GB="${MINIMUM_SCRATCH_GB:-300}"', array_12core)
+        self.assertNotIn("qsub", array_12core)
 
         cache = UNIREF50_COMMON_CACHE.read_text()
         self.assertIn("--uniref-level 50", cache)

@@ -556,6 +556,7 @@ It leaves all existing UniRef90 scripts, inputs, caches, and outputs intact:
 
 ```text
 hpc_jobs/active/hpc_homology_uniref50_common_cache.sh
+hpc_jobs/active/hpc_homology_cluster_runtime_array_12core_uniref50.sh
 hpc_jobs/active/hpc_homology_cluster_runtime_array_24core_uniref50.sh
 ```
 
@@ -577,6 +578,10 @@ The six-task array refuses to start without that cache. It then selects `UNIREF_
 `MMSEQS_SENSITIVITY=4`, and publishes its assignments and benchmark outputs beneath explicit
 `uniref50_sensitivity_4` paths. A different UniRef50 sensitivity can be tested by overriding
 `MMSEQS_SENSITIVITY`, but it produces a distinct contract-keyed cluster cache and result namespace.
+The 12-core and 24-core wrappers use the same six identity thresholds and scientific settings. The
+12-core wrapper requests 120 GB aggregate memory and 312 GB aggregate scratch per task, making it
+the normal queue-friendly submission route; the 24-core wrapper remains available as a higher-slot
+alternative and must not be submitted for the same thresholds at the same time.
 
 Do not submit the cache or clustering job before the UniRef50 FASTA is present. The intended order is:
 
@@ -585,7 +590,7 @@ qsub -v SAN_INPUT_PROFILES=homology,FRAMEWORK_COMMIT=REVIEWED_COMMIT \
   hpc_jobs/active/hpc_populate_san_frozen_inputs.sh --skip-derived
 qsub hpc_jobs/active/hpc_homology_uniref50_common_cache.sh
 # Submit only after the cache job completes and verifies successfully.
-qsub hpc_jobs/active/hpc_homology_cluster_runtime_array_24core_uniref50.sh
+qsub hpc_jobs/active/hpc_homology_cluster_runtime_array_12core_uniref50.sh
 ```
 
 The download helper remains a focused convenience entrypoint. It refuses to overwrite an existing
