@@ -388,6 +388,17 @@ class RuntimeHPCEntrypointTests(unittest.TestCase):
         self.assertNotIn("STAGED_CLUSTER_CACHE", driver)
         self.assertNotIn("cp -a \"$HOMOLOGY_CLUSTER_CACHE_ROOT\"", driver)
 
+    def test_runtime_driver_allows_validated_external_assignments_without_cluster_cache(self):
+        driver = DRIVER.read_text()
+        self.assertIn("EXTERNAL_CLUSTER_MODE=0", driver)
+        self.assertIn("EXTERNAL_CLUSTER_MODE=1", driver)
+        self.assertIn(
+            "Using provenance-paired external cluster assignments; "
+            "framework cluster cache is intentionally disabled",
+            driver,
+        )
+        self.assertIn('&& "$EXTERNAL_CLUSTER_MODE" != "1"', driver)
+
     def test_runtime_driver_binds_and_probes_persistent_cache_before_initializing_it(self):
         driver = DRIVER.read_text()
         bind_call = 'add_mmfp_singularity_bind "$bind_root"'

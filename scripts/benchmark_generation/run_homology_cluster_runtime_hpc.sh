@@ -49,6 +49,7 @@ esac
 MMSEQS_SENSITIVITY="${MMSEQS_SENSITIVITY:-$DEFAULT_MMSEQS_SENSITIVITY}"
 EXTERNAL_CLUSTER_ASSIGNMENTS="${EXTERNAL_CLUSTER_ASSIGNMENTS:-}"
 EXTERNAL_CLUSTER_PROVENANCE="${EXTERNAL_CLUSTER_PROVENANCE:-}"
+EXTERNAL_CLUSTER_MODE=0
 if [[ -n "$EXTERNAL_CLUSTER_ASSIGNMENTS" || -n "$EXTERNAL_CLUSTER_PROVENANCE" ]]; then
     [[ -f "$EXTERNAL_CLUSTER_ASSIGNMENTS" && -f "$EXTERNAL_CLUSTER_PROVENANCE" ]] || {
         echo "External cluster assignments and provenance must both be readable files" >&2
@@ -58,6 +59,7 @@ if [[ -n "$EXTERNAL_CLUSTER_ASSIGNMENTS" || -n "$EXTERNAL_CLUSTER_PROVENANCE" ]]
         echo "The currently supplied external supervisor artifact is locked to 30 percent" >&2
         exit 2
     }
+    EXTERNAL_CLUSTER_MODE=1
 fi
 UNIREF_ROLE="uniref${UNIREF_LEVEL}_fasta"
 UNIREF_FILENAME="uniref${UNIREF_LEVEL}.fasta.gz"
@@ -609,11 +611,14 @@ fi
 if [[ -n "$HOMOLOGY_CLUSTER_CACHE_ROOT" ]]; then
     HOMOLOGY_CLUSTER_CACHE_ROOT="$(cd "$HOMOLOGY_CLUSTER_CACHE_ROOT" && pwd -P)"
     echo "Using persistent homology cluster cache: $HOMOLOGY_CLUSTER_CACHE_ROOT"
+elif [[ "$EXTERNAL_CLUSTER_MODE" == "1" ]]; then
+    echo "Using provenance-paired external cluster assignments; framework cluster cache is intentionally disabled"
 else
     echo "No persistent homology cluster cache is configured; clustering output will not be reusable"
 fi
 if [[ "${MMSEQS_PROFILE:-legacy-calibrated}" == "daniel-aligned-defaults" \
-      && -z "$HOMOLOGY_CLUSTER_CACHE_ROOT" ]]; then
+      && -z "$HOMOLOGY_CLUSTER_CACHE_ROOT" \
+      && "$EXTERNAL_CLUSTER_MODE" != "1" ]]; then
     echo "MMSEQS_PROFILE=daniel-aligned-defaults requires a persistent cluster-cache root" >&2
     echo "The validated cluster assignments must survive scratch cleanup" >&2
     exit 1
