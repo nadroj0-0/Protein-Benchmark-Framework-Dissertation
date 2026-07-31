@@ -102,6 +102,7 @@ class ContemporaryFollowupWrapperTests(unittest.TestCase):
         self.assertIn("#$ -pe smp 1", source)
         self.assertIn("activate_or_create_mmfp_env", source)
         self.assertIn('PYTHON_BIN="$(command -v python)"', source)
+        self.assertIn("sys.version_info >= (3, 9)", source)
         self.assertIn('2>&1 | tee "$LOG_FILE"', source)
 
 

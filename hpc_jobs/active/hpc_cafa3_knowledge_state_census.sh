@@ -115,7 +115,7 @@ add_mmfp_singularity_bind "$WORK"
 add_mmfp_singularity_bind /SAN/bioinf/bmpfp
 activate_or_create_mmfp_env
 PYTHON_BIN="$(command -v python)"
-"$PYTHON_BIN" -c 'import sys; assert sys.version_info >= (3, 10), sys.version'
+"$PYTHON_BIN" -c 'import sys; assert sys.version_info >= (3, 9), sys.version'
 
 "$PYTHON_BIN" scripts/diagnostics/build_cafa3_knowledge_state_census.py \
   --published-csv-dir "$PUBLISHED_CSV_DIR" \
