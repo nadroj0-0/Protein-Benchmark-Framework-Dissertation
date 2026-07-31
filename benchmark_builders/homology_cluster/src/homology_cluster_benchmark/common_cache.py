@@ -45,7 +45,6 @@ COLLISION_REPORT_FILE = "uniprot_accession_collisions.tsv.gz"
 # A cache is invalidated if any source file that defines the shared scientific
 # preprocessing changes. Threshold-specific MMseqs/splitting code is deliberately absent.
 PREPROCESSING_SOURCE_FILES = (
-    "common_cache.py",
     "goa.py",
     "idmapping.py",
     "inputs.py",
@@ -56,11 +55,14 @@ PREPROCESSING_SOURCE_FILES = (
     "uniref_scaffold.py",
 )
 
-# ``config.py`` is intentionally not source-bound here. This module imports only
+# ``common_cache.py`` cannot safely source-bind itself: any compatibility-only
+# validator change would alter its own expected hash and invalidate every cache.
+# Producer-format changes in this module must instead bump CACHE_SCHEMA_VERSION
+# or STATE_FORMAT. ``config.py`` is also omitted because this module imports only
 # SUPERVISOR_EVIDENCE_CODES from it, and those exact values are already bound in
 # the cache policy. Unrelated runtime/config additions must not invalidate a
-# multi-hour preprocessing cache whose inputs, policy, schema, and producer
-# modules are otherwise unchanged.
+# multi-hour cache whose inputs, policy, schema, state format, payload hashes,
+# and data-transform modules are otherwise unchanged.
 
 # Schema 2 was produced by the first SAN cache build. Its CLI executed this
 # module with ``python -m``, which made the wrapper dataclass pickle as

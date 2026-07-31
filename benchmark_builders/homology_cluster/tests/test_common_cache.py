@@ -181,7 +181,10 @@ class CommonPreprocessingCacheTests(unittest.TestCase):
             )
             marker = cache / CACHE_MARKER
             payload = json.loads(marker.read_text(encoding="utf-8"))
-            payload["preprocessing_source_sha256"]["config.py"] = "a" * 64
+            payload["preprocessing_source_sha256"].update({
+                "common_cache.py": "b" * 64,
+                "config.py": "a" * 64,
+            })
             marker.write_text(
                 json.dumps(payload, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
