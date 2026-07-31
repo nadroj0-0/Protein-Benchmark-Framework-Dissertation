@@ -172,7 +172,15 @@ def _read_archive_members(
                 raise ValueError(f"CAFA archive member is not a regular file: {member.name}")
             payload = handle.read()
             if not payload:
-                raise ValueError(f"CAFA archive member is empty: {member.name}")
+                if dynamic_too_few:
+                    source_members[expected_name] = {
+                        "archive_member": member.name,
+                        "bytes": 0,
+                        "sha256": hashlib.sha256(b"").hexdigest(),
+                        "empty_optional_category": True,
+                    }
+                    continue
+                raise ValueError(f"Required CAFA archive member is empty: {member.name}")
             payloads[expected_name] = payload
             source_members[expected_name] = {
                 "archive_member": member.name,

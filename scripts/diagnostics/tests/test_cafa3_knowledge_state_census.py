@@ -72,6 +72,11 @@ def write_archive(path: Path, overlap: bool = False) -> None:
                 f"benchmark20171115/lists/too_few/{prefix}o_FIXTURE_type2.txt",
                 f"{prefix.upper()}_TOOFEW\n",
             )
+            add_tar_bytes(
+                archive,
+                f"benchmark20171115/lists/too_few/{prefix}o_EMPTY_type1.txt",
+                "",
+            )
 
 
 class Cafa3KnowledgeStateCensusTests(unittest.TestCase):
