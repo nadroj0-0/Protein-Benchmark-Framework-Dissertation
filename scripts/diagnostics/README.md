@@ -1,5 +1,15 @@
 # Diagnostics
 
+## Exact homology-cluster partition comparison
+
+`compare_homology_cluster_assignments.py` compares two complete MMseqs2
+representative/member assignment files without assuming that cluster labels or
+representatives match. It validates the member universe, calculates exact
+one-to-one cluster-block coverage, identifies splits and merges, summarizes
+cluster sizes, and reports pairwise Jaccard, Fowlkes-Mallows, and adjusted Rand
+agreement. Large intermediate sorts remain in caller-provided scratch space;
+only compact checksummed reports are published.
+
 ## Audit a PFP working copy
 
 `audit_pfp_working_copy.py` compares an existing local PFP working directory
