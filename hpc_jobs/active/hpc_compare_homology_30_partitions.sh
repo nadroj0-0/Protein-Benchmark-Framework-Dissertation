@@ -24,6 +24,7 @@ RIGHT_ASSIGNMENTS="${RIGHT_ASSIGNMENTS:-/SAN/bioinf/bmpfp/derived_inputs/homolog
 RESULTS_ROOT="${RESULTS_ROOT:-/SAN/bioinf/bmpfp/diagnostics/homology_cluster_comparison/2026_02/identity_30/framework_vs_daniel}"
 FRAMEWORK_REPO_URL="${FRAMEWORK_REPO_URL:-https://github.com/nadroj0-0/Protein-Benchmark-Framework-Dissertation.git}"
 FRAMEWORK_COMMIT="${FRAMEWORK_COMMIT:-}"
+PYTHON_BIN="${PYTHON_BIN:-/share/apps/miniforge3_mamba/bin/python}"
 SUBMISSION_DIR="${SGE_O_WORKDIR:-$PWD}"
 JOB_TOKEN="${JOB_ID:-manual_$$}"
 RUN_TAG="${JOB_TOKEN}_$(date -u +%Y%m%dT%H%M%SZ)"
@@ -74,6 +75,7 @@ trap 'echo "Received termination signal"; exit 130' INT TERM
 
 [[ -f "$LEFT_ASSIGNMENTS" ]] || die "Framework assignment file is missing: $LEFT_ASSIGNMENTS"
 [[ -f "$RIGHT_ASSIGNMENTS" ]] || die "Daniel assignment file is missing: $RIGHT_ASSIGNMENTS"
+[[ -x "$PYTHON_BIN" ]] || die "Shared Python executable is unavailable: $PYTHON_BIN"
 [[ "$RESULTS_ROOT" == /SAN/* ]] || die "RESULTS_ROOT must be on SAN"
 [[ ! -e "$WORK" ]] || die "Scratch path already exists: $WORK"
 mkdir -p "$WORK" "$SCRATCH_OUTPUT" "$SORT_SCRATCH" "$RESULTS_ROOT"
@@ -94,13 +96,6 @@ echo "Started          : $(date -Is)"
 
 git clone --no-checkout "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"
 git_in_dir "$FRAMEWORK_DIR" checkout --detach "$FRAMEWORK_COMMIT"
-cd "$FRAMEWORK_DIR"
-source scripts/reproduction_common.sh
-load_framework_paths "$FRAMEWORK_DIR"
-add_mmfp_singularity_bind /SAN/bioinf/bmpfp
-add_mmfp_singularity_bind "$WORK"
-activate_or_create_mmfp_env
-PYTHON_BIN="$(command -v python)"
 
 "$PYTHON_BIN" "$FRAMEWORK_DIR/scripts/diagnostics/compare_homology_cluster_assignments.py" \
   --left "$LEFT_ASSIGNMENTS" \
