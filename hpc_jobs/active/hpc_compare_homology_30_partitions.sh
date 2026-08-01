@@ -17,6 +17,7 @@ set -Eeuo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 
 die() { echo "ERROR: $*" >&2; exit 2; }
+git_in_dir() { local directory="$1"; shift; (cd "$directory" && git "$@"); }
 
 LEFT_ASSIGNMENTS="${LEFT_ASSIGNMENTS:-/SAN/bioinf/bmpfp/derived_inputs/homology/2026_02/mmseqs_cluster_assignments/uniref50_sensitivity_4/uniref50_2026_02/identity_30/contract_e3e44179dd219d65/cluster_assignments.tsv.gz}"
 RIGHT_ASSIGNMENTS="${RIGHT_ASSIGNMENTS:-/SAN/bioinf/bmpfp/derived_inputs/homology/2026_02/supervisor_daniel_buchan/mmseqs_cluster_assignments/uniref50_sensitivity_4/identity_30/raw/cluster_assignments.tsv.gz}"
@@ -92,7 +93,7 @@ echo "Final output     : $FINAL_OUTPUT"
 echo "Started          : $(date -Is)"
 
 git clone --no-checkout "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"
-git -C "$FRAMEWORK_DIR" checkout --detach "$FRAMEWORK_COMMIT"
+git_in_dir "$FRAMEWORK_DIR" checkout --detach "$FRAMEWORK_COMMIT"
 
 python3 "$FRAMEWORK_DIR/scripts/diagnostics/compare_homology_cluster_assignments.py" \
   --left "$LEFT_ASSIGNMENTS" \
