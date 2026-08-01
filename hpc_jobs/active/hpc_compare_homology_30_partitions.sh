@@ -94,8 +94,14 @@ echo "Started          : $(date -Is)"
 
 git clone --no-checkout "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"
 git_in_dir "$FRAMEWORK_DIR" checkout --detach "$FRAMEWORK_COMMIT"
+cd "$FRAMEWORK_DIR"
+source scripts/reproduction_common.sh
+add_mmfp_singularity_bind /SAN/bioinf/bmpfp
+add_mmfp_singularity_bind "$WORK"
+activate_or_create_mmfp_env
+PYTHON_BIN="$(command -v python)"
 
-python3 "$FRAMEWORK_DIR/scripts/diagnostics/compare_homology_cluster_assignments.py" \
+"$PYTHON_BIN" "$FRAMEWORK_DIR/scripts/diagnostics/compare_homology_cluster_assignments.py" \
   --left "$LEFT_ASSIGNMENTS" \
   --right "$RIGHT_ASSIGNMENTS" \
   --left-label framework-mmseqs-18-8cc5c \
