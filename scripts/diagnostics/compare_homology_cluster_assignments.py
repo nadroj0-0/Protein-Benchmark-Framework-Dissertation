@@ -121,6 +121,7 @@ def _sort_file(
 
 
 def _assignment_rows(path: Path, progress_label: str) -> Iterator[str]:
+    first_content = True
     with _open_text(path) as handle:
         for line_number, raw_line in enumerate(handle, start=1):
             if line_number % 5_000_000 == 0:
@@ -128,6 +129,12 @@ def _assignment_rows(path: Path, progress_label: str) -> Iterator[str]:
             if not raw_line.strip():
                 continue
             columns = raw_line.rstrip("\r\n").split("\t")
+            if first_content and len(columns) == 2 and columns[0] == "mmseqs_cluster_id" and columns[1] in {
+                "uniref50_id", "uniref90_id"
+            }:
+                first_content = False
+                continue
+            first_content = False
             if len(columns) != 2 or not columns[0] or not columns[1]:
                 raise ValueError(
                     f"Malformed {progress_label} assignment at line {line_number}; "

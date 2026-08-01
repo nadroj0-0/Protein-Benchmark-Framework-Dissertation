@@ -88,6 +88,19 @@ class HomologyClusterComparisonTests(unittest.TestCase):
             self.assertIsNone(payload["pairwise_agreement"]["pair_jaccard"])
             self.assertIn("Pair Jaccard: n/a", (root / "out" / "summary.md").read_text())
 
+    def test_accepts_framework_header_against_headerless_input(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            left = root / "left.tsv.gz"
+            right = root / "right.tsv.gz"
+            with gzip.open(left, "wt", encoding="utf-8", newline="") as handle:
+                handle.write("mmseqs_cluster_id\tuniref50_id\n")
+                handle.write("a\ta\n")
+            _write(right, [("a", "a")])
+            payload = MODULE.compare(self._args(root, left, right))
+            self.assertEqual(payload["member_universe"]["common_members"], 1)
+            self.assertEqual(payload["member_universe"]["left_only_members"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
