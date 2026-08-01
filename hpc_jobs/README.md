@@ -331,8 +331,9 @@ Without explicit paths or a catalogue, the default remains downloading the
 canonical source CSVs and published embedding archives during each job.
 
 `hpc_contemporary_benchmark_reuse_plan.sh` runs the newer CSV-only binary reuse
-planner. It stages the completed contemporary nine-CSV benchmark in scratch and,
-uses an explicit embedded benchmark, then the artifact catalogue, then the
+planner. It stages one completed target nine-CSV benchmark in scratch and uses
+repeatable `--embedded-benchmark NAME=PATH` arguments, a legacy explicit
+embedded benchmark, then the artifact catalogue, then the
 authenticated Zenodo 7409660 download fallback for Zijian's canonical CAFA3
 CSVs. It compares exact case-sensitive protein IDs and complete
 sequences, producing only `reuse` and `regenerate` buckets. It does not download
@@ -342,6 +343,18 @@ Use `EMBEDDED_BENCHMARK_DIR` to replace the default download with a local set of
 nine previously embedded CSVs. Optional names are `TARGET_BENCHMARK_NAME` and
 `EMBEDDED_BENCHMARK_NAME`; `RESULTS_ROOT` and `FRAMEWORK_COMMIT` follow the same
 rules as the inventory wrapper.
+
+Historical embedded benchmarks may hold different sequence versions for one
+protein ID. The planner preserves those as separate exact variants and reuses a
+target only from the benchmark or benchmarks containing its exact full sequence.
+For example, a multi-source homology ledger can be submitted as:
+
+```bash
+qsub -v TARGET_BENCHMARK_DIR=/path/to/homology,TARGET_BENCHMARK_NAME=homology_30 \
+  hpc_jobs/active/hpc_contemporary_benchmark_reuse_plan.sh \
+  --embedded-benchmark cafa3=/path/to/cafa3 \
+  --embedded-benchmark contemporary=/path/to/contemporary
+```
 
 For the completed 2025-2026 run currently retained on Morecambe, submit:
 

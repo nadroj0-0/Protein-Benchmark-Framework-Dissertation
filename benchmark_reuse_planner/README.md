@@ -12,7 +12,10 @@ target protein into exactly one of two actions:
 
 GO labels and ontology/split placement are validated and reported as
 memberships, but never affect the action. Sequence-only matching is forbidden.
-An ID conflict anywhere in the embedded union or within the target is fatal.
+Historical embedded benchmarks may contain different complete sequences for the
+same protein ID. Those are retained as separate exact `(ID, sequence)` variants;
+only an exact target variant authorizes reuse. A conflicting sequence within one
+benchmark remains fatal.
 `reuse` preserves the earlier run's files and missing/masked-modality behaviour;
 it does not claim that all four modality files exist. `regenerate` only schedules
 generation. Later generation failures and unavailable external sources belong to
@@ -117,7 +120,8 @@ Reason tokens are `exact-id-sequence-match`, `protein-id-absent`, and
 `sequence-mismatch`.
 
 `known_embedded_proteins.tsv` contains the complete deduplicated embedded union,
-including proteins absent from the target. TXT files contain one sorted bare ID
+including proteins absent from the target and one row for each distinct exact
+`(protein ID, complete sequence)` variant. TXT files contain one sorted bare ID
 per line. FASTA contains every regenerate protein once with a bare `>protein_id`
 header and the exact target sequence on one line.
 

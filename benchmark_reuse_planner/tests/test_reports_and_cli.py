@@ -184,6 +184,45 @@ class ReportAndCliTests(unittest.TestCase):
                 ["alpha", "zeta"],
             )
 
+    def test_reports_publish_multiple_sequence_variants_for_one_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old = parse_benchmark(
+                "old",
+                write_benchmark(
+                    root / "old",
+                    rows_in("bp-training.csv", ("P1", "AAAA")),
+                ),
+            )
+            current = parse_benchmark(
+                "current",
+                write_benchmark(
+                    root / "current",
+                    rows_in("mf-test.csv", ("P1", "BBBB")),
+                ),
+            )
+            target = parse_benchmark(
+                "target",
+                write_benchmark(
+                    root / "target",
+                    rows_in("cc-validation.csv", ("P1", "BBBB")),
+                ),
+            )
+
+            output = write_reports(build_plan((old, current), target), root / "output")
+            known = read_tsv(output / "known_embedded_proteins.tsv")
+            summary = json.loads((output / "summary.json").read_text())
+            reuse = read_tsv(output / "reuse_proteins.tsv")
+
+            self.assertEqual([row["protein_id"] for row in known], ["P1", "P1"])
+            self.assertEqual({row["sequence"] for row in known}, {"AAAA", "BBBB"})
+            self.assertEqual(summary["counts"]["known_embedded_proteins"], 1)
+            self.assertEqual(summary["counts"]["known_embedded_sequence_variants"], 2)
+            self.assertEqual(
+                json.loads(reuse[0]["matching_embedded_benchmarks"]),
+                ["current"],
+            )
+
     def test_interrupt_during_report_generation_leaves_no_destination_or_stage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

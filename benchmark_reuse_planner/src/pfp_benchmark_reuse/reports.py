@@ -187,7 +187,9 @@ def _write_summary_markdown(path: Path, plan: ReusePlan) -> None:
         "",
         "| Measure | Count |",
         "|---|---:|",
-        "| Known embedded proteins | %d |" % counts["known_embedded_proteins"],
+        "| Known embedded protein IDs | %d |" % counts["known_embedded_proteins"],
+        "| Known embedded ID/sequence variants | %d |"
+        % counts["known_embedded_sequence_variants"],
         "| Target proteins | %d |" % counts["target_proteins"],
         "| Reuse | %d |" % counts["reuse"],
         "| Regenerate | %d |" % counts["regenerate"],
@@ -276,7 +278,10 @@ def _benchmark_manifest(benchmark: BenchmarkData) -> Dict[str, Any]:
 def _counts(plan: ReusePlan) -> Dict[str, int]:
     return {
         "embedded_benchmarks": len(plan.embedded_benchmarks),
-        "known_embedded_proteins": len(plan.known_embedded_proteins),
+        "known_embedded_proteins": len(
+            {record.protein_id for record in plan.known_embedded_proteins}
+        ),
+        "known_embedded_sequence_variants": len(plan.known_embedded_proteins),
         "regenerate": len(plan.regenerate_records),
         "reuse": len(plan.reuse_records),
         "target_proteins": len(plan.target_benchmark.proteins),

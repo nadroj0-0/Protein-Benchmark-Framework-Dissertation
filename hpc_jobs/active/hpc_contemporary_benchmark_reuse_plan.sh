@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# UCL Grid Engine wrapper for comparing the completed contemporary CSVs with
-# Zijian's canonical CAFA3 benchmark scope. Inputs are staged in scratch.
+# UCL Grid Engine wrapper for comparing one completed target benchmark with
+# one or more previously embedded benchmark populations. Inputs are staged in
+# scratch. With no explicit embedded benchmark, the historical CAFA3 default
+# is preserved for backwards compatibility.
 
 #$ -l tmem=32G
 #$ -l tscratch=8G
@@ -13,16 +15,29 @@
 set -euo pipefail
 
 CLI_ARTIFACT_CATALOG="${ARTIFACT_CATALOG:-}"
-if [[ "${1:-}" == "--artifact-catalog" ]]; then
-  [[ $# -ge 2 ]] || { echo "--artifact-catalog requires a path" >&2; exit 2; }
-  CLI_ARTIFACT_CATALOG="$2"
-  shift 2
-fi
-[[ $# -eq 0 ]] || { echo "Unknown argument: $1" >&2; exit 2; }
+CLI_EMBEDDED_BENCHMARKS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --artifact-catalog)
+      [[ $# -ge 2 ]] || { echo "--artifact-catalog requires a path" >&2; exit 2; }
+      CLI_ARTIFACT_CATALOG="$2"
+      shift 2
+      ;;
+    --embedded-benchmark)
+      [[ $# -ge 2 ]] || { echo "--embedded-benchmark requires NAME=PATH" >&2; exit 2; }
+      CLI_EMBEDDED_BENCHMARKS+=("$2")
+      shift 2
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      exit 2
+      ;;
+  esac
+done
 
 JOB_TOKEN="${JOB_ID:-manual_$$}"
 RUN_TAG="${JOB_TOKEN}_$(date +%Y%m%d_%H%M%S)"
-WORK="/scratch0/contemporary_benchmark_reuse_${JOB_TOKEN}"
+WORK="/scratch0/benchmark_reuse_${JOB_TOKEN}"
 RESULTS_ROOT="${RESULTS_ROOT:-$HOME/contemporary_benchmark_reuse_results}"
 FINAL_RUN_ROOT="${RESULTS_ROOT}/${RUN_TAG}"
 FAILED_RUN_ROOT="${FINAL_RUN_ROOT}.failed"
@@ -98,7 +113,7 @@ cleanup() {
   echo "==> Final workflow status: $status"
   copy_results "$status" || copy_status=$?
   if [[ "$WORK_OWNED" == "1" ]]; then
-    if [[ "$WORK" == /scratch0/contemporary_benchmark_reuse_* && ! -L "$WORK" ]]; then
+    if [[ "$WORK" == /scratch0/benchmark_reuse_* && ! -L "$WORK" ]]; then
       echo "==> Removing job-owned scratch directory: $WORK"
       cd "$HOME"
       rm -rf "$WORK"
@@ -129,7 +144,15 @@ echo "Job ID        : ${JOB_ID:-manual}"
 echo "Scratch       : $WORK"
 echo "Final output  : $FINAL_RUN_ROOT"
 echo "Target CSVs   : $TARGET_BENCHMARK_DIR"
-echo "Embedded CSVs : ${EMBEDDED_BENCHMARK_DIR:-Zenodo 7409660 download}"
+if [[ "${#CLI_EMBEDDED_BENCHMARKS[@]}" -gt 0 ]]; then
+  [[ -z "${EMBEDDED_BENCHMARK_DIR:-}" ]] || \
+    die "Do not combine legacy EMBEDDED_BENCHMARK_DIR with --embedded-benchmark"
+  printf 'Embedded CSVs :'
+  printf ' %s' "${CLI_EMBEDDED_BENCHMARKS[@]}"
+  printf '\n'
+else
+  echo "Embedded CSVs : ${EMBEDDED_BENCHMARK_DIR:-Zenodo 7409660 download}"
+fi
 echo "Started       : $(date)"
 echo
 
@@ -166,7 +189,11 @@ COMMAND=(
 if [[ -n "${ARTIFACT_CATALOG:-}" ]]; then
   COMMAND+=(--artifact-catalog "$ARTIFACT_CATALOG")
 fi
-if [[ -n "${EMBEDDED_BENCHMARK_DIR:-}" ]]; then
+if [[ "${#CLI_EMBEDDED_BENCHMARKS[@]}" -gt 0 ]]; then
+  for embedded_spec in "${CLI_EMBEDDED_BENCHMARKS[@]}"; do
+    COMMAND+=(--embedded-benchmark "$embedded_spec")
+  done
+elif [[ -n "${EMBEDDED_BENCHMARK_DIR:-}" ]]; then
   COMMAND+=(
     --embedded-benchmark
     "${EMBEDDED_BENCHMARK_NAME:-cafa3_zijian}=${EMBEDDED_BENCHMARK_DIR}"

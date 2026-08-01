@@ -155,7 +155,7 @@ class PlannerPolicyTests(unittest.TestCase):
                     self.assertEqual(record.target_memberships, (membership,))
                     self.assertEqual(record.matching_embedded_benchmarks, ("source",))
 
-    def test_reference_conflict_fails_even_when_absent_from_target(self) -> None:
+    def test_historical_sequence_variants_are_retained_and_matched_exactly(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             first = parse_benchmark(
@@ -166,12 +166,50 @@ class PlannerPolicyTests(unittest.TestCase):
                 "second",
                 write_benchmark(root / "second", rows_in("bp-training.csv", ("CONFLICT", "BBBB"))),
             )
-            target = parse_benchmark(
-                "target",
-                write_benchmark(root / "target", rows_in("bp-training.csv", ("P1", "CCCC"))),
+            matching_first = parse_benchmark(
+                "target-first",
+                write_benchmark(
+                    root / "target-first",
+                    rows_in("bp-training.csv", ("CONFLICT", "AAAA")),
+                ),
             )
-            with self.assertRaisesRegex(PlanningError, "conflicting sequences"):
-                build_plan((first, second), target)
+            matching_second = parse_benchmark(
+                "target-second",
+                write_benchmark(
+                    root / "target-second",
+                    rows_in("bp-training.csv", ("CONFLICT", "BBBB")),
+                ),
+            )
+            unseen_variant = parse_benchmark(
+                "target-unseen",
+                write_benchmark(
+                    root / "target-unseen",
+                    rows_in("bp-training.csv", ("CONFLICT", "CCCC")),
+                ),
+            )
+
+            first_plan = build_plan((first, second), matching_first)
+            second_plan = build_plan((first, second), matching_second)
+            unseen_plan = build_plan((first, second), unseen_variant)
+
+            self.assertEqual(
+                first_plan.reuse_records[0].matching_embedded_benchmarks,
+                ("first",),
+            )
+            self.assertEqual(
+                second_plan.reuse_records[0].matching_embedded_benchmarks,
+                ("second",),
+            )
+            self.assertEqual(len(first_plan.known_embedded_proteins), 2)
+            self.assertEqual(
+                [record.sequence for record in first_plan.known_embedded_proteins],
+                ["AAAA", "BBBB"],
+            )
+            self.assertEqual(unseen_plan.regenerate_records[0].reason, "sequence-mismatch")
+            self.assertEqual(
+                unseen_plan.regenerate_records[0].embedded_benchmark_memberships,
+                ("first:bp-training.csv", "second:bp-training.csv"),
+            )
 
     def test_duplicate_names_and_target_name_collision_fail(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

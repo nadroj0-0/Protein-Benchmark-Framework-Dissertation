@@ -27,6 +27,9 @@ class _KnownProtein:
     memberships: Set[str] = field(default_factory=set)
 
 
+KnownVariants = Dict[str, Dict[str, _KnownProtein]]
+
+
 def build_plan(
     embedded_benchmarks: Sequence[BenchmarkData], target_benchmark: BenchmarkData
 ) -> ReusePlan:
@@ -128,23 +131,18 @@ def _validate_benchmark_records(benchmark: BenchmarkData) -> None:
 
 def _build_known_union(
     embedded_benchmarks: Sequence[BenchmarkData],
-) -> Dict[str, _KnownProtein]:
-    known: Dict[str, _KnownProtein] = {}
+) -> KnownVariants:
+    known: KnownVariants = {}
     for benchmark in embedded_benchmarks:
         for protein_id, protein in sorted(benchmark.proteins.items()):
-            existing = known.get(protein_id)
-            if existing is not None and existing.sequence != protein.sequence:
-                conflicting = sorted(existing.benchmarks | {benchmark.name})
-                raise PlanningError(
-                    "Embedded protein ID %s has conflicting sequences across benchmarks: %s"
-                    % (protein_id, ", ".join(conflicting))
-                )
+            variants = known.setdefault(protein_id, {})
+            existing = variants.get(protein.sequence)
             if existing is None:
                 existing = _KnownProtein(
                     sequence=protein.sequence,
                     sequence_sha256=protein.sequence_sha256,
                 )
-                known[protein_id] = existing
+                variants[protein.sequence] = existing
             existing.benchmarks.add(benchmark.name)
             existing.memberships.update(
                 "%s:%s" % (benchmark.name, membership)
@@ -153,7 +151,7 @@ def _build_known_union(
     return known
 
 
-def _known_records(known: Dict[str, _KnownProtein]) -> Tuple[EmbeddedProtein, ...]:
+def _known_records(known: KnownVariants) -> Tuple[EmbeddedProtein, ...]:
     return tuple(
         EmbeddedProtein(
             protein_id=protein_id,
@@ -162,28 +160,39 @@ def _known_records(known: Dict[str, _KnownProtein]) -> Tuple[EmbeddedProtein, ..
             embedded_benchmarks=tuple(sorted(protein.benchmarks)),
             embedded_benchmark_memberships=tuple(sorted(protein.memberships)),
         )
-        for protein_id, protein in sorted(known.items())
+        for protein_id, variants in sorted(known.items())
+        for protein in sorted(
+            variants.values(),
+            key=lambda item: (item.sequence, item.sequence_sha256),
+        )
     )
 
 
 def _expected_record(
     protein_id: str,
     target: ProteinRecord,
-    known: Dict[str, _KnownProtein],
+    known: KnownVariants,
 ) -> PlanRecord:
     target_sequence = target.sequence
-    embedded = known.get(protein_id)
-    if embedded is None:
+    variants = known.get(protein_id)
+    if variants is None:
         action = "regenerate"
         reason = "protein-id-absent"
         matches: Tuple[str, ...] = ()
         embedded_memberships: Tuple[str, ...] = ()
-    elif embedded.sequence != target_sequence:
+    elif target_sequence not in variants:
         action = "regenerate"
         reason = "sequence-mismatch"
         matches = ()
-        embedded_memberships = tuple(sorted(embedded.memberships))
+        embedded_memberships = tuple(
+            sorted(
+                membership
+                for embedded in variants.values()
+                for membership in embedded.memberships
+            )
+        )
     else:
+        embedded = variants[target_sequence]
         action = "reuse"
         reason = "exact-id-sequence-match"
         matches = tuple(sorted(embedded.benchmarks))
