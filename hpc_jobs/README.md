@@ -339,10 +339,19 @@ CSVs. It compares exact case-sensitive protein IDs and complete
 sequences, producing only `reuse` and `regenerate` buckets. It does not download
 or inspect embedding arrays. Results are published under
 `$HOME/contemporary_benchmark_reuse_results`; scratch cleanup is unconditional.
+
 Use `EMBEDDED_BENCHMARK_DIR` to replace the default download with a local set of
 nine previously embedded CSVs. Optional names are `TARGET_BENCHMARK_NAME` and
 `EMBEDDED_BENCHMARK_NAME`; `RESULTS_ROOT` and `FRAMEWORK_COMMIT` follow the same
 rules as the inventory wrapper.
+
+`hpc_homology_embedding_source_ledger.sh` resolves the accepted 30% homology
+benchmark reuse plan to exact members of the validated contemporary
+paper-faithful and regenerated CAFA3 hydrated-cache archives. Resolution is per
+protein and modality. Exact duplicate arrays are harmless; any conflicting or
+invalid candidate forces regeneration of that modality. The source archives and
+coarse plan remain read-only, and a new immutable resolved ledger is published
+under the homology embedding-state tree on SAN.
 
 Historical embedded benchmarks may hold different sequence versions for one
 protein ID. The planner preserves those as separate exact variants and reuses a
