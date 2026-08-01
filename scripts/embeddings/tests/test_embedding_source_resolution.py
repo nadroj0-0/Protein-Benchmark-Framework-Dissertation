@@ -136,6 +136,11 @@ class SourceResolutionTests(unittest.TestCase):
         self.assertIn(
             "cafa3_regenerated_hydrated=cafa3_hydrated_population=", text
         )
+        self.assertIn('load_framework_paths "$FRAMEWORK_DIR"', text)
+        self.assertLess(
+            text.index('load_framework_paths "$FRAMEWORK_DIR"'),
+            text.index("activate_or_create_mmfp_env"),
+        )
         self.assertIn("status=${PIPESTATUS[0]}", text)
         self.assertIn("reuse_ledger/source_resolved", text)
 

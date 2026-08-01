@@ -119,6 +119,7 @@ git clone --no-checkout "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"
 git_in_dir "$FRAMEWORK_DIR" checkout --detach "$FRAMEWORK_COMMIT"
 cd "$FRAMEWORK_DIR"
 source scripts/reproduction_common.sh
+load_framework_paths "$FRAMEWORK_DIR"
 add_mmfp_singularity_bind /SAN/bioinf/bmpfp
 add_mmfp_singularity_bind "$WORK"
 activate_or_create_mmfp_env
