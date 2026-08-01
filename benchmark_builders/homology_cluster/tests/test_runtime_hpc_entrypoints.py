@@ -27,6 +27,10 @@ UNIREF50_ARRAY_12CORE = (
     WORKSPACE_ROOT / "hpc_jobs" / "active"
     / "hpc_homology_cluster_runtime_array_12core_uniref50.sh"
 )
+CACHED_RANDOM_RESPLIT = (
+    WORKSPACE_ROOT / "hpc_jobs" / "active"
+    / "hpc_homology_cluster_cached_resplit_30_25_20.sh"
+)
 UNIREF50_COMMON_CACHE = (
     WORKSPACE_ROOT / "hpc_jobs" / "active"
     / "hpc_homology_uniref50_common_cache.sh"
@@ -42,6 +46,18 @@ SNAPSHOT = WORKSPACE_ROOT / "hpc_jobs" / "active" / "hpc_homology_progress_snaps
 
 
 class RuntimeHPCEntrypointTests(unittest.TestCase):
+    def test_cached_random_resplit_is_small_and_cannot_recluster(self):
+        worker = CACHED_RANDOM_RESPLIT.read_text()
+        self.assertIn("#$ -pe smp 4", worker)
+        self.assertIn("#$ -t 1-3", worker)
+        self.assertIn("#$ -tc 3", worker)
+        self.assertIn("export SPLIT_POLICY=cluster-count-random", worker)
+        self.assertIn("export REQUIRE_HOMOLOGY_COMMON_CACHE=1", worker)
+        self.assertIn("export REQUIRE_HOMOLOGY_CLUSTER_CACHE=1", worker)
+        self.assertIn("uniref50_sensitivity_4", worker)
+        self.assertIn("cached_random_resplit", worker)
+        self.assertNotIn("qsub", worker)
+
     def test_uniref50_jobs_are_namespaced_and_block_on_the_new_shared_cache(self):
         array = UNIREF50_ARRAY.read_text()
         self.assertIn("#$ -pe smp 24", array)

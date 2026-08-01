@@ -6,8 +6,10 @@ import hashlib
 import importlib.metadata
 import json
 import logging
+import os
 import platform
 from pathlib import Path
+import re
 import subprocess
 
 import pandas as pd
@@ -558,11 +560,23 @@ def _validate_csv_outputs(
 
 
 def _git_commit() -> str | None:
+    explicit_revision = os.environ.get("CAFA_BUILDER_FRAMEWORK_REVISION", "").strip()
+    if explicit_revision:
+        if not re.fullmatch(r"[0-9a-f]{40}", explicit_revision):
+            raise ValueError(
+                "CAFA_BUILDER_FRAMEWORK_REVISION must be a complete lowercase "
+                "40-character Git commit"
+            )
+        return explicit_revision
+
     repo_root = Path(__file__).resolve().parents[4]
-    result = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=repo_root, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=repo_root, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False,
+        )
+    except OSError:
+        return None
     return result.stdout.strip() or None if result.returncode == 0 else None
 
 

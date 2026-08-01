@@ -193,7 +193,11 @@ if [[ -n "$FRAMEWORK_REVISION" ]]; then
         exit 1
     fi
     echo "Pinned framework revision: $ACTUAL_FRAMEWORK_REVISION"
+else
+    ACTUAL_FRAMEWORK_REVISION="$(git rev-parse HEAD)"
 fi
+export CAFA_BUILDER_FRAMEWORK_REVISION="$ACTUAL_FRAMEWORK_REVISION"
+echo "Builder provenance revision: $CAFA_BUILDER_FRAMEWORK_REVISION"
 source scripts/reproduction_common.sh
 export ARTIFACT_CATALOG="$CLI_ARTIFACT_CATALOG"
 load_framework_paths "$FRAMEWORK_DIR"
