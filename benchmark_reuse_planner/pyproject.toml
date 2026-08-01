@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pfp-benchmark-reuse"
-version = "0.1.0"
+version = "0.2.1"
 description = "Deterministic benchmark-level embedding reuse planner for PFP CSVs"
 requires-python = ">=3.9"
 dependencies = []

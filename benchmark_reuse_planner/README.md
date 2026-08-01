@@ -69,8 +69,10 @@ mf-training.csv     mf-validation.csv     mf-test.csv
 ```
 
 Every CSV begins with `proteins,sequences` followed by one or more unique `GO:`
-columns. Protein IDs and sequences are non-empty, rows match the header width,
-and every GO label is the literal `0` or `1`. IDs are opaque and case-sensitive;
+columns. The legacy singular `protein,sequences` spelling used by the published
+CAFA3 MF CSVs is also accepted; no other first-column aliases are allowed.
+Protein IDs and sequences are non-empty, rows match the header width, and every
+GO label is the literal `0` or `1`. IDs are opaque and case-sensitive;
 whitespace, controls, path separators, `.` and `..` are rejected. Sequences are
 not stripped, uppercased, or otherwise normalized.
 

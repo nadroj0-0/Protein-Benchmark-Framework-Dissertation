@@ -17,6 +17,7 @@ from .models import (
 
 _BENCHMARK_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _SEQUENCE_RE = re.compile(r"^[A-Za-z*.-]+$")
+_PROTEIN_ID_HEADER_NAMES = {"protein", "proteins"}
 
 
 class BenchmarkError(ReusePlannerError):
@@ -97,9 +98,14 @@ def _parse_csv(
         with path.open("r", encoding="utf-8-sig", newline="") as handle:
             reader = csv.reader(handle, strict=True)
             header = _read_header(reader, filename)
-            if len(header) < 3 or header[:2] != ["proteins", "sequences"]:
+            if (
+                len(header) < 3
+                or header[0] not in _PROTEIN_ID_HEADER_NAMES
+                or header[1] != "sequences"
+            ):
                 raise BenchmarkError(
-                    "%s must begin with proteins,sequences and contain GO columns" % filename
+                    "%s must begin with protein[s],sequences and contain GO columns"
+                    % filename
                 )
             go_columns = header[2:]
             if len(go_columns) != len(set(go_columns)):

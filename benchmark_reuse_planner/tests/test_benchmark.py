@@ -59,6 +59,19 @@ class BenchmarkParsingTests(unittest.TestCase):
             benchmark = parse_benchmark("target", write_benchmark(Path(tmp) / "target", rows))
             self.assertEqual(len(benchmark.proteins), 1)
 
+    def test_singular_protein_header_is_accepted_for_published_cafa3_compatibility(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = write_benchmark(
+                Path(tmp) / "target",
+                headers_by_file={
+                    "mf-training.csv": ("protein", "sequences", "GO:0000001"),
+                    "mf-validation.csv": ("protein", "sequences", "GO:0000001"),
+                    "mf-test.csv": ("protein", "sequences", "GO:0000001"),
+                },
+            )
+            benchmark = parse_benchmark("target", directory)
+            self.assertEqual(list(benchmark.proteins), ["P1"])
+
     def test_contradictory_duplicate_rows_within_one_csv_fail(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             rows = rows_in(
@@ -72,8 +85,9 @@ class BenchmarkParsingTests(unittest.TestCase):
 
     def test_malformed_headers_rows_ids_sequences_and_labels_fail(self) -> None:
         cases = {
-            "singular header": lambda path: write_benchmark(
-                path, headers_by_file={"bp-training.csv": ("protein", "sequences", "GO:1")}
+            "unknown protein header": lambda path: write_benchmark(
+                path,
+                headers_by_file={"bp-training.csv": ("protein_id", "sequences", "GO:1")},
             ),
             "duplicate GO": lambda path: write_benchmark(
                 path,
