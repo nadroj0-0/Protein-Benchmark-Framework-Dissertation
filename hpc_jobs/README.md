@@ -353,6 +353,18 @@ invalid candidate forces regeneration of that modality. The source archives and
 coarse plan remain read-only, and a new immutable resolved ledger is published
 under the homology embedding-state tree on SAN.
 
+The resolved ledger is consumed by three one-GPU array tasks
+(`hpc_homology_embedding_gpu_array.sh`) for sequence, current UniProt text, and
+structure, plus the CPU-only `hpc_homology_embedding_ppi.sh`. Each job prepares
+only the modality pairs marked `regenerate`, performs a bounded preflight, and
+publishes an independently validated delta archive. PPI uses PFP's
+paper-faithful restricted alias policy. The held
+`hpc_homology_embedding_finalize.sh` job authenticates all four deltas and both
+immutable source archives, then streams one pair-resolved cache without editing
+or unpacking the source caches. Sequence coverage must be complete; missing
+text, structure, and PPI coverage is retained explicitly in the assembly report
+so PFP's normal masks and zero vectors remain the only missing-modality policy.
+
 Historical embedded benchmarks may hold different sequence versions for one
 protein ID. The planner preserves those as separate exact variants and reuses a
 target only from the benchmark or benchmarks containing its exact full sequence.

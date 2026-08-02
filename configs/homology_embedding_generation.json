@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "description": "Pair-resolved 30% homology embedding cache; missing external-modality coverage is measured rather than invented",
+  "modalities": {
+    "sequence": {
+      "cache_directory": "prott5",
+      "dimension": 1024,
+      "min_accepted_fraction": 1.0,
+      "model": "Rostlab/prot_t5_xl_half_uniref50-enc"
+    },
+    "text": {
+      "cache_directory": "exp_text_embeddings_temporal",
+      "dimension": 768,
+      "min_accepted_count": 1,
+      "model": "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext",
+      "source_policy": "current UniProt text at generation time",
+      "pooling": "CLS token selected as array[0,0,:]"
+    },
+    "structure": {
+      "cache_directory": "IF1",
+      "dimension": 512,
+      "min_accepted_count": 1,
+      "model": "esm_if1_gvp4_t16_142M_UR50",
+      "source_policy": "current AlphaFold API at generation time",
+      "pooling": "mean"
+    },
+    "ppi": {
+      "cache_directory": "ppi",
+      "dimension": 512,
+      "min_accepted_count": 1,
+      "source": "STRING protein network embeddings v12.0",
+      "alias_policy": "PFP paper-faithful restricted alias sources"
+    }
+  }
+}
