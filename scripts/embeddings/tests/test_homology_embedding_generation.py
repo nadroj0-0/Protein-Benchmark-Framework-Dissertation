@@ -308,6 +308,9 @@ class HomologyEmbeddingGenerationTests(unittest.TestCase):
     def test_hpc_wrappers_keep_gpu_and_ppi_resources_separate(self) -> None:
         gpu = (ROOT / "hpc_jobs/active/hpc_homology_embedding_gpu_array.sh").read_text()
         ppi = (ROOT / "hpc_jobs/active/hpc_homology_embedding_ppi.sh").read_text()
+        finalizer = (
+            ROOT / "hpc_jobs/active/hpc_homology_embedding_finalize.sh"
+        ).read_text()
         self.assertIn("#$ -t 1-3", gpu)
         self.assertIn("#$ -pe gpu 1", gpu)
         self.assertIn("FRAMEWORK_JOB_ROOT", gpu)
@@ -321,6 +324,10 @@ class HomologyEmbeddingGenerationTests(unittest.TestCase):
         self.assertIn('cp -a "$LEDGER_DIR/." "$LEDGER_STAGE/"', common)
         self.assertIn('--ledger-dir "$LEDGER_STAGE"', common)
         self.assertIn('--benchmark-dir "$BENCHMARK_STAGE"', common)
+        self.assertLess(
+            finalizer.index('load_framework_paths "$FRAMEWORK_DIR"'),
+            finalizer.index("activate_or_create_mmfp_env"),
+        )
 
 
 if __name__ == "__main__":

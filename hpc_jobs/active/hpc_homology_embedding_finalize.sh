@@ -92,6 +92,7 @@ git_in_dir "$FRAMEWORK_DIR" checkout --detach "$FRAMEWORK_COMMIT"
 cd "$FRAMEWORK_DIR"
 
 source scripts/reproduction_common.sh
+load_framework_paths "$FRAMEWORK_DIR"
 activate_or_create_mmfp_env
 python_bin="$(command -v python)"
 ledger_sha="$($python_bin - "$LEDGER_DIR/output_manifest.json" <<'PY'
