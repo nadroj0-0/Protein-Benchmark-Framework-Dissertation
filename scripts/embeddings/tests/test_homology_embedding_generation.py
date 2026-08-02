@@ -310,8 +310,11 @@ class HomologyEmbeddingGenerationTests(unittest.TestCase):
         ppi = (ROOT / "hpc_jobs/active/hpc_homology_embedding_ppi.sh").read_text()
         self.assertIn("#$ -t 1-3", gpu)
         self.assertIn("#$ -pe gpu 1", gpu)
+        self.assertIn("FRAMEWORK_JOB_ROOT", gpu)
+        self.assertNotIn('$(dirname "$0")', gpu)
         self.assertIn("--modality ppi", ppi)
         self.assertNotIn("-l gpu=true", ppi)
+        self.assertIn("FRAMEWORK_JOB_ROOT", ppi)
 
 
 if __name__ == "__main__":

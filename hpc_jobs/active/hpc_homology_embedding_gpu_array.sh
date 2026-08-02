@@ -11,12 +11,17 @@
 #$ -V
 
 set -euo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"
+FRAMEWORK_JOB_ROOT="${FRAMEWORK_JOB_ROOT:-$HOME/Protein-Benchmark-Framework-Dissertation}"
+COMMON_JOB="$FRAMEWORK_JOB_ROOT/hpc_jobs/lib/run_homology_embedding_modality_job.sh"
+[[ -f "$COMMON_JOB" ]] || {
+  echo "Missing shared homology embedding job body: $COMMON_JOB" >&2
+  exit 2
+}
 case "${SGE_TASK_ID:-}" in
   1) modality=sequence ;;
   2) modality=text ;;
   3) modality=structure ;;
   *) echo "Invalid array task: ${SGE_TASK_ID:-unset}" >&2; exit 2 ;;
 esac
-exec bash "$HERE/../lib/run_homology_embedding_modality_job.sh" \
+exec bash "$COMMON_JOB" \
   --modality "$modality" "$@"

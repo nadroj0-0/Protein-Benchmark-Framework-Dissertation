@@ -9,6 +9,11 @@
 #$ -V
 
 set -euo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"
-exec bash "$HERE/../lib/run_homology_embedding_modality_job.sh" \
+FRAMEWORK_JOB_ROOT="${FRAMEWORK_JOB_ROOT:-$HOME/Protein-Benchmark-Framework-Dissertation}"
+COMMON_JOB="$FRAMEWORK_JOB_ROOT/hpc_jobs/lib/run_homology_embedding_modality_job.sh"
+[[ -f "$COMMON_JOB" ]] || {
+  echo "Missing shared homology embedding job body: $COMMON_JOB" >&2
+  exit 2
+}
+exec bash "$COMMON_JOB" \
   --modality ppi "$@"
