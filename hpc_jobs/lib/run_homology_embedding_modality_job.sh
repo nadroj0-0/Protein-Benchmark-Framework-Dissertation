@@ -43,6 +43,9 @@ PFP_DIR="$WORK/PFP"
 SCRATCH_OUTPUT="$WORK/result"
 WORKFLOW_WORK="$WORK/workflow"
 WORKFLOW_LOG="$WORK/workflow.log"
+INPUT_STAGE="$WORK/input_stage"
+BENCHMARK_STAGE="$INPUT_STAGE/benchmark"
+LEDGER_STAGE="$INPUT_STAGE/ledger"
 FINAL_OUTPUT="$BATCH_ROOT/deltas/$MODALITY"
 FAILED_OUTPUT="$BATCH_ROOT/failed/${MODALITY}_${JOB_TOKEN}_${TASK_TOKEN}"
 SUBMISSION_DIR="${SGE_O_WORKDIR:-$PWD}"
@@ -103,6 +106,19 @@ mkdir -p "$WORK/tmp" "$BATCH_ROOT/deltas" "$BATCH_ROOT/failed"
 WORK_OWNED=1
 export TMPDIR="$WORK/tmp" TMP="$WORK/tmp" TEMP="$WORK/tmp"
 
+echo "==> Staging immutable benchmark CSVs and source-resolved ledger into scratch"
+mkdir -p "$BENCHMARK_STAGE" "$LEDGER_STAGE"
+for name in \
+  bp-training.csv bp-validation.csv bp-test.csv \
+  cc-training.csv cc-validation.csv cc-test.csv \
+  mf-training.csv mf-validation.csv mf-test.csv; do
+  [[ -f "$BENCHMARK_DIR/$name" ]] || die "Benchmark is missing $name"
+  cp -p "$BENCHMARK_DIR/$name" "$BENCHMARK_STAGE/$name"
+done
+cp -a "$LEDGER_DIR/." "$LEDGER_STAGE/"
+[[ -f "$LEDGER_STAGE/output_manifest.json" ]] || die "Staged ledger lacks output_manifest.json"
+[[ -f "$LEDGER_STAGE/RUN_COMPLETE.json" ]] || die "Staged ledger lacks RUN_COMPLETE.json"
+
 if [[ -z "$FRAMEWORK_COMMIT" ]]; then
   [[ -d "$SUBMISSION_DIR/.git" ]] || die "Pass FRAMEWORK_COMMIT outside a framework checkout"
   FRAMEWORK_COMMIT="$(git_in_dir "$SUBMISSION_DIR" rev-parse HEAD)"
@@ -138,8 +154,8 @@ COMMAND=(
   --pfp-root "$PFP_DIR"
   --work-dir "$WORKFLOW_WORK"
   --output-dir "$SCRATCH_OUTPUT"
-  --benchmark-dir "$BENCHMARK_DIR"
-  --ledger-dir "$LEDGER_DIR"
+  --benchmark-dir "$BENCHMARK_STAGE"
+  --ledger-dir "$LEDGER_STAGE"
   --modality "$MODALITY"
 )
 if [[ -n "$ARTIFACT_CATALOG" ]]; then

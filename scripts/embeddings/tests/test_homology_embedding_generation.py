@@ -315,6 +315,12 @@ class HomologyEmbeddingGenerationTests(unittest.TestCase):
         self.assertIn("--modality ppi", ppi)
         self.assertNotIn("-l gpu=true", ppi)
         self.assertIn("FRAMEWORK_JOB_ROOT", ppi)
+        common = (
+            ROOT / "hpc_jobs/lib/run_homology_embedding_modality_job.sh"
+        ).read_text()
+        self.assertIn('cp -a "$LEDGER_DIR/." "$LEDGER_STAGE/"', common)
+        self.assertIn('--ledger-dir "$LEDGER_STAGE"', common)
+        self.assertIn('--benchmark-dir "$BENCHMARK_STAGE"', common)
 
 
 if __name__ == "__main__":
