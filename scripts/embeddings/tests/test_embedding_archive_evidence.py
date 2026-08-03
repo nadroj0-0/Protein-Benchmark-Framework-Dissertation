@@ -16,6 +16,7 @@ import numpy as np
 
 SCRIPT = Path(__file__).resolve().parents[1] / "bind_embedding_archive_evidence.py"
 WRAPPER = SCRIPT.parents[2] / "hpc_jobs" / "active" / "hpc_bind_embedding_archive_evidence.sh"
+FINALIZER = SCRIPT.parents[2] / "hpc_jobs" / "active" / "hpc_homology_embedding_finalize.sh"
 SPEC = importlib.util.spec_from_file_location("bind_embedding_archive_evidence", SCRIPT)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -143,6 +144,11 @@ class ArchiveEvidenceTests(unittest.TestCase):
         self.assertIn("set -Eeuo pipefail", text)
         self.assertIn("wait_for_file", text)
         self.assertIn("add_mmfp_singularity_bind /SAN/bioinf/bmpfp", text)
+
+        finalizer = FINALIZER.read_text(encoding="utf-8")
+        self.assertIn("stage_ledger_with_retry", finalizer)
+        self.assertIn('cp -a "$LEDGER_DIR/." "$STAGED_LEDGER/"', finalizer)
+        self.assertIn('--ledger-dir "$STAGED_LEDGER"', finalizer)
 
 
 if __name__ == "__main__":

@@ -31,6 +31,7 @@ FRAMEWORK_REPO_URL="${FRAMEWORK_REPO_URL:-https://github.com/nadroj0-0/Protein-B
 FRAMEWORK_COMMIT="${FRAMEWORK_COMMIT:-}"
 FRAMEWORK_DIR="$WORK/Protein-Benchmark-Framework-Dissertation"
 SCRATCH_RESULT="$WORK/result"
+STAGED_LEDGER="$WORK/ledger"
 FINAL_RESULT="$BATCH_ROOT/final"
 FAILED_RESULT="$BATCH_ROOT/failed/finalizer_${JOB_TOKEN}"
 SUBMISSION_DIR="${SGE_O_WORKDIR:-$PWD}"
@@ -43,6 +44,25 @@ wait_for_file() {
   for ((attempt=1; attempt<=attempts; attempt++)); do
     [[ -f "$path" ]] && return 0
     echo "Waiting for SAN file ($attempt/$attempts): $path"
+    sleep "$delay"
+  done
+  return 1
+}
+
+stage_ledger_with_retry() {
+  local attempts="${1:-12}" delay="${2:-10}"
+  local attempt
+  for ((attempt=1; attempt<=attempts; attempt++)); do
+    rm -rf -- "$STAGED_LEDGER"
+    mkdir -p "$STAGED_LEDGER"
+    if cp -a "$LEDGER_DIR/." "$STAGED_LEDGER/" \
+      && [[ -r "$STAGED_LEDGER/output_manifest.json" ]] \
+      && [[ -r "$STAGED_LEDGER/RUN_COMPLETE.json" ]] \
+      && [[ -r "$STAGED_LEDGER/resolved_embedding_pairs.tsv.gz" ]]; then
+      echo "Staged source-resolved ledger locally on attempt $attempt"
+      return 0
+    fi
+    echo "SAN ledger staging failed ($attempt/$attempts); retrying" >&2
     sleep "$delay"
   done
   return 1
@@ -108,7 +128,8 @@ activate_or_create_mmfp_env
 python_bin="$(command -v python)"
 wait_for_file "$LEDGER_DIR/output_manifest.json" || \
   die "Ledger output manifest did not become visible: $LEDGER_DIR/output_manifest.json"
-ledger_sha="$($python_bin - "$LEDGER_DIR/output_manifest.json" <<'PY'
+stage_ledger_with_retry || die "Could not stage a complete readable ledger from SAN"
+ledger_sha="$($python_bin - "$STAGED_LEDGER/output_manifest.json" <<'PY'
 import hashlib
 import sys
 print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())
@@ -139,7 +160,7 @@ done
 
 mkdir -p "$SCRATCH_RESULT/reports"
 "$python_bin" scripts/embeddings/assemble_pair_resolved_embedding_cache.py \
-  --ledger-dir "$LEDGER_DIR" \
+  --ledger-dir "$STAGED_LEDGER" \
   "${generated_args[@]}" \
   --policy configs/homology_embedding_generation.json \
   --output-archive "$SCRATCH_RESULT/homology_30_embedding_cache.tar.gz" \
