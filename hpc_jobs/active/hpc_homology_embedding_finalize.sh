@@ -8,7 +8,7 @@
 #$ -N hom30_emb_final
 #$ -V
 
-set -euo pipefail
+set -Eeuo pipefail
 
 die() { echo "ERROR: $*" >&2; exit 2; }
 git_in_dir() { local directory="$1"; shift; (cd "$directory" && git "$@"); }
@@ -36,6 +36,17 @@ FAILED_RESULT="$BATCH_ROOT/failed/finalizer_${JOB_TOKEN}"
 SUBMISSION_DIR="${SGE_O_WORKDIR:-$PWD}"
 WORK_OWNED=0
 RESULTS_COPIED=0
+
+wait_for_file() {
+  local path="$1" attempts="${2:-30}" delay="${3:-10}"
+  local attempt
+  for ((attempt=1; attempt<=attempts; attempt++)); do
+    [[ -f "$path" ]] && return 0
+    echo "Waiting for SAN file ($attempt/$attempts): $path"
+    sleep "$delay"
+  done
+  return 1
+}
 
 copy_result() {
   local status="$1"
@@ -95,6 +106,8 @@ source scripts/reproduction_common.sh
 load_framework_paths "$FRAMEWORK_DIR"
 activate_or_create_mmfp_env
 python_bin="$(command -v python)"
+wait_for_file "$LEDGER_DIR/output_manifest.json" || \
+  die "Ledger output manifest did not become visible: $LEDGER_DIR/output_manifest.json"
 ledger_sha="$($python_bin - "$LEDGER_DIR/output_manifest.json" <<'PY'
 import hashlib
 import sys
