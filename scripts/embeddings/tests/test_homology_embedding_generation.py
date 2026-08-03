@@ -287,6 +287,38 @@ class HomologyEmbeddingGenerationTests(unittest.TestCase):
         self.assertEqual(len(files), 12)
         self.assertTrue((reports / "RUN_COMPLETE.json").is_file())
 
+    def test_assembly_accepts_hash_verified_local_source_override(self) -> None:
+        original = self.source
+        staged = self.root / "staged-source.tar.gz"
+        staged.write_bytes(original.read_bytes())
+        original.unlink()
+        output = self.root / "overridden-cache.tar.gz"
+        result = ASSEMBLE.publish_cache(
+            self.ledger,
+            self._generated_archives(),
+            self._policy(),
+            output,
+            self.root / "overridden-reports",
+            {str(original.resolve()): staged},
+        )
+        self.assertEqual(result["available_pairs"], 12)
+        reuse_inputs = [item for item in result["inputs"] if item["role"] == "reuse"]
+        self.assertEqual(reuse_inputs[0]["path"], str(original.resolve()))
+        self.assertEqual(reuse_inputs[0]["read_path"], str(staged.resolve()))
+
+    def test_assembly_rejects_tampered_local_source_override(self) -> None:
+        staged = self.root / "tampered-source.tar.gz"
+        staged.write_bytes(self.source.read_bytes() + b"tampered")
+        with self.assertRaisesRegex(ASSEMBLE.AssemblyError, "Source archive hash mismatch"):
+            ASSEMBLE.publish_cache(
+                self.ledger,
+                self._generated_archives(),
+                self._policy(),
+                self.root / "tampered-cache.tar.gz",
+                self.root / "tampered-reports",
+                {str(self.source.resolve()): staged},
+            )
+
     def test_assembly_rejects_generated_pair_not_selected_by_ledger(self) -> None:
         generated = self._generated_archives()
         write_archive(

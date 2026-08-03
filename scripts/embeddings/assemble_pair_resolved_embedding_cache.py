@@ -160,6 +160,20 @@ def parse_generated(values: list[str]) -> dict[str, Path]:
     return result
 
 
+def parse_source_archive_overrides(values: list[str]) -> dict[str, Path]:
+    result: dict[str, Path] = {}
+    for value in values:
+        original, separator, raw_staged = value.partition("=")
+        original_path = str(Path(original).expanduser().resolve())
+        if not separator or not original or original_path in result:
+            raise AssemblyError(f"Invalid --source-archive-override value: {value}")
+        staged = Path(raw_staged).expanduser().resolve()
+        if not staged.is_file():
+            raise AssemblyError(f"Staged source archive is missing or unsafe: {staged}")
+        result[original_path] = staged
+    return result
+
+
 def deterministic_tar_info(name: str, size: int) -> tarfile.TarInfo:
     info = tarfile.TarInfo(name)
     info.size = size
@@ -235,10 +249,21 @@ def publish_cache(
     policy_path: Path,
     output_archive: Path,
     report_dir: Path,
+    source_archive_overrides: dict[str, Path] | None = None,
 ) -> dict:
     if output_archive.exists() or report_dir.exists():
         raise AssemblyError("Output archive and report directory must not already exist")
     summary, source_hashes = verify_ledger(ledger_dir)
+    source_archive_overrides = {
+        str(Path(original).expanduser().resolve()): Path(staged).expanduser().resolve()
+        for original, staged in (source_archive_overrides or {}).items()
+    }
+    unknown_overrides = set(source_archive_overrides) - set(source_hashes)
+    if unknown_overrides:
+        raise AssemblyError(
+            "Source archive overrides are not bound by the ledger: "
+            + ", ".join(sorted(unknown_overrides))
+        )
     pairs = load_pairs(ledger_dir)
     policy = load_policy(policy_path)
     proteins = {protein_id for protein_id, _ in pairs}
@@ -266,14 +291,21 @@ def publish_cache(
             reuse_by_archive[archive_path][member] = (key, row)
 
         for archive_name in sorted(reuse_by_archive):
-            source = Path(archive_name)
+            source = source_archive_overrides.get(archive_name, Path(archive_name))
             expected_sha = source_hashes.get(archive_name)
             if expected_sha is None:
                 raise AssemblyError(f"Ledger has no bound hash for source archive: {source}")
             observed_sha = sha256_file(source)
             if observed_sha != expected_sha:
                 raise AssemblyError(f"Source archive hash mismatch: {source}")
-            inputs.append({"role": "reuse", "path": archive_name, "sha256": observed_sha})
+            inputs.append(
+                {
+                    "role": "reuse",
+                    "path": archive_name,
+                    "read_path": str(source),
+                    "sha256": observed_sha,
+                }
+            )
             wanted = reuse_by_archive[archive_name]
             seen_members: set[str] = set()
             with tarfile.open(source, mode="r:gz") as archive:
@@ -480,6 +512,12 @@ def main() -> int:
         required=True,
         metavar="MODALITY=PATH",
     )
+    parser.add_argument(
+        "--source-archive-override",
+        action="append",
+        default=[],
+        metavar="ORIGINAL=STAGED",
+    )
     parser.add_argument("--policy", type=Path, required=True)
     parser.add_argument("--output-archive", type=Path, required=True)
     parser.add_argument("--report-dir", type=Path, required=True)
@@ -490,6 +528,7 @@ def main() -> int:
         args.policy.resolve(),
         args.output_archive.resolve(),
         args.report_dir.resolve(),
+        parse_source_archive_overrides(args.source_archive_override),
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0

@@ -147,8 +147,11 @@ class ArchiveEvidenceTests(unittest.TestCase):
 
         finalizer = FINALIZER.read_text(encoding="utf-8")
         self.assertIn("stage_ledger_with_retry", finalizer)
+        self.assertIn("stage_file_with_retry", finalizer)
         self.assertIn('cp -a "$LEDGER_DIR/." "$STAGED_LEDGER/"', finalizer)
         self.assertIn('--ledger-dir "$STAGED_LEDGER"', finalizer)
+        self.assertIn('--source-archive-override "$source_archive=$staged_archive"', finalizer)
+        self.assertIn('archive="$STAGED_DELTAS/$modality/generated_${modality}.tar.gz"', finalizer)
 
 
 if __name__ == "__main__":

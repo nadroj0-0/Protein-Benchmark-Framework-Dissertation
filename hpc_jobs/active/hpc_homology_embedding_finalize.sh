@@ -32,6 +32,8 @@ FRAMEWORK_COMMIT="${FRAMEWORK_COMMIT:-}"
 FRAMEWORK_DIR="$WORK/Protein-Benchmark-Framework-Dissertation"
 SCRATCH_RESULT="$WORK/result"
 STAGED_LEDGER="$WORK/ledger"
+STAGED_DELTAS="$WORK/deltas"
+STAGED_SOURCES="$WORK/sources"
 FINAL_RESULT="$BATCH_ROOT/final"
 FAILED_RESULT="$BATCH_ROOT/failed/finalizer_${JOB_TOKEN}"
 SUBMISSION_DIR="${SGE_O_WORKDIR:-$PWD}"
@@ -68,6 +70,39 @@ stage_ledger_with_retry() {
   return 1
 }
 
+stage_file_with_retry() {
+  local source="$1" destination="$2" attempts="${3:-12}" delay="${4:-10}"
+  local attempt temporary="${destination}.partial"
+  mkdir -p "$(dirname "$destination")"
+  for ((attempt=1; attempt<=attempts; attempt++)); do
+    rm -f -- "$temporary" "$destination"
+    if cp -p "$source" "$temporary" && mv "$temporary" "$destination"; then
+      echo "Staged SAN file locally on attempt $attempt: $source"
+      return 0
+    fi
+    echo "SAN file staging failed ($attempt/$attempts): $source" >&2
+    sleep "$delay"
+  done
+  rm -f -- "$temporary"
+  return 1
+}
+
+copy_tree_with_retry() {
+  local source="$1" destination="$2" attempts="${3:-6}" delay="${4:-10}"
+  local attempt
+  for ((attempt=1; attempt<=attempts; attempt++)); do
+    rm -rf -- "$destination"
+    mkdir -p "$destination"
+    if cp -a "$source/." "$destination/"; then
+      echo "Published result payload on attempt $attempt"
+      return 0
+    fi
+    echo "Result publication failed ($attempt/$attempts); retrying" >&2
+    sleep "$delay"
+  done
+  return 1
+}
+
 copy_result() {
   local status="$1"
   local destination="$FINAL_RESULT"
@@ -75,8 +110,11 @@ copy_result() {
   [[ "$status" == "0" ]] || destination="$FAILED_RESULT"
   local staging="${destination}.staging-${JOB_TOKEN}"
   [[ ! -e "$destination" && ! -e "$staging" ]] || return 1
-  mkdir -p "$staging"
-  [[ ! -d "$SCRATCH_RESULT" ]] || cp -a "$SCRATCH_RESULT/." "$staging/"
+  if [[ -d "$SCRATCH_RESULT" ]]; then
+    copy_tree_with_retry "$SCRATCH_RESULT" "$staging" || return 1
+  else
+    mkdir -p "$staging"
+  fi
   if [[ "$status" == "0" ]]; then
     [[ -f "$staging/WORKFLOW_COMPLETE.json" ]] || return 1
     [[ -f "$staging/homology_30_embedding_cache.tar.gz" ]] || return 1
@@ -139,9 +177,14 @@ PY
 generated_args=()
 for modality in sequence text structure ppi; do
   delta="$BATCH_ROOT/deltas/$modality"
-  marker="$delta/WORKFLOW_COMPLETE.json"
-  archive="$delta/artifacts/generated_${modality}.tar.gz"
-  [[ -f "$marker" && -f "$archive" ]] || die "Missing completed $modality delta"
+  source_marker="$delta/WORKFLOW_COMPLETE.json"
+  source_archive="$delta/artifacts/generated_${modality}.tar.gz"
+  marker="$STAGED_DELTAS/$modality/WORKFLOW_COMPLETE.json"
+  archive="$STAGED_DELTAS/$modality/generated_${modality}.tar.gz"
+  stage_file_with_retry "$source_marker" "$marker" || \
+    die "Could not stage $modality completion marker"
+  stage_file_with_retry "$source_archive" "$archive" || \
+    die "Could not stage $modality archive"
   "$python_bin" - "$marker" "$archive" "$ledger_sha" "$modality" <<'PY'
 import hashlib
 import json
@@ -158,10 +201,53 @@ PY
   generated_args+=(--generated-archive "$modality=$archive")
 done
 
+source_table="$WORK/source_archives.tsv"
+"$python_bin" - "$STAGED_LEDGER/summary.json" "$source_table" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+summary = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+lines = []
+for source in summary["sources"]:
+    archive = source["archive"]
+    digest = source["archive_sha256"]
+    if "\t" in archive or "\n" in archive:
+        raise SystemExit("Unsafe source archive path in ledger")
+    lines.append(f"{archive}\t{digest}")
+Path(sys.argv[2]).write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+
+source_args=()
+source_index=0
+while IFS=$'\t' read -r source_archive expected_sha; do
+  [[ -n "$source_archive" && -n "$expected_sha" ]] || die "Invalid source archive row"
+  source_index=$((source_index + 1))
+  staged_archive="$STAGED_SOURCES/source_${source_index}.tar.gz"
+  stage_file_with_retry "$source_archive" "$staged_archive" || \
+    die "Could not stage reusable source archive: $source_archive"
+  observed_sha="$($python_bin - "$staged_archive" <<'PY'
+import hashlib
+import sys
+
+digest = hashlib.sha256()
+with open(sys.argv[1], "rb") as handle:
+    for block in iter(lambda: handle.read(1024 * 1024), b""):
+        digest.update(block)
+print(digest.hexdigest())
+PY
+)"
+  [[ "$observed_sha" == "$expected_sha" ]] || \
+    die "Staged reusable source archive hash mismatch: $source_archive"
+  source_args+=(--source-archive-override "$source_archive=$staged_archive")
+done < "$source_table"
+[[ "$source_index" -gt 0 ]] || die "Ledger defines no reusable source archives"
+
 mkdir -p "$SCRATCH_RESULT/reports"
 "$python_bin" scripts/embeddings/assemble_pair_resolved_embedding_cache.py \
   --ledger-dir "$STAGED_LEDGER" \
   "${generated_args[@]}" \
+  "${source_args[@]}" \
   --policy configs/homology_embedding_generation.json \
   --output-archive "$SCRATCH_RESULT/homology_30_embedding_cache.tar.gz" \
   --report-dir "$SCRATCH_RESULT/reports/assembly"
