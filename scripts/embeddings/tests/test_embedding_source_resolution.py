@@ -106,7 +106,9 @@ def plan_row(protein_id: str, action: str, benchmarks: list[str]) -> dict[str, s
         "action": action,
         "reason": "exact-id-sequence-match" if action == "reuse" else "protein-id-absent",
         "matching_embedded_benchmarks": json.dumps(sorted(benchmarks)),
-        "embedded_benchmark_memberships": "[]",
+        "embedded_benchmark_memberships": json.dumps(
+            [f"{benchmark}:bp-training.csv" for benchmark in sorted(benchmarks)]
+        ),
         "target_memberships": '["bp-test.csv"]',
         "regenerate_modalities": "[]" if action == "reuse" else json.dumps(list(MODULE.MODALITIES)),
     }
@@ -144,6 +146,15 @@ class SourceResolutionTests(unittest.TestCase):
             "CAFA3_EMBEDDED_BENCHMARK=\"${CAFA3_EMBEDDED_BENCHMARK:-cafa3_hydrated_population}\"",
             text,
         )
+        self.assertIn(
+            'CONTEMPORARY_TEXT_REUSE_POLICY="${CONTEMPORARY_TEXT_REUSE_POLICY:-source-current}"',
+            text,
+        )
+        self.assertIn(
+            'CAFA3_TEXT_REUSE_POLICY="${CAFA3_TEXT_REUSE_POLICY:-source-current}"',
+            text,
+        )
+        self.assertIn("--source-text-policy", text)
         self.assertIn('load_framework_paths "$FRAMEWORK_DIR"', text)
         self.assertLess(
             text.index('load_framework_paths "$FRAMEWORK_DIR"'),
@@ -166,8 +177,8 @@ class SourceResolutionTests(unittest.TestCase):
             first_sha = write_archive(first, first_arrays)
             second_sha = write_archive(second, second_arrays)
             sources = [
-                MODULE.parse_source(f"first=a={first}={first_sha}", 0),
-                MODULE.parse_source(f"second=b={second}={second_sha}", 1),
+                MODULE.parse_source(f"first=a={first}={first_sha}", 0, "source-current"),
+                MODULE.parse_source(f"second=b={second}={second_sha}", 1, "source-current"),
             ]
             output = root / "result"
             MODULE.publish_resolution(plan, output, sources)
@@ -206,7 +217,7 @@ class SourceResolutionTests(unittest.TestCase):
             MODULE.publish_resolution(
                 plan,
                 output,
-                [MODULE.parse_source(f"source=a={archive}={archive_sha}", 0)],
+                [MODULE.parse_source(f"source=a={archive}={archive_sha}", 0, "source-current")],
             )
             pairs = {(row["protein_id"], row["modality"]): row for row in read_gzip_tsv(output / "resolved_embedding_pairs.tsv.gz")}
             self.assertEqual(pairs[("P1", "ppi")]["reason"], "no-valid-source-array")
@@ -234,6 +245,69 @@ class SourceResolutionTests(unittest.TestCase):
                     [MODULE.parse_source(f"source=b={archive}={archive_sha}", 0)],
                 )
             self.assertFalse(output.exists())
+
+    def test_same_role_text_policy_regenerates_only_changed_temporal_role(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            plan = root / "plan"
+            plan.mkdir()
+            row = plan_row("P1", "reuse", ["a"])
+            row["target_memberships"] = '["bp-test.csv"]'
+            write_plan(plan, [row], [])
+            archive = root / "source.tar.gz"
+            archive_sha = write_archive(archive, all_arrays("P1"))
+            output = root / "result"
+            MODULE.publish_resolution(
+                plan,
+                output,
+                [MODULE.parse_source(f"source=a={archive}={archive_sha}", 0, "same-role")],
+            )
+            pairs = {
+                row["modality"]: row
+                for row in read_gzip_tsv(output / "resolved_embedding_pairs.tsv.gz")
+            }
+            self.assertEqual(pairs["text"]["action"], "regenerate")
+            self.assertEqual(pairs["text"]["reason"], "no-compatible-source")
+            self.assertTrue(
+                all(
+                    pairs[modality]["action"] == "reuse"
+                    for modality in ("sequence", "structure", "ppi")
+                )
+            )
+
+    def test_source_current_text_policy_rejects_historical_source_text(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            plan = root / "plan"
+            plan.mkdir()
+            row = plan_row("P1", "reuse", ["a"])
+            row["embedded_benchmark_memberships"] = '["a:mf-test.csv"]'
+            row["target_memberships"] = '["mf-training.csv"]'
+            write_plan(plan, [row], [])
+            archive = root / "source.tar.gz"
+            archive_sha = write_archive(archive, all_arrays("P1"))
+            output = root / "result"
+            MODULE.publish_resolution(
+                plan,
+                output,
+                [
+                    MODULE.parse_source(
+                        f"source=a={archive}={archive_sha}", 0, "source-current"
+                    )
+                ],
+            )
+            pairs = {
+                row["modality"]: row
+                for row in read_gzip_tsv(output / "resolved_embedding_pairs.tsv.gz")
+            }
+            self.assertEqual(pairs["text"]["action"], "regenerate")
+            self.assertEqual(pairs["text"]["reason"], "no-compatible-source")
+            self.assertTrue(
+                all(
+                    pairs[modality]["action"] == "reuse"
+                    for modality in ("sequence", "structure", "ppi")
+                )
+            )
 
     def test_archive_hash_mismatch_fails_before_publication(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -29,6 +29,8 @@ CAFA3_ARCHIVE="${CAFA3_ARCHIVE:-/SAN/bioinf/bmpfp/diagnostics/cafa3_embedding_hy
 CAFA3_ARCHIVE_SHA256="${CAFA3_ARCHIVE_SHA256:-c6cdcafd00b0cb871a50beb8cd649ce5c13d5882fcde9c3663a19a86905b9e87}"
 CONTEMPORARY_EMBEDDED_BENCHMARK="${CONTEMPORARY_EMBEDDED_BENCHMARK:-contemporary_hydrated_population}"
 CAFA3_EMBEDDED_BENCHMARK="${CAFA3_EMBEDDED_BENCHMARK:-cafa3_hydrated_population}"
+CONTEMPORARY_TEXT_REUSE_POLICY="${CONTEMPORARY_TEXT_REUSE_POLICY:-source-current}"
+CAFA3_TEXT_REUSE_POLICY="${CAFA3_TEXT_REUSE_POLICY:-source-current}"
 
 JOB_TOKEN="${JOB_ID:-manual_$$}"
 RUN_TAG="${JOB_TOKEN}_$(date -u +%Y%m%dT%H%M%SZ)"
@@ -100,6 +102,10 @@ trap 'echo "Received termination signal"; exit 130' INT TERM
   die "Unsafe contemporary embedded-benchmark name"
 [[ "$CAFA3_EMBEDDED_BENCHMARK" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || \
   die "Unsafe CAFA3 embedded-benchmark name"
+[[ "$CONTEMPORARY_TEXT_REUSE_POLICY" =~ ^(never|same-role|source-current)$ ]] || \
+  die "Invalid contemporary text reuse policy"
+[[ "$CAFA3_TEXT_REUSE_POLICY" =~ ^(never|same-role|source-current)$ ]] || \
+  die "Invalid CAFA3 text reuse policy"
 [[ ! -e "$WORK" ]] || die "Scratch path already exists: $WORK"
 [[ "$RESULTS_ROOT" == /SAN/* ]] || die "RESULTS_ROOT must be on SAN"
 mkdir -p "$WORK" "$RESULTS_ROOT"
@@ -118,8 +124,10 @@ echo "Framework commit     : $FRAMEWORK_COMMIT"
 echo "Coarse plan          : $COARSE_PLAN_DIR"
 echo "Contemporary source  : $CONTEMPORARY_ARCHIVE"
 echo "Contemporary label   : $CONTEMPORARY_EMBEDDED_BENCHMARK"
+echo "Contemporary text    : $CONTEMPORARY_TEXT_REUSE_POLICY"
 echo "CAFA3 source         : $CAFA3_ARCHIVE"
 echo "CAFA3 label          : $CAFA3_EMBEDDED_BENCHMARK"
+echo "CAFA3 text           : $CAFA3_TEXT_REUSE_POLICY"
 echo "Final output         : $FINAL_OUTPUT"
 echo "Started              : $(date -Is)"
 
@@ -138,6 +146,8 @@ set +e
   --coarse-plan-dir "$COARSE_PLAN_DIR" \
   --cache-source "contemporary_paper_faithful=${CONTEMPORARY_EMBEDDED_BENCHMARK}=${CONTEMPORARY_ARCHIVE}=${CONTEMPORARY_ARCHIVE_SHA256}" \
   --cache-source "cafa3_regenerated_hydrated=${CAFA3_EMBEDDED_BENCHMARK}=${CAFA3_ARCHIVE}=${CAFA3_ARCHIVE_SHA256}" \
+  --source-text-policy "contemporary_paper_faithful=${CONTEMPORARY_TEXT_REUSE_POLICY}" \
+  --source-text-policy "cafa3_regenerated_hydrated=${CAFA3_TEXT_REUSE_POLICY}" \
   --output-dir "$SCRATCH_OUTPUT" \
   2>&1 | tee "$WORKFLOW_LOG"
 status=${PIPESTATUS[0]}

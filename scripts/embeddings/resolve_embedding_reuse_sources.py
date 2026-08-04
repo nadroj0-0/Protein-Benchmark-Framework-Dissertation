@@ -48,8 +48,10 @@ PLAN_COLUMNS = {
     "action",
     "reason",
     "matching_embedded_benchmarks",
+    "embedded_benchmark_memberships",
     "target_memberships",
 }
+TEXT_REUSE_POLICIES = {"never", "same-role", "source-current"}
 PAIR_COLUMNS = (
     "protein_id",
     "modality",
@@ -97,6 +99,7 @@ class SourceSpec:
     archive: Path
     archive_sha256: str
     priority: int
+    text_reuse_policy: str = "never"
 
 
 @dataclass(frozen=True)
@@ -107,6 +110,7 @@ class PlanProtein:
     coarse_action: str
     coarse_reason: str
     matching_benchmarks: Tuple[str, ...]
+    embedded_memberships: Tuple[str, ...]
     target_memberships: Tuple[str, ...]
 
 
@@ -148,7 +152,11 @@ def json_list(value: str, *, field: str) -> Tuple[str, ...]:
     return tuple(parsed)
 
 
-def parse_source(value: str, priority: int) -> SourceSpec:
+def parse_source(
+    value: str,
+    priority: int,
+    text_reuse_policy: str = "never",
+) -> SourceSpec:
     fields = value.split("=", 3)
     if len(fields) != 4 or any(not field for field in fields):
         raise ResolutionError(
@@ -159,10 +167,41 @@ def parse_source(value: str, priority: int) -> SourceSpec:
         raise ResolutionError(f"Unsafe source or embedded benchmark name: {value}")
     if not re.fullmatch(r"[0-9a-fA-F]{64}", digest):
         raise ResolutionError(f"Invalid source archive SHA-256: {digest}")
+    if text_reuse_policy not in TEXT_REUSE_POLICIES:
+        raise ResolutionError(
+            f"Unsupported text reuse policy for {name}: {text_reuse_policy}"
+        )
     archive = Path(archive_value).expanduser().resolve()
     if not archive.is_file() or archive.is_symlink():
         raise ResolutionError(f"Source archive is missing or unsafe: {archive}")
-    return SourceSpec(name, benchmark, archive, digest.lower(), priority)
+    return SourceSpec(
+        name,
+        benchmark,
+        archive,
+        digest.lower(),
+        priority,
+        text_reuse_policy,
+    )
+
+
+def parse_text_policies(values: Sequence[str]) -> Dict[str, str]:
+    policies: Dict[str, str] = {}
+    for value in values:
+        fields = value.split("=", 1)
+        if len(fields) != 2 or any(not field for field in fields):
+            raise ResolutionError("--source-text-policy must use SOURCE=POLICY")
+        name, policy = fields
+        if not SAFE_NAME.fullmatch(name):
+            raise ResolutionError(f"Unsafe source name in text policy: {name}")
+        if policy not in TEXT_REUSE_POLICIES:
+            raise ResolutionError(
+                f"Unsupported text reuse policy for {name}: {policy}; expected one of "
+                + ", ".join(sorted(TEXT_REUSE_POLICIES))
+            )
+        if name in policies:
+            raise ResolutionError(f"Repeated text reuse policy for source: {name}")
+        policies[name] = policy
+    return policies
 
 
 def verify_plan_manifest(plan_dir: Path) -> str:
@@ -225,6 +264,10 @@ def read_plan_file(path: Path, expected_action: str) -> Iterator[PlanProtein]:
                     row["matching_embedded_benchmarks"],
                     field="matching_embedded_benchmarks",
                 ),
+                embedded_memberships=json_list(
+                    row["embedded_benchmark_memberships"],
+                    field="embedded_benchmark_memberships",
+                ),
                 target_memberships=json_list(
                     row["target_memberships"], field="target_memberships"
                 ),
@@ -275,6 +318,53 @@ def normalized_member(member: tarfile.TarInfo) -> Optional[Tuple[str, str]]:
     return DIRECTORY_TO_MODALITY[directory], filename[:-4]
 
 
+def temporal_text_role(memberships: Sequence[str]) -> str:
+    return "historical" if any(item.endswith("-test.csv") for item in memberships) else "current"
+
+
+def source_memberships(protein: PlanProtein, source: SourceSpec) -> Tuple[str, ...]:
+    prefix = source.embedded_benchmark + ":"
+    return tuple(
+        item[len(prefix):]
+        for item in protein.embedded_memberships
+        if item.startswith(prefix)
+    )
+
+
+def source_is_eligible(
+    protein: PlanProtein,
+    modality: str,
+    source: SourceSpec,
+) -> bool:
+    if (
+        protein.coarse_action != "reuse"
+        or source.embedded_benchmark not in protein.matching_benchmarks
+    ):
+        return False
+    if modality != "text":
+        return True
+    if source.text_reuse_policy == "never":
+        return False
+    memberships = source_memberships(protein, source)
+    if not memberships:
+        raise ResolutionError(
+            f"Reusable protein {protein.protein_id} has no recorded memberships for "
+            f"source benchmark {source.embedded_benchmark}"
+        )
+    source_role = temporal_text_role(memberships)
+    if source.text_reuse_policy == "source-current":
+        return source_role == "current"
+    if source.text_reuse_policy == "same-role":
+        if not protein.target_memberships:
+            raise ResolutionError(
+                f"Reusable protein {protein.protein_id} has no target memberships"
+            )
+        return source_role == temporal_text_role(protein.target_memberships)
+    raise ResolutionError(
+        f"Unsupported text reuse policy for {source.name}: {source.text_reuse_policy}"
+    )
+
+
 def canonical_array_sha256(array: np.ndarray) -> str:
     contiguous = np.ascontiguousarray(array)
     digest = hashlib.sha256()
@@ -311,12 +401,6 @@ def scan_source(
             f"Source archive hash mismatch for {source.name}: "
             f"{observed_archive_sha} != {source.archive_sha256}"
         )
-    eligible = {
-        protein_id
-        for protein_id, protein in proteins.items()
-        if protein.coarse_action == "reuse"
-        and source.embedded_benchmark in protein.matching_benchmarks
-    }
     candidates: List[Candidate] = []
     seen: set[Tuple[str, str]] = set()
     with tarfile.open(source.archive, mode="r:gz") as archive:
@@ -331,7 +415,8 @@ def scan_source(
                     f"Source archive repeats protein/modality member: {source.name} {key}"
                 )
             seen.add(key)
-            if protein_id not in eligible:
+            protein = proteins.get(protein_id)
+            if protein is None or not source_is_eligible(protein, modality, source):
                 continue
             extracted = archive.extractfile(member)
             if extracted is None:
@@ -401,7 +486,7 @@ def resolve_pair(
     eligible_sources = [
         source.name
         for source in sources
-        if source.embedded_benchmark in protein.matching_benchmarks
+        if source_is_eligible(protein, modality, source)
     ]
     base = {
         "protein_id": protein.protein_id,
@@ -435,7 +520,8 @@ def resolve_pair(
     if invalid:
         return {**base, "action": "regenerate", "reason": "invalid-source-array"}
     if not valid:
-        return {**base, "action": "regenerate", "reason": "no-valid-source-array"}
+        reason = "no-valid-source-array" if eligible_sources else "no-compatible-source"
+        return {**base, "action": "regenerate", "reason": reason}
     hashes = sorted({candidate.array_sha256 for candidate in valid})
     if len(hashes) != 1:
         base["conflicting_array_sha256s"] = compact_json(hashes)
@@ -675,6 +761,9 @@ def publish_resolution(
                 "invalid_candidate_source": "regenerate affected modality",
                 "identical_duplicates": "reuse deterministic first source and record all copies",
                 "source_priority": [source.name for source in sources],
+                "text_reuse_policy": {
+                    source.name: source.text_reuse_policy for source in sources
+                },
             },
             "counts": {
                 "target_proteins": len(proteins),
@@ -705,6 +794,7 @@ def publish_resolution(
                     "archive": str(source.archive),
                     "archive_sha256": source.archive_sha256,
                     "priority": source.priority,
+                    "text_reuse_policy": source.text_reuse_policy,
                 }
                 for source in sources
             ],
@@ -789,12 +879,34 @@ def main() -> int:
         required=True,
         metavar="NAME=EMBEDDED_BENCHMARK=ARCHIVE=SHA256",
     )
+    parser.add_argument(
+        "--source-text-policy",
+        action="append",
+        required=True,
+        metavar="SOURCE=never|same-role|source-current",
+        help=(
+            "Declare how each source's mixed temporal text cache may be reused. "
+            "One policy is required for every --cache-source."
+        ),
+    )
     args = parser.parse_args()
     plan_dir = args.coarse_plan_dir.expanduser().resolve()
     output_dir = args.output_dir.expanduser().resolve()
     if not plan_dir.is_dir() or plan_dir.is_symlink():
         raise ResolutionError(f"Coarse plan is missing or unsafe: {plan_dir}")
-    sources = [parse_source(value, index) for index, value in enumerate(args.cache_source)]
+    text_policies = parse_text_policies(args.source_text_policy)
+    source_names = [value.split("=", 1)[0] for value in args.cache_source]
+    missing_policies = sorted(set(source_names) - set(text_policies))
+    unknown_policies = sorted(set(text_policies) - set(source_names))
+    if missing_policies or unknown_policies:
+        raise ResolutionError(
+            "Text reuse policies must exactly match cache sources; "
+            f"missing={missing_policies}, unknown={unknown_policies}"
+        )
+    sources = [
+        parse_source(value, index, text_policies[source_names[index]])
+        for index, value in enumerate(args.cache_source)
+    ]
     result = publish_resolution(plan_dir, output_dir, sources)
     print(f"Published source-resolved ledger: {result}")
     return 0
