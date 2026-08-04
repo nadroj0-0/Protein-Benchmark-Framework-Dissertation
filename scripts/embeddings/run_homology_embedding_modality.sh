@@ -16,13 +16,15 @@ OUTPUT_DIR=""
 BENCHMARK_DIR=""
 LEDGER_DIR=""
 MODALITY=""
+TEXT_CUTOFF_DATE=""
 
 usage() {
   cat <<'EOF'
 Usage: run_homology_embedding_modality.sh \
   --pfp-root PATH --work-dir PATH --output-dir PATH \
   --benchmark-dir PATH --ledger-dir PATH \
-  --modality sequence|text|structure|ppi [--artifact-catalog PATH]
+  --modality sequence|text|structure|ppi [--text-cutoff-date YYYY-MM-DD] \
+  [--artifact-catalog PATH]
 EOF
 }
 
@@ -36,6 +38,7 @@ while [[ $# -gt 0 ]]; do
     --benchmark-dir) BENCHMARK_DIR="$2"; shift 2 ;;
     --ledger-dir) LEDGER_DIR="$2"; shift 2 ;;
     --modality) MODALITY="$2"; shift 2 ;;
+    --text-cutoff-date) TEXT_CUTOFF_DATE="$2"; shift 2 ;;
     --artifact-catalog) ARTIFACT_CATALOG="$2"; export ARTIFACT_CATALOG; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; die "Unknown argument: $1" ;;
@@ -48,6 +51,11 @@ done
 [[ -n "$WORK_DIR" && ! -e "$WORK_DIR" ]] || die "Work directory is missing or exists"
 [[ -n "$OUTPUT_DIR" && ! -e "$OUTPUT_DIR" ]] || die "Output directory is missing or exists"
 case "$MODALITY" in sequence|text|structure|ppi) ;; *) die "Invalid modality: $MODALITY" ;; esac
+if [[ -n "$TEXT_CUTOFF_DATE" ]]; then
+  [[ "$MODALITY" == "text" ]] || die "--text-cutoff-date is valid only for text"
+  [[ "$TEXT_CUTOFF_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || \
+    die "--text-cutoff-date must be YYYY-MM-DD"
+fi
 [[ "$PREFLIGHT_PER_SPLIT" =~ ^[1-9][0-9]*$ ]] || die "PREFLIGHT_PER_SPLIT must be positive"
 command -v "$PYTHON_BIN" >/dev/null 2>&1 || die "Python not found: $PYTHON_BIN"
 
@@ -110,6 +118,14 @@ run_text() {
   local raw="data/embedding_cache/exp_text_embeddings"
   local final="data/embedding_cache/exp_text_embeddings_temporal"
   rm -rf "$final"
+  if [[ -n "$TEXT_CUTOFF_DATE" ]]; then
+    CAFA_ASSESSMENT_DIR="$CAFA_ASSESSMENT_DIR" \
+      TEXT_CUTOFF_DATE="$TEXT_CUTOFF_DATE" \
+      TEXT_REPORT_DIR="$OUTPUT_DIR/reports/${phase}_text" \
+      PYTHON_BIN="$PYTHON_BIN" \
+      bash "$HERE/generate_embeddings_text_temporal_cls.sh"
+    return
+  fi
   "$PYTHON_BIN" scripts/extract_uniprot_text.py extract-current
   "$PYTHON_BIN" scripts/embed_uniprot_descriptions.py --data-dir data &
   local embed_pid=$!
@@ -196,7 +212,8 @@ if [[ -f data/alphafold_coverage_results.txt ]]; then
 fi
 
 echo "==> [7/7] Publish the completion marker"
-"$PYTHON_BIN" - "$OUTPUT_DIR" "$MODALITY" "$LEDGER_DIR" "$BENCHMARK_DIR" <<'PY'
+"$PYTHON_BIN" - "$OUTPUT_DIR" "$MODALITY" "$LEDGER_DIR" "$BENCHMARK_DIR" \
+  "$TEXT_CUTOFF_DATE" <<'PY'
 import hashlib
 import json
 import os
@@ -223,6 +240,7 @@ payload = {
     "ledger_dir": str(Path(sys.argv[3]).resolve()),
     "ledger_output_manifest_sha256": sha(Path(sys.argv[3]) / "output_manifest.json"),
     "benchmark_dir": str(Path(sys.argv[4]).resolve()),
+    "text_cutoff_date": sys.argv[5] or None,
     "framework_commit": os.environ.get("FRAMEWORK_COMMIT", "unknown"),
     "pfp_commit": os.environ.get("PFP_COMMIT", "unknown"),
     "archive": str(archive.relative_to(root)),

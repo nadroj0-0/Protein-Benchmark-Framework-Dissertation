@@ -356,10 +356,19 @@ class HomologyEmbeddingGenerationTests(unittest.TestCase):
         self.assertIn('cp -a "$LEDGER_DIR/." "$LEDGER_STAGE/"', common)
         self.assertIn('--ledger-dir "$LEDGER_STAGE"', common)
         self.assertIn('--benchmark-dir "$BENCHMARK_STAGE"', common)
+        self.assertIn('--text-cutoff-date) TEXT_CUTOFF_DATE="$2"', common)
+        self.assertIn('[[ "$MODALITY" == "text"', common)
         self.assertLess(
             finalizer.index('load_framework_paths "$FRAMEWORK_DIR"'),
             finalizer.index("activate_or_create_mmfp_env"),
         )
+
+    def test_targeted_text_runner_uses_temporal_recipe_only_with_a_cutoff(self) -> None:
+        runner = (SCRIPT_DIR / "run_homology_embedding_modality.sh").read_text()
+        self.assertIn('--text-cutoff-date) TEXT_CUTOFF_DATE="$2"', runner)
+        self.assertIn('bash "$HERE/generate_embeddings_text_temporal_cls.sh"', runner)
+        self.assertIn('"text_cutoff_date": sys.argv[5] or None', runner)
+        self.assertIn('scripts/extract_uniprot_text.py extract-current', runner)
 
 
 if __name__ == "__main__":

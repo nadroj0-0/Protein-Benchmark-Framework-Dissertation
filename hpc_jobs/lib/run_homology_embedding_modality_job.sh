@@ -13,6 +13,7 @@ MODALITY="${HOMOLOGY_EMBEDDING_MODALITY:-}"
 BENCHMARK_DIR=""
 LEDGER_DIR=""
 BATCH_ROOT=""
+TEXT_CUTOFF_DATE=""
 CLI_ARTIFACT_CATALOG="${ARTIFACT_CATALOG:-}"
 
 while [[ $# -gt 0 ]]; do
@@ -21,6 +22,7 @@ while [[ $# -gt 0 ]]; do
     --benchmark-dir) BENCHMARK_DIR="$2"; shift 2 ;;
     --ledger-dir) LEDGER_DIR="$2"; shift 2 ;;
     --batch-root) BATCH_ROOT="$2"; shift 2 ;;
+    --text-cutoff-date) TEXT_CUTOFF_DATE="$2"; shift 2 ;;
     --artifact-catalog) CLI_ARTIFACT_CATALOG="$2"; shift 2 ;;
     *) die "Unknown argument: $1" ;;
   esac
@@ -134,6 +136,7 @@ echo "Ledger            : $LEDGER_DIR"
 echo "Final output      : $FINAL_OUTPUT"
 echo "Framework commit  : $FRAMEWORK_COMMIT"
 echo "PFP commit        : $PFP_COMMIT"
+echo "Text cutoff       : ${TEXT_CUTOFF_DATE:-current}"
 echo "Started           : $(date)"
 
 git clone --no-checkout "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"
@@ -160,6 +163,9 @@ COMMAND=(
 )
 if [[ -n "$ARTIFACT_CATALOG" ]]; then
   COMMAND+=(--artifact-catalog "$ARTIFACT_CATALOG")
+fi
+if [[ "$MODALITY" == "text" && -n "$TEXT_CUTOFF_DATE" ]]; then
+  COMMAND+=(--text-cutoff-date "$TEXT_CUTOFF_DATE")
 fi
 
 set +e
