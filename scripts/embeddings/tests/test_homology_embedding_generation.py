@@ -288,6 +288,29 @@ class HomologyEmbeddingGenerationTests(unittest.TestCase):
         self.assertEqual(np.load(data / "CCO_test_names.npy", allow_pickle=True).tolist(), ["MIXED"])
         self.assertEqual(np.load(data / "MFO_train_names.npy", allow_pickle=True).tolist(), ["MIXED"])
 
+    def test_text_workspace_normalizes_mixed_membership_to_one_temporal_role(self) -> None:
+        memberships = ["cc-test.csv", "mf-training.csv"]
+        row = {
+            "protein_id": "MIXED",
+            "sequence": "AAAA",
+            "target_memberships": json.dumps(memberships),
+        }
+        data = self.root / "mixed-text-data"
+        result = PREPARE.write_workspace([row], data, normalize_text_splits=True)
+        self.assertEqual(
+            result["workspace_split_view_policy"],
+            "effective-temporal-role-across-all-aspects",
+        )
+        for aspect in ("BPO", "CCO", "MFO"):
+            self.assertEqual(
+                np.load(data / f"{aspect}_test_names.npy", allow_pickle=True).tolist(),
+                ["MIXED"],
+            )
+            self.assertEqual(
+                np.load(data / f"{aspect}_train_names.npy", allow_pickle=True).tolist(),
+                [],
+            )
+
     def test_assembly_streams_reuse_and_generated_pairs_into_one_cache(self) -> None:
         output = self.root / "cache.tar.gz"
         reports = self.root / "reports"

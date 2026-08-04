@@ -211,7 +211,12 @@ def clear_split_views(data_dir: Path) -> None:
     (data_dir / "proteins.fasta").unlink(missing_ok=True)
 
 
-def write_workspace(rows: list[dict[str, str]], data_dir: Path) -> dict:
+def write_workspace(
+    rows: list[dict[str, str]],
+    data_dir: Path,
+    *,
+    normalize_text_splits: bool = False,
+) -> dict:
     clear_split_views(data_dir)
     membership_rows: dict[tuple[str, str], list[tuple[str, str]]] = defaultdict(list)
     sequences: dict[str, str] = {}
@@ -227,11 +232,16 @@ def write_workspace(rows: list[dict[str, str]], data_dir: Path) -> dict:
         }
         mixed_aspect_split_proteins += int(len(observed_splits) > 1)
         temporal_roles[effective_temporal_role(protein_id, names)] += 1
-        for name in names:
-            aspect, split = name.removesuffix(".csv").split("-", 1)
-            membership_rows[(ASPECTS[aspect], SPLITS[split])].append(
-                (protein_id, sequence)
-            )
+        if normalize_text_splits:
+            split = SPLITS[effective_temporal_role(protein_id, names)]
+            for aspect in ASPECTS.values():
+                membership_rows[(aspect, split)].append((protein_id, sequence))
+        else:
+            for name in names:
+                aspect, split = name.removesuffix(".csv").split("-", 1)
+                membership_rows[(ASPECTS[aspect], SPLITS[split])].append(
+                    (protein_id, sequence)
+                )
 
     for aspect in ASPECTS.values():
         for split in SPLITS.values():
@@ -253,6 +263,11 @@ def write_workspace(rows: list[dict[str, str]], data_dir: Path) -> dict:
         "effective_temporal_role_counts": dict(sorted(temporal_roles.items())),
         "mixed_aspect_split_proteins": mixed_aspect_split_proteins,
         "shared_text_temporal_role_policy": "historical-if-test-in-any-aspect",
+        "workspace_split_view_policy": (
+            "effective-temporal-role-across-all-aspects"
+            if normalize_text_splits
+            else "exact-target-memberships"
+        ),
         "proteins_fasta_sha256": sha256_file(fasta_path),
     }
 
@@ -283,7 +298,11 @@ def main() -> int:
         "ledger_payload_file_count": ledger_manifest["payload_file_count"],
         "target_benchmark_dir": str(args.target_benchmark_dir.resolve()),
         **benchmark,
-        **write_workspace(rows, args.data_dir),
+        **write_workspace(
+            rows,
+            args.data_dir,
+            normalize_text_splits=args.modality == "text",
+        ),
     }
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(
