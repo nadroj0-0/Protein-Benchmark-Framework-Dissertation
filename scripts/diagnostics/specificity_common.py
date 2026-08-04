@@ -49,6 +49,7 @@ class XuOntology:
     alt_ids: Mapping[str, str]
     data_version: str | None
     relationship_counts: Mapping[str, int]
+    excluded_cross_namespace_relationship_counts: Mapping[str, int]
     source: Mapping[str, Any]
 
 
@@ -125,6 +126,7 @@ def read_xu_ontology(
             alt_ids[alt_id] = term_id
 
     counts: Counter[str] = Counter()
+    excluded_cross_namespace_counts: Counter[str] = Counter()
     parents: dict[str, tuple[str, ...]] = {}
     for term_id, value in active.items():
         selected: list[tuple[str, str]] = []
@@ -144,8 +146,12 @@ def read_xu_ontology(
                     f"parent {raw_parent}"
                 )
             if namespaces[parent] != namespaces[term_id]:
+                if relation == "part_of":
+                    excluded_cross_namespace_counts[relation] += 1
+                    continue
                 raise ValueError(
-                    f"Xu graph contains cross-namespace edge {term_id} -> {parent}"
+                    f"Xu graph contains cross-namespace {relation} edge "
+                    f"{term_id} -> {parent}"
                 )
             normalized.add(parent)
             counts[relation] += 1
@@ -163,11 +169,17 @@ def read_xu_ontology(
         alt_ids=alt_ids,
         data_version=data_version,
         relationship_counts=dict(sorted(counts.items())),
+        excluded_cross_namespace_relationship_counts=dict(
+            sorted(excluded_cross_namespace_counts.items())
+        ),
         source={
             **snapshot,
             "data_version": data_version,
             "relationships": list(relationship_set),
             "relationship_counts": dict(sorted(counts.items())),
+            "excluded_cross_namespace_relationship_counts": dict(
+                sorted(excluded_cross_namespace_counts.items())
+            ),
             "active_terms": len(active),
             "alt_ids": len(alt_ids),
         },

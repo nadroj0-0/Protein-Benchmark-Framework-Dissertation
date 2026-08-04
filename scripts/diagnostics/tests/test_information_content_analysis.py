@@ -140,6 +140,60 @@ class PfpInformationContentAnalysisTests(unittest.TestCase):
             self.assertEqual(rows[4]["descendant_count"], 1)
             self.assertEqual(rows[0]["aspect_root_descendant_count"], 5)
 
+    def test_xu_ignores_and_records_cross_namespace_part_of_edges(self) -> None:
+        from specificity_common import compute_xu_totipotency, read_xu_ontology
+
+        with tempfile.TemporaryDirectory() as name:
+            path = Path(name) / "go.obo"
+            path.write_text(
+                "\n".join(
+                    [
+                        "format-version: 1.2",
+                        "data-version: historical-fixture",
+                        "",
+                        "[Term]",
+                        "id: GO:0008150",
+                        "namespace: biological_process",
+                        "",
+                        "[Term]",
+                        "id: GO:0097502",
+                        "namespace: biological_process",
+                        "is_a: GO:0008150 ! biological process",
+                        "",
+                        "[Term]",
+                        "id: GO:0005575",
+                        "namespace: cellular_component",
+                        "",
+                        "[Term]",
+                        "id: GO:0003674",
+                        "namespace: molecular_function",
+                        "",
+                        "[Term]",
+                        "id: GO:0000030",
+                        "namespace: molecular_function",
+                        "is_a: GO:0003674 ! molecular function",
+                        "relationship: part_of GO:0097502 ! mannosylation",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            ontology = read_xu_ontology(path)
+            self.assertEqual(ontology.parents["GO:0000030"], ("GO:0003674",))
+            self.assertEqual(
+                ontology.excluded_cross_namespace_relationship_counts,
+                {"part_of": 1},
+            )
+            self.assertEqual(
+                ontology.source["excluded_cross_namespace_relationship_counts"],
+                {"part_of": 1},
+            )
+            raw, _, rows = compute_xu_totipotency(
+                ontology, ["GO:0003674", "GO:0000030"], "MFO"
+            )
+            self.assertTrue(np.allclose(raw.values, [1.0, 0.5]))
+            self.assertEqual(rows[1]["descendant_count"], 1)
+
     def test_bin_without_positive_targets_is_not_reported_as_model_failure(
         self,
     ) -> None:
