@@ -93,20 +93,79 @@ ANALYSIS_OUTPUT="$WORK/analysis"
 LOG_FILE="$WORK/${ANALYSIS}.log"
 PUBLISH_STAGE="${OUTPUT_DIR}.staging-${JOB_TOKEN}"
 PUBLISH_LOCK="${OUTPUT_DIR}.publish-lock"
+FAILURE_OUTPUT="${OUTPUT_DIR}.failed-${JOB_TOKEN}"
 FRAMEWORK_REPO_URL="${FRAMEWORK_REPO_URL:-https://github.com/nadroj0-0/Protein-Benchmark-Framework-Dissertation.git}"
 FRAMEWORK_COMMIT="${FRAMEWORK_COMMIT:-}"
 LOCK_HELD=0
 
+publish_failure() {
+  local status="$1"
+  local failure_stage="${FAILURE_OUTPUT}.staging-$$"
+  [[ ! -e "$FAILURE_OUTPUT" && ! -e "$failure_stage" ]] || return 1
+  mkdir -p "$failure_stage/logs"
+  if [[ -f "$LOG_FILE" ]]; then
+    cp -p "$LOG_FILE" "$failure_stage/logs/analysis.log" || {
+      rm -rf -- "$failure_stage"
+      return 1
+    }
+  fi
+  if [[ -d "$ANALYSIS_OUTPUT" ]]; then
+    cp -a "$ANALYSIS_OUTPUT" "$failure_stage/partial_analysis" || {
+      rm -rf -- "$failure_stage"
+      return 1
+    }
+  fi
+  python3 - "$failure_stage/WORKFLOW_FAILED.json" "$status" "$ANALYSIS" \
+    "$SOURCE_LABEL" "$SOURCE_RUN" "$OBO_FILE" "$FRAMEWORK_COMMIT" \
+    "${JOB_ID:-manual}" <<'PY' || {
+import json
+import pathlib
+import sys
+from datetime import datetime, timezone
+
+payload = {
+    "complete": False,
+    "exit_status": int(sys.argv[2]),
+    "analysis_kind": sys.argv[3],
+    "source_label": sys.argv[4],
+    "source_run": sys.argv[5],
+    "obo_file": sys.argv[6],
+    "framework_commit": sys.argv[7],
+    "job_id": sys.argv[8],
+    "failed_at": datetime.now(timezone.utc).isoformat(),
+    "analysis_log": "logs/analysis.log" if pathlib.Path(sys.argv[1]).parent.joinpath("logs/analysis.log").is_file() else None,
+}
+pathlib.Path(sys.argv[1]).write_text(
+    json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+)
+PY
+    rm -rf -- "$failure_stage"
+    return 1
+  }
+  mv "$failure_stage" "$FAILURE_OUTPUT" || {
+    rm -rf -- "$failure_stage"
+    return 1
+  }
+  echo "Published failure diagnostics: $FAILURE_OUTPUT" >&2
+}
+
 cleanup() {
   local status=$?
+  local failure_publish_status=0
   trap - EXIT
   set +e
+  if [[ "$status" != "0" ]]; then
+    publish_failure "$status" || failure_publish_status=$?
+  fi
   if [[ "$LOCK_HELD" == "1" && -d "$PUBLISH_LOCK" && ! -L "$PUBLISH_LOCK" ]]; then
     rmdir -- "$PUBLISH_LOCK"
   fi
   [[ ! -d "$PUBLISH_STAGE" || -L "$PUBLISH_STAGE" ]] || rm -rf -- "$PUBLISH_STAGE"
   [[ ! -d "$WORK" || -L "$WORK" || "$WORK" != /scratch0/ct25_followup_* ]] || \
     rm -rf -- "$WORK"
+  if [[ "$status" != "0" && "$failure_publish_status" != "0" ]]; then
+    echo "WARNING: failed to publish failure diagnostics to $FAILURE_OUTPUT" >&2
+  fi
   exit "$status"
 }
 trap cleanup EXIT
@@ -170,7 +229,7 @@ if [[ "$ANALYSIS" == "specificity" ]]; then
     --bootstrap-replicates 2000 \
     --bootstrap-seed 42 \
     --output-dir "$ANALYSIS_OUTPUT" \
-    >"$LOG_FILE" 2>&1
+    2>&1 | tee "$LOG_FILE"
 else
   "$PYTHON_BIN" scripts/diagnostics/calibrate_pfp_predictions.py \
     --validation-prediction-manifest "$VALIDATION_MANIFEST" \
@@ -179,7 +238,7 @@ else
     --positive-ia-bins 4 \
     --reliability-bins 10 \
     --output-dir "$ANALYSIS_OUTPUT" \
-    >"$LOG_FILE" 2>&1
+    2>&1 | tee "$LOG_FILE"
 fi
 
 echo "==> Publishing $ANALYSIS analysis atomically"

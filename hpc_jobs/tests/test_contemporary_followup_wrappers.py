@@ -86,6 +86,19 @@ class ContemporaryFollowupWrapperTests(unittest.TestCase):
         self.assertIn('"obo_sha256"', source)
         self.assertIn('echo "Source label     : $SOURCE_LABEL"', source)
 
+    def test_analysis_preserves_failure_diagnostics_before_scratch_cleanup(self):
+        source = ANALYSIS.read_text(encoding="utf-8")
+        self.assertIn('FAILURE_OUTPUT="${OUTPUT_DIR}.failed-${JOB_TOKEN}"', source)
+        self.assertIn("publish_failure()", source)
+        self.assertIn('cp -p "$LOG_FILE" "$failure_stage/logs/analysis.log"', source)
+        self.assertIn('cp -a "$ANALYSIS_OUTPUT" "$failure_stage/partial_analysis"', source)
+        self.assertIn('mv "$failure_stage" "$FAILURE_OUTPUT"', source)
+        self.assertEqual(source.count('2>&1 | tee "$LOG_FILE"'), 2)
+        self.assertLess(
+            source.index('publish_failure "$status"'),
+            source.index('rm -rf -- "$WORK"'),
+        )
+
     def test_census_uses_only_the_outer_transport_manifest_verifier(self):
         source = CENSUS.read_text(encoding="utf-8")
         completed = subprocess.run(
