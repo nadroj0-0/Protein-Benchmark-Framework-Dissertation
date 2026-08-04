@@ -77,6 +77,15 @@ class ContemporaryFollowupWrapperTests(unittest.TestCase):
         self.assertIn("text-cutoff-2025-03-08__ppi-paper-faithful", source)
         self.assertNotIn("widened", source.lower())
 
+    def test_analysis_allows_provenance_safe_specificity_source_overrides(self):
+        source = ANALYSIS.read_text(encoding="utf-8")
+        self.assertIn("--source-run", source)
+        self.assertIn("--source-label", source)
+        self.assertIn("--obo", source)
+        self.assertIn('"prediction_manifest_sha256"', source)
+        self.assertIn('"obo_sha256"', source)
+        self.assertIn('echo "Source label     : $SOURCE_LABEL"', source)
+
     def test_census_uses_only_the_outer_transport_manifest_verifier(self):
         source = CENSUS.read_text(encoding="utf-8")
         completed = subprocess.run(

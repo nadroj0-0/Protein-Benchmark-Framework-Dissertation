@@ -21,6 +21,11 @@ Usage:
   qsub hpc_jobs/active/hpc_contemporary_followup_analysis.sh \
     --analysis specificity --output-dir /SAN/.../specificity
 
+  qsub hpc_jobs/active/hpc_contemporary_followup_analysis.sh \
+    --analysis specificity --source-run /SAN/.../model_run \
+    --obo /SAN/.../go.obo --source-label cafa3-regenerated-full \
+    --output-dir /SAN/.../specificity
+
   qsub -hold_jid CAPTURE_JOB hpc_jobs/active/hpc_contemporary_followup_analysis.sh \
     --analysis calibration --capture-pair-dir /SAN/.../capture_pair \
     --output-dir /SAN/.../calibration
@@ -42,12 +47,18 @@ git_in_dir() {
 ANALYSIS=""
 CAPTURE_PAIR_DIR=""
 OUTPUT_DIR=""
+SOURCE_RUN_OVERRIDE="${SOURCE_RUN:-}"
+OBO_FILE_OVERRIDE="${OBO_FILE:-}"
+SOURCE_LABEL="${SOURCE_LABEL:-contemporary-corrected-text-paper-faithful-ppi-full}"
 SUBMISSION_DIR="${SGE_O_WORKDIR:-$PWD}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --analysis) require_value "$@"; ANALYSIS="$2"; shift 2 ;;
     --capture-pair-dir) require_value "$@"; CAPTURE_PAIR_DIR="$2"; shift 2 ;;
     --output-dir) require_value "$@"; OUTPUT_DIR="$2"; shift 2 ;;
+    --source-run) require_value "$@"; SOURCE_RUN_OVERRIDE="$2"; shift 2 ;;
+    --obo) require_value "$@"; OBO_FILE_OVERRIDE="$2"; shift 2 ;;
+    --source-label) require_value "$@"; SOURCE_LABEL="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
   esac
@@ -57,16 +68,23 @@ done
   die "--analysis must be specificity or calibration"
 [[ "$OUTPUT_DIR" == /SAN/* ]] || die "--output-dir must be an absolute SAN path"
 [[ ! -e "$OUTPUT_DIR" ]] || die "Output directory already exists: $OUTPUT_DIR"
+[[ "$SOURCE_LABEL" =~ ^[A-Za-z0-9._-]+$ ]] || \
+  die "--source-label must use only letters, digits, dot, underscore or hyphen"
 if [[ "$ANALYSIS" == "calibration" ]]; then
   [[ "$CAPTURE_PAIR_DIR" == /SAN/* ]] || \
     die "Calibration requires --capture-pair-dir on SAN"
 fi
 
-SOURCE_RUN="${SOURCE_RUN:-/SAN/bioinf/bmpfp/model_runs/contemporary/2025_01_to_2026_02_supervisor/variants/text-cutoff-2025-03-08__ppi-paper-faithful/full/7118745_20260728_164527}"
-OBO_FILE="${OBO_FILE:-/SAN/bioinf/bmpfp/frozen_inputs/ontology/2025-02-06/go-basic.obo}"
+SOURCE_RUN="${SOURCE_RUN_OVERRIDE:-/SAN/bioinf/bmpfp/model_runs/contemporary/2025_01_to_2026_02_supervisor/variants/text-cutoff-2025-03-08__ppi-paper-faithful/full/7118745_20260728_164527}"
+OBO_FILE="${OBO_FILE_OVERRIDE:-/SAN/bioinf/bmpfp/frozen_inputs/ontology/2025-02-06/go-basic.obo}"
+[[ "$SOURCE_RUN" == /SAN/* ]] || die "--source-run must be an absolute SAN path"
+[[ "$OBO_FILE" == /SAN/* ]] || die "--obo must be an absolute SAN path"
 SOURCE_TEST_MANIFEST="$SOURCE_RUN/evaluation/prediction_artifacts/prediction_artifact_manifest.json"
 [[ -f "$SOURCE_TEST_MANIFEST" ]] || die "Accepted test prediction manifest is missing"
 [[ -f "$OBO_FILE" ]] || die "Frozen ontology is missing: $OBO_FILE"
+PROVENANCE_SOURCE_RUN="$SOURCE_RUN"
+PROVENANCE_TEST_MANIFEST="$SOURCE_TEST_MANIFEST"
+PROVENANCE_VALIDATION_MANIFEST=""
 
 JOB_TOKEN="${JOB_ID:-manual_$$}"
 WORK="/scratch0/ct25_followup_${ANALYSIS}_${JOB_TOKEN}"
@@ -115,12 +133,17 @@ if [[ "$ANALYSIS" == "calibration" ]]; then
   TEST_MANIFEST="$CAPTURE_PAIR_DIR/test/evaluation/prediction_artifacts/prediction_artifact_manifest.json"
   [[ -f "$VALIDATION_MANIFEST" && -f "$TEST_MANIFEST" ]] || \
     die "Paired validation/test prediction manifests are missing"
+  PROVENANCE_SOURCE_RUN="$CAPTURE_PAIR_DIR"
+  PROVENANCE_TEST_MANIFEST="$TEST_MANIFEST"
+  PROVENANCE_VALIDATION_MANIFEST="$VALIDATION_MANIFEST"
 fi
 
 echo "Host             : $(hostname)"
 echo "Job ID           : ${JOB_ID:-manual}"
 echo "Analysis         : $ANALYSIS"
-echo "Model            : corrected-text paper-faithful-PPI full model"
+echo "Source label     : $SOURCE_LABEL"
+echo "Source run       : $SOURCE_RUN"
+echo "Ontology         : $OBO_FILE"
 echo "Framework commit : $FRAMEWORK_COMMIT"
 echo "SAN output       : $OUTPUT_DIR"
 echo "Started          : $(date -Is)"
@@ -169,8 +192,39 @@ MANIFEST_SHA256="$(
   "$PYTHON_BIN" -c 'import hashlib,pathlib,sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())' \
     "$PUBLISH_STAGE/output_manifest.json"
 )"
-"$PYTHON_BIN" -c 'import json,pathlib,sys; pathlib.Path(sys.argv[1]).write_text(json.dumps({"complete":True,"analysis_kind":sys.argv[2],"embedding_policy":"text-cutoff-2025-03-08__ppi-paper-faithful","mode":"full","manifest":"output_manifest.json","manifest_sha256":sys.argv[3]},indent=2)+"\n")' \
-  "$PUBLISH_STAGE/WORKFLOW_COMPLETE.json" "$ANALYSIS" "$MANIFEST_SHA256"
+"$PYTHON_BIN" - "$PUBLISH_STAGE/WORKFLOW_COMPLETE.json" "$ANALYSIS" \
+  "$SOURCE_LABEL" "$PROVENANCE_SOURCE_RUN" "$PROVENANCE_TEST_MANIFEST" \
+  "$OBO_FILE" "$MANIFEST_SHA256" "$PROVENANCE_VALIDATION_MANIFEST" <<'PY'
+import hashlib
+import json
+import pathlib
+import sys
+
+def sha256(path):
+    return hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
+
+payload = {
+    "complete": True,
+    "analysis_kind": sys.argv[2],
+    "source_label": sys.argv[3],
+    "source_run": str(pathlib.Path(sys.argv[4]).resolve()),
+    "prediction_manifest": str(pathlib.Path(sys.argv[5]).resolve()),
+    "prediction_manifest_sha256": sha256(sys.argv[5]),
+    "obo_file": str(pathlib.Path(sys.argv[6]).resolve()),
+    "obo_sha256": sha256(sys.argv[6]),
+    "mode": "full",
+    "manifest": "output_manifest.json",
+    "manifest_sha256": sys.argv[7],
+}
+if sys.argv[8]:
+    payload["validation_prediction_manifest"] = str(
+        pathlib.Path(sys.argv[8]).resolve()
+    )
+    payload["validation_prediction_manifest_sha256"] = sha256(sys.argv[8])
+pathlib.Path(sys.argv[1]).write_text(
+    json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+)
+PY
 "$PYTHON_BIN" scripts/model_execution/manage_output_manifest.py verify \
   --root "$PUBLISH_STAGE" --include-nested-control-files
 mkdir "$PUBLISH_LOCK"
