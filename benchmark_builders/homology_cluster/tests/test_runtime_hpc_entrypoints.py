@@ -101,6 +101,8 @@ class RuntimeHPCEntrypointTests(unittest.TestCase):
     def test_supervisor_external_job_is_provenance_isolated(self):
         worker = SUPERVISOR_DANIEL_30.read_text()
         self.assertIn("#$ -t 1\n", worker)
+        self.assertIn("export HOMOLOGY_RUNTIME_KIND=array", worker)
+        self.assertNotIn("export HOMOLOGY_RUNTIME_KIND=pilot", worker)
         self.assertIn("export UNIREF_LEVEL=50", worker)
         self.assertIn("export MMSEQS_SENSITIVITY=4", worker)
         self.assertIn("export SPLIT_POLICY=cluster-count-random", worker)

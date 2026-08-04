@@ -513,6 +513,26 @@ def publish_resolution(
     proteins = load_plan(plan_dir)
     if len({source.name for source in sources}) != len(sources):
         raise ResolutionError("Cache source names must be unique")
+    reusable_benchmark_names = {
+        benchmark
+        for protein in proteins.values()
+        if protein.coarse_action == "reuse"
+        for benchmark in protein.matching_benchmarks
+    }
+    unused_sources = [
+        source
+        for source in sources
+        if source.embedded_benchmark not in reusable_benchmark_names
+    ]
+    if unused_sources:
+        configured = ", ".join(
+            f"{source.name}={source.embedded_benchmark}" for source in unused_sources
+        )
+        available = ", ".join(sorted(reusable_benchmark_names)) or "<none>"
+        raise ResolutionError(
+            "Cache source embedded-benchmark label is absent from every reusable "
+            f"coarse-plan row: {configured}; available labels: {available}"
+        )
 
     candidates: List[Candidate] = []
     for source in sources:

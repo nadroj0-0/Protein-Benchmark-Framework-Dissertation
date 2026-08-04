@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Validate Daniel Buchan's external UniRef50 30% assignment and continue the benchmark.
+# Publish Daniel Buchan's validated external UniRef50 30% assignment for production use.
 
 #$ -l tmem=10G
 #$ -l tscratch=25G
@@ -15,7 +15,10 @@ set -euo pipefail
 FRAMEWORK_ROOT="${FRAMEWORK_SOURCE_ROOT:-${SGE_O_WORKDIR:-$PWD}}"
 SUPERVISOR_ROOT="/SAN/bioinf/bmpfp/derived_inputs/homology/2026_02/supervisor_daniel_buchan/mmseqs_cluster_assignments/uniref50_sensitivity_4/identity_30/raw"
 
-export HOMOLOGY_RUNTIME_KIND=pilot
+# The external assignment has already completed the diagnostic validation and
+# independent framework comparison. Re-run only deterministic downstream
+# construction under the production publication contract; MMseqs is not rerun.
+export HOMOLOGY_RUNTIME_KIND=array
 export SPLIT_POLICY=cluster-count-random
 export MMSEQS_PROFILE=daniel-aligned-defaults
 export UNIREF_LEVEL=50

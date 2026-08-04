@@ -27,6 +27,8 @@ CONTEMPORARY_ARCHIVE="${CONTEMPORARY_ARCHIVE:-/SAN/bioinf/bmpfp/embeddings/conte
 CONTEMPORARY_ARCHIVE_SHA256="${CONTEMPORARY_ARCHIVE_SHA256:-8c579d492a9e9ee93a3539f722e479da9f917c6aada2f0238893b263066aa70e}"
 CAFA3_ARCHIVE="${CAFA3_ARCHIVE:-/SAN/bioinf/bmpfp/diagnostics/cafa3_embedding_hydration_comparison/7125100_20260730T154052Z/artifacts/cafa3_reproduction_hydrated_cache.tar.gz}"
 CAFA3_ARCHIVE_SHA256="${CAFA3_ARCHIVE_SHA256:-c6cdcafd00b0cb871a50beb8cd649ce5c13d5882fcde9c3663a19a86905b9e87}"
+CONTEMPORARY_EMBEDDED_BENCHMARK="${CONTEMPORARY_EMBEDDED_BENCHMARK:-contemporary_hydrated_population}"
+CAFA3_EMBEDDED_BENCHMARK="${CAFA3_EMBEDDED_BENCHMARK:-cafa3_hydrated_population}"
 
 JOB_TOKEN="${JOB_ID:-manual_$$}"
 RUN_TAG="${JOB_TOKEN}_$(date -u +%Y%m%dT%H%M%SZ)"
@@ -94,6 +96,10 @@ trap 'echo "Received termination signal"; exit 130' INT TERM
 [[ -d "$COARSE_PLAN_DIR" ]] || die "Coarse plan is missing: $COARSE_PLAN_DIR"
 [[ -f "$CONTEMPORARY_ARCHIVE" ]] || die "Contemporary archive is missing"
 [[ -f "$CAFA3_ARCHIVE" ]] || die "CAFA3 archive is missing"
+[[ "$CONTEMPORARY_EMBEDDED_BENCHMARK" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || \
+  die "Unsafe contemporary embedded-benchmark name"
+[[ "$CAFA3_EMBEDDED_BENCHMARK" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || \
+  die "Unsafe CAFA3 embedded-benchmark name"
 [[ ! -e "$WORK" ]] || die "Scratch path already exists: $WORK"
 [[ "$RESULTS_ROOT" == /SAN/* ]] || die "RESULTS_ROOT must be on SAN"
 mkdir -p "$WORK" "$RESULTS_ROOT"
@@ -111,7 +117,9 @@ echo "Job ID               : ${JOB_ID:-manual}"
 echo "Framework commit     : $FRAMEWORK_COMMIT"
 echo "Coarse plan          : $COARSE_PLAN_DIR"
 echo "Contemporary source  : $CONTEMPORARY_ARCHIVE"
+echo "Contemporary label   : $CONTEMPORARY_EMBEDDED_BENCHMARK"
 echo "CAFA3 source         : $CAFA3_ARCHIVE"
+echo "CAFA3 label          : $CAFA3_EMBEDDED_BENCHMARK"
 echo "Final output         : $FINAL_OUTPUT"
 echo "Started              : $(date -Is)"
 
@@ -128,8 +136,8 @@ PYTHON_BIN="$(command -v python)"
 set +e
 "$PYTHON_BIN" scripts/embeddings/resolve_embedding_reuse_sources.py \
   --coarse-plan-dir "$COARSE_PLAN_DIR" \
-  --cache-source "contemporary_paper_faithful=contemporary_hydrated_population=${CONTEMPORARY_ARCHIVE}=${CONTEMPORARY_ARCHIVE_SHA256}" \
-  --cache-source "cafa3_regenerated_hydrated=cafa3_hydrated_population=${CAFA3_ARCHIVE}=${CAFA3_ARCHIVE_SHA256}" \
+  --cache-source "contemporary_paper_faithful=${CONTEMPORARY_EMBEDDED_BENCHMARK}=${CONTEMPORARY_ARCHIVE}=${CONTEMPORARY_ARCHIVE_SHA256}" \
+  --cache-source "cafa3_regenerated_hydrated=${CAFA3_EMBEDDED_BENCHMARK}=${CAFA3_ARCHIVE}=${CAFA3_ARCHIVE_SHA256}" \
   --output-dir "$SCRATCH_OUTPUT" \
   2>&1 | tee "$WORKFLOW_LOG"
 status=${PIPESTATUS[0]}

@@ -131,10 +131,18 @@ class SourceResolutionTests(unittest.TestCase):
         text = WRAPPER.read_text(encoding="utf-8")
         self.assertIn("set -Eeuo pipefail", text)
         self.assertIn(
-            "contemporary_paper_faithful=contemporary_hydrated_population=", text
+            "contemporary_paper_faithful=${CONTEMPORARY_EMBEDDED_BENCHMARK}=", text
         )
         self.assertIn(
-            "cafa3_regenerated_hydrated=cafa3_hydrated_population=", text
+            "cafa3_regenerated_hydrated=${CAFA3_EMBEDDED_BENCHMARK}=", text
+        )
+        self.assertIn(
+            "CONTEMPORARY_EMBEDDED_BENCHMARK=\"${CONTEMPORARY_EMBEDDED_BENCHMARK:-contemporary_hydrated_population}\"",
+            text,
+        )
+        self.assertIn(
+            "CAFA3_EMBEDDED_BENCHMARK=\"${CAFA3_EMBEDDED_BENCHMARK:-cafa3_hydrated_population}\"",
+            text,
         )
         self.assertIn('load_framework_paths "$FRAMEWORK_DIR"', text)
         self.assertLess(
@@ -207,7 +215,7 @@ class SourceResolutionTests(unittest.TestCase):
                 all(pairs[("P2", modality)]["action"] == "regenerate" for modality in MODULE.MODALITIES)
             )
 
-    def test_nonmatching_benchmark_source_is_not_a_candidate(self):
+    def test_nonmatching_benchmark_source_fails_before_scanning(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             plan = root / "plan"
@@ -216,14 +224,16 @@ class SourceResolutionTests(unittest.TestCase):
             archive = root / "source.tar.gz"
             archive_sha = write_archive(archive, all_arrays("P1"))
             output = root / "result"
-            MODULE.publish_resolution(
-                plan,
-                output,
-                [MODULE.parse_source(f"source=b={archive}={archive_sha}", 0)],
-            )
-            pairs = read_gzip_tsv(output / "resolved_embedding_pairs.tsv.gz")
-            self.assertTrue(all(row["reason"] == "no-valid-source-array" for row in pairs))
-            self.assertEqual(read_gzip_tsv(output / "source_candidates.tsv.gz"), [])
+            with self.assertRaisesRegex(
+                MODULE.ResolutionError,
+                "embedded-benchmark label is absent.*source=b.*available labels: a",
+            ):
+                MODULE.publish_resolution(
+                    plan,
+                    output,
+                    [MODULE.parse_source(f"source=b={archive}={archive_sha}", 0)],
+                )
+            self.assertFalse(output.exists())
 
     def test_archive_hash_mismatch_fails_before_publication(self):
         with tempfile.TemporaryDirectory() as temporary:
