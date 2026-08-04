@@ -158,14 +158,18 @@ def validate_against_benchmark(
             raise WorkspaceError(f"Ledger memberships differ for {protein_id}")
 
 
-def split_for_memberships(protein_id: str, names: list[str]) -> str:
+def effective_temporal_role(protein_id: str, names: list[str]) -> str:
     splits = {name.removesuffix(".csv").rsplit("-", 1)[1] for name in names}
-    if len(splits) != 1:
-        raise WorkspaceError(f"Protein lacks one global split: {protein_id} {names}")
-    split = next(iter(splits))
-    if split not in SPLITS:
-        raise WorkspaceError(f"Unknown split for {protein_id}: {split}")
-    return split
+    unknown = splits - set(SPLITS)
+    if unknown:
+        raise WorkspaceError(f"Unknown splits for {protein_id}: {sorted(unknown)}")
+    if "test" in splits:
+        return "test"
+    if "validation" in splits:
+        return "validation"
+    if "training" in splits:
+        return "training"
+    raise WorkspaceError(f"Protein has no benchmark membership: {protein_id}")
 
 
 def select_rows(
@@ -186,7 +190,7 @@ def select_rows(
     counts: dict[str, int] = defaultdict(int)
     bounded = []
     for row in selected:
-        split = split_for_memberships(
+        split = effective_temporal_role(
             row["protein_id"], json.loads(row["target_memberships"])
         )
         if counts[split] < limit_per_split:
@@ -211,13 +215,18 @@ def write_workspace(rows: list[dict[str, str]], data_dir: Path) -> dict:
     clear_split_views(data_dir)
     membership_rows: dict[tuple[str, str], list[tuple[str, str]]] = defaultdict(list)
     sequences: dict[str, str] = {}
-    global_splits: dict[str, int] = defaultdict(int)
+    temporal_roles: dict[str, int] = defaultdict(int)
+    mixed_aspect_split_proteins = 0
     for row in rows:
         protein_id = row["protein_id"]
         sequence = row["sequence"]
         sequences[protein_id] = sequence
         names = json.loads(row["target_memberships"])
-        global_splits[split_for_memberships(protein_id, names)] += 1
+        observed_splits = {
+            name.removesuffix(".csv").rsplit("-", 1)[1] for name in names
+        }
+        mixed_aspect_split_proteins += int(len(observed_splits) > 1)
+        temporal_roles[effective_temporal_role(protein_id, names)] += 1
         for name in names:
             aspect, split = name.removesuffix(".csv").split("-", 1)
             membership_rows[(ASPECTS[aspect], SPLITS[split])].append(
@@ -241,7 +250,9 @@ def write_workspace(rows: list[dict[str, str]], data_dir: Path) -> dict:
             handle.write(f">{protein_id}\n{sequences[protein_id]}\n")
     return {
         "protein_count": len(sequences),
-        "global_split_counts": dict(sorted(global_splits.items())),
+        "effective_temporal_role_counts": dict(sorted(temporal_roles.items())),
+        "mixed_aspect_split_proteins": mixed_aspect_split_proteins,
+        "shared_text_temporal_role_policy": "historical-if-test-in-any-aspect",
         "proteins_fasta_sha256": sha256_file(fasta_path),
     }
 

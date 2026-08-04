@@ -269,6 +269,25 @@ class HomologyEmbeddingGenerationTests(unittest.TestCase):
         self.assertIn("TEST", fasta)
         self.assertFalse(report.exists())
 
+    def test_mixed_aspect_membership_uses_conservative_shared_text_role(self) -> None:
+        memberships = ["cc-test.csv", "mf-training.csv"]
+        self.assertEqual(PREPARE.effective_temporal_role("MIXED", memberships), "test")
+        row = {
+            "protein_id": "MIXED",
+            "sequence": "AAAA",
+            "target_memberships": json.dumps(memberships),
+        }
+        data = self.root / "mixed-data"
+        result = PREPARE.write_workspace([row], data)
+        self.assertEqual(result["effective_temporal_role_counts"], {"test": 1})
+        self.assertEqual(result["mixed_aspect_split_proteins"], 1)
+        self.assertEqual(
+            result["shared_text_temporal_role_policy"],
+            "historical-if-test-in-any-aspect",
+        )
+        self.assertEqual(np.load(data / "CCO_test_names.npy", allow_pickle=True).tolist(), ["MIXED"])
+        self.assertEqual(np.load(data / "MFO_train_names.npy", allow_pickle=True).tolist(), ["MIXED"])
+
     def test_assembly_streams_reuse_and_generated_pairs_into_one_cache(self) -> None:
         output = self.root / "cache.tar.gz"
         reports = self.root / "reports"
