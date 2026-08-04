@@ -20,6 +20,9 @@ import torch
 FRAMEWORK_ROOT = Path(__file__).resolve().parents[3]
 MODEL_EXECUTION = FRAMEWORK_ROOT / "scripts" / "model_execution"
 TEMPORAL_CONFIG = FRAMEWORK_ROOT / "configs" / "pfp_benchmark_run.temporal.json"
+TEMPORAL_NK_LK_CONFIG = (
+    FRAMEWORK_ROOT / "configs" / "pfp_benchmark_run.temporal_nk_lk.json"
+)
 HOMOLOGY_CONFIG = FRAMEWORK_ROOT / "configs" / "pfp_benchmark_run.homology.json"
 CAFA3_CONFIG = FRAMEWORK_ROOT / "configs" / "pfp_benchmark_run.cafa3.json"
 
@@ -263,6 +266,30 @@ class ModelExecutionTests(unittest.TestCase):
         )
 
         self.prepare(expected=1, contains="protein IDs")
+
+    def test_temporal_nk_lk_policy_allows_cross_ontology_development_test_overlap(self) -> None:
+        (self.benchmark / "bp-training.csv").write_text(
+            "proteins,sequences,GO:0000001\nSHARED,TTTT,1\n"
+        )
+        (self.benchmark / "mf-test.csv").write_text(
+            "proteins,sequences,GO:0000003\nSHARED,TTTT,1\n"
+        )
+
+        self.prepare(TEMPORAL_NK_LK_CONFIG)
+
+    def test_temporal_nk_lk_policy_rejects_within_ontology_overlap(self) -> None:
+        (self.benchmark / "bp-training.csv").write_text(
+            "proteins,sequences,GO:0000001\nSHARED,TTTT,1\n"
+        )
+        (self.benchmark / "bp-test.csv").write_text(
+            "proteins,sequences,GO:0000001\nSHARED,TTTT,1\n"
+        )
+
+        self.prepare(
+            TEMPORAL_NK_LK_CONFIG,
+            expected=1,
+            contains="BP protein IDs",
+        )
 
     def test_cafa3_policy_normalizes_legacy_singular_header_without_editing_source(self) -> None:
         path = self.benchmark / "mf-test.csv"

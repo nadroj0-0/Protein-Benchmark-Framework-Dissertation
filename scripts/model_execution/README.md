@@ -128,6 +128,10 @@ always clones a pinned clean framework commit.
   protein IDs are globally disjoint between development and test, while exact
   sequences are disjoint within each ontology. Cross-ontology sequence overlap
   is reported but allowed because PFP trains BP, CC and MF separately.
+- `configs/pfp_benchmark_run.temporal_nk_lk.json`: contemporary NK+LK benchmark;
+  protein IDs and exact sequences are disjoint within each ontology. A protein
+  may remain in one ontology's development split while serving as an LK target
+  in another because PFP trains the three ontology models independently.
 - `configs/pfp_benchmark_run.homology.json`: protein IDs and exact sequences are
   globally disjoint across all three splits. Domain-owned homology validation
   evidence is mandatory.
