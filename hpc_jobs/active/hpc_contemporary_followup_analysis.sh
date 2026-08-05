@@ -26,13 +26,19 @@ Usage:
     --obo /SAN/.../go.obo --source-label cafa3-regenerated-full \
     --output-dir /SAN/.../specificity
 
+  qsub hpc_jobs/active/hpc_contemporary_followup_analysis.sh \
+    --analysis diagnostics --source-run /SAN/.../model_run \
+    --obo /SAN/.../go.obo --source-label homology-identity-30-full \
+    --output-dir /SAN/.../diagnostics
+
   qsub -hold_jid CAPTURE_JOB hpc_jobs/active/hpc_contemporary_followup_analysis.sh \
     --analysis calibration --capture-pair-dir /SAN/.../capture_pair \
     --output-dir /SAN/.../calibration
 
-Both modes are CPU-only. Specificity uses the accepted corrected full-model
-test arrays. Calibration fits on a newly captured validation split and applies
-the fitted model once to its paired test split.
+All modes are CPU-only. Specificity uses the selected full-model test arrays.
+Diagnostics runs both root-only exclusion and IA/Xu specificity from those
+same immutable arrays. Calibration fits on a newly captured validation split
+and applies the fitted model once to its paired test split.
 EOF
 }
 
@@ -64,8 +70,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ "$ANALYSIS" == "specificity" || "$ANALYSIS" == "calibration" ]] || \
-  die "--analysis must be specificity or calibration"
+[[ "$ANALYSIS" == "specificity" || "$ANALYSIS" == "diagnostics" || \
+   "$ANALYSIS" == "calibration" ]] || \
+  die "--analysis must be specificity, diagnostics or calibration"
 [[ "$OUTPUT_DIR" == /SAN/* ]] || die "--output-dir must be an absolute SAN path"
 [[ ! -e "$OUTPUT_DIR" ]] || die "Output directory already exists: $OUTPUT_DIR"
 [[ "$SOURCE_LABEL" =~ ^[A-Za-z0-9._-]+$ ]] || \
@@ -230,6 +237,23 @@ if [[ "$ANALYSIS" == "specificity" ]]; then
     --bootstrap-seed 42 \
     --output-dir "$ANALYSIS_OUTPUT" \
     2>&1 | tee "$LOG_FILE"
+elif [[ "$ANALYSIS" == "diagnostics" ]]; then
+  {
+    echo "==> Root-only exclusion sensitivity"
+    "$PYTHON_BIN" scripts/diagnostics/evaluate_pfp_label_sensitivity.py \
+      --prediction-manifest "$SOURCE_TEST_MANIFEST" \
+      --obo-file "$OBO_FILE" \
+      --output-dir "$ANALYSIS_OUTPUT/root_exclusion"
+    echo "==> IA and Xu specificity"
+    "$PYTHON_BIN" scripts/diagnostics/evaluate_pfp_information_content.py \
+      --prediction-manifest "$SOURCE_TEST_MANIFEST" \
+      --obo "$OBO_FILE" \
+      --specificity-measure all_separate \
+      --positive-bins 4 \
+      --bootstrap-replicates 2000 \
+      --bootstrap-seed 42 \
+      --output-dir "$ANALYSIS_OUTPUT/specificity"
+  } 2>&1 | tee "$LOG_FILE"
 else
   "$PYTHON_BIN" scripts/diagnostics/calibrate_pfp_predictions.py \
     --validation-prediction-manifest "$VALIDATION_MANIFEST" \

@@ -99,6 +99,14 @@ class ContemporaryFollowupWrapperTests(unittest.TestCase):
         self.assertIn("text-cutoff-2025-03-08__ppi-paper-faithful", source)
         self.assertNotIn("widened", source.lower())
 
+    def test_analysis_can_run_combined_prediction_diagnostics(self):
+        source = ANALYSIS.read_text(encoding="utf-8")
+        self.assertIn('"$ANALYSIS" == "diagnostics"', source)
+        self.assertIn("evaluate_pfp_label_sensitivity.py", source)
+        self.assertIn("evaluate_pfp_information_content.py", source)
+        self.assertIn('$ANALYSIS_OUTPUT/root_exclusion', source)
+        self.assertIn('$ANALYSIS_OUTPUT/specificity', source)
+
     def test_analysis_allows_provenance_safe_specificity_source_overrides(self):
         source = ANALYSIS.read_text(encoding="utf-8")
         self.assertIn("--source-run", source)
@@ -117,7 +125,7 @@ class ContemporaryFollowupWrapperTests(unittest.TestCase):
             'cp -a "$ANALYSIS_OUTPUT" "$failure_stage/partial_analysis"', source
         )
         self.assertIn('mv "$failure_stage" "$FAILURE_OUTPUT"', source)
-        self.assertEqual(source.count('2>&1 | tee "$LOG_FILE"'), 2)
+        self.assertEqual(source.count('2>&1 | tee "$LOG_FILE"'), 3)
         self.assertLess(
             source.index('publish_failure "$status"'),
             source.index('rm -rf -- "$WORK"'),
