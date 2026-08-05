@@ -406,11 +406,18 @@ def _write_summary(path: Path, payload: dict[str, object]) -> None:
     metrics = payload["pairwise_agreement"]
     assert isinstance(universe, dict) and isinstance(exact, dict)
     assert isinstance(left, dict) and isinstance(right, dict) and isinstance(metrics, dict)
+    inputs = payload["inputs"]
+    assert isinstance(inputs, dict)
+    left_input = inputs["left"]
+    right_input = inputs["right"]
+    assert isinstance(left_input, dict) and isinstance(right_input, dict)
+    left_label = str(left_input["label"])
+    right_label = str(right_input["label"])
     common = int(universe["common_members"])
     exact_members = int(exact["members_in_exact_cluster_blocks"])
     ari = metrics["adjusted_rand_index"]
     lines = [
-        "# UniRef50 30% cluster-partition comparison",
+        f"# {payload['title']}",
         "",
         "## Verdict",
         "",
@@ -429,7 +436,7 @@ def _write_summary(path: Path, payload: dict[str, object]) -> None:
         "",
         "## Counts",
         "",
-        "| Measure | Framework run | Daniel run |",
+        f"| Measure | {left_label} | {right_label} |",
         "|---|---:|---:|",
         f"| Members | {left['members']:,} | {right['members']:,} |",
         f"| Clusters | {left['clusters']:,} | {right['clusters']:,} |",
@@ -438,21 +445,21 @@ def _write_summary(path: Path, payload: dict[str, object]) -> None:
         f"| Divergent clusters | {left['divergent_clusters']:,} | {right['divergent_clusters']:,} |",
         f"| Members in divergent clusters | {left['members_in_divergent_clusters']:,} | {right['members_in_divergent_clusters']:,} |",
         "",
-        "Here, a divergent framework cluster is split across multiple Daniel clusters; a divergent Daniel cluster merges members from multiple framework clusters.",
+        f"Here, a divergent {left_label} cluster is split across multiple {right_label} clusters; a divergent {right_label} cluster merges members from multiple {left_label} clusters.",
         "",
         "## Pairwise agreement",
         "",
         f"- Pairs together in both: {metrics['pairs_together_in_both']:,}",
-        f"- Framework pair recall: {_decimal(metrics['left_pair_recall'])}",
-        f"- Daniel pair recall: {_decimal(metrics['right_pair_recall'])}",
+        f"- {left_label} pair recall: {_decimal(metrics['left_pair_recall'])}",
+        f"- {right_label} pair recall: {_decimal(metrics['right_pair_recall'])}",
         f"- Pair Jaccard: {_decimal(metrics['pair_jaccard'])}",
         f"- Fowlkes-Mallows: {_decimal(metrics['fowlkes_mallows'])}",
         "",
         "## Interpretation boundary",
         "",
-        "Both runs declare the same frozen UniRef50 input and headline clustering settings. The framework run records MMseqs 18-8cc5c. Daniel's final MMseqs version and exact executed command remain unknown, so this report measures the difference but does not assign a cause.",
+        str(payload["interpretation_boundary"]),
         "",
-        "See `comparison.json`, `largest_framework_splits.tsv`, and `largest_daniel_merges.tsv` for full machine-readable results and bounded examples.",
+        "See `comparison.json`, `largest_framework_splits.tsv`, and `largest_daniel_merges.tsv` for full machine-readable results and bounded examples. The filenames are retained for compatibility; left/right labels in the report are authoritative.",
     ]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -484,13 +491,13 @@ def compare(args: argparse.Namespace) -> dict[str, object]:
     left_candidates_sorted = scratch / "left.one_to_one.sorted.tsv"
     right_candidates_sorted = scratch / "right.one_to_one.sorted.tsv"
 
-    _log("sorting framework assignments by member ID")
+    _log(f"sorting {args.left_label} assignments by member ID")
     _sort_stream(
         _assignment_rows(left, "left"), output=left_by_member, temporary=scratch,
         sort_binary=sort_binary, keys=["-k1,1"], parallel=args.sort_parallel,
         memory=args.sort_memory,
     )
-    _log("sorting Daniel assignments by member ID")
+    _log(f"sorting {args.right_label} assignments by member ID")
     _sort_stream(
         _assignment_rows(right, "right"), output=right_by_member, temporary=scratch,
         sort_binary=sort_binary, keys=["-k1,1"], parallel=args.sort_parallel,
@@ -507,17 +514,17 @@ def compare(args: argparse.Namespace) -> dict[str, object]:
             f"{universe}"
         )
 
-    _log("measuring framework clusters split across Daniel clusters")
+    _log(f"measuring {args.left_label} clusters split across {args.right_label} clusters")
     left_stats, overlap_pairs = _analyse_partition(
         pairs_by_left, primary_index=0, one_to_one_candidates=left_candidates,
         divergence_path=output / "largest_framework_splits.tsv",
     )
-    _log("re-sorting intersections by Daniel cluster")
+    _log(f"re-sorting intersections by {args.right_label} cluster")
     _sort_file(
         pairs_by_left, output=pairs_by_right, temporary=scratch, sort_binary=sort_binary,
         keys=["-k2,2", "-k1,1"], parallel=args.sort_parallel, memory=args.sort_memory,
     )
-    _log("measuring Daniel clusters merged from framework clusters")
+    _log(f"measuring {args.right_label} clusters merged from {args.left_label} clusters")
     right_stats, overlap_pairs_right = _analyse_partition(
         pairs_by_right, primary_index=1, one_to_one_candidates=right_candidates,
         divergence_path=output / "largest_daniel_merges.tsv",
@@ -544,6 +551,7 @@ def compare(args: argparse.Namespace) -> dict[str, object]:
         "schema_name": SCHEMA_NAME,
         "schema_version": SCHEMA_VERSION,
         "created_at_utc": _utc_now(),
+        "title": args.title,
         "inputs": {
             "left": {"label": args.left_label, "path": str(left), "sha256": _sha256(left), "size_bytes": left.stat().st_size},
             "right": {"label": args.right_label, "path": str(right), "sha256": _sha256(right), "size_bytes": right.stat().st_size},
@@ -557,10 +565,7 @@ def compare(args: argparse.Namespace) -> dict[str, object]:
             exact["members_in_exact_cluster_blocks"] == common
             and left_stats.clusters == right_stats.clusters == exact["exact_cluster_blocks"]
         ),
-        "interpretation_boundary": (
-            "The framework run records MMseqs 18-8cc5c. Daniel's final MMseqs version "
-            "and exact command remain unknown, so measured differences are not causally attributed."
-        ),
+        "interpretation_boundary": args.interpretation_boundary,
     }
     _write_json(output / "comparison.json", payload)
     _write_summary(output / "summary.md", payload)
@@ -589,6 +594,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--right", type=Path, required=True)
     parser.add_argument("--left-label", default="framework-run")
     parser.add_argument("--right-label", default="daniel-run")
+    parser.add_argument("--title", default="UniRef50 30% cluster-partition comparison")
+    parser.add_argument(
+        "--interpretation-boundary",
+        default=(
+            "The framework run records MMseqs 18-8cc5c. Daniel's final MMseqs version "
+            "and exact command remain unknown, so measured differences are not causally attributed."
+        ),
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--scratch-dir", type=Path, required=True)
     parser.add_argument("--sort-binary", default="sort")

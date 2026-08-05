@@ -10,6 +10,24 @@ cluster sizes, and reports pairwise Jaccard, Fowlkes-Mallows, and adjusted Rand
 agreement. Large intermediate sorts remain in caller-provided scratch space;
 only compact checksummed reports are published.
 
+## Homology threshold progression audit
+
+`audit_homology_threshold_progression.py` compares the published benchmark
+artifacts in threshold order. It hashes all nine model CSVs and the retained
+assignment files, verifies that CSV splits agree with the protein-to-cluster
+table, checks sequence bytes for every protein shared between adjacent
+thresholds, reports train/validation/test moves by ontology, and calculates
+label-independent agreement for the retained annotated-protein partitions.
+
+This is the fast, model-input-facing audit. It does not replace the exact
+comparison of the complete UniRef50 assignment files. On Grid Engine,
+`hpc_homology_threshold_progression_audit.sh` runs the fast audit once and also
+hashes all six complete UniRef50 assignment files.
+`hpc_compare_homology_adjacent_partitions.sh` runs the four non-identical
+complete adjacent comparisons as an array. The 10% and 5% complete files are
+byte-identical, so their hashes already prove exact equality without a redundant
+external-sort comparison.
+
 ## Audit a PFP working copy
 
 `audit_pfp_working_copy.py` compares an existing local PFP working directory

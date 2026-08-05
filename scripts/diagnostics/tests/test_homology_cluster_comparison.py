@@ -30,6 +30,8 @@ class HomologyClusterComparisonTests(unittest.TestCase):
             right=right,
             left_label="left",
             right_label="right",
+            title="Test partition comparison",
+            interpretation_boundary="Test-only interpretation boundary.",
             output_dir=root / "out",
             scratch_dir=root / "scratch",
             sort_binary="sort",
@@ -49,6 +51,10 @@ class HomologyClusterComparisonTests(unittest.TestCase):
             self.assertEqual(payload["exact_partition_blocks"]["exact_cluster_blocks"], 2)
             self.assertEqual(payload["exact_partition_blocks"]["members_in_exact_cluster_blocks"], 3)
             self.assertEqual(payload["member_universe"]["members_with_same_raw_representative"], 1)
+            summary = (root / "out" / "summary.md").read_text()
+            self.assertIn("# Test partition comparison", summary)
+            self.assertIn("| Measure | left | right |", summary)
+            self.assertIn("Test-only interpretation boundary.", summary)
 
     def test_reports_splits_and_merges(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
