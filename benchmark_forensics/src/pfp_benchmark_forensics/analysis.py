@@ -127,6 +127,9 @@ def _load_dataset(config: DatasetConfig) -> Tuple[DatasetResult, Ontology]:
     term_headers: Dict[str, Tuple[str, ...]] = {}
     sequence_by_protein: Dict[str, str] = {}
     split_by_protein: MutableMapping[str, Set[str]] = defaultdict(set)
+    split_by_aspect_protein: MutableMapping[Tuple[str, str], Set[str]] = defaultdict(
+        set
+    )
     for aspect in ASPECTS:
         for split in SPLITS:
             path = config.benchmark_dir / f"{ASPECT_TO_FILE[aspect]}-{split}.csv"
@@ -158,6 +161,7 @@ def _load_dataset(config: DatasetConfig) -> Tuple[DatasetResult, Ontology]:
                     )
                 sequence_by_protein[item.protein_id] = sequence
                 split_by_protein[item.protein_id].add(item.split)
+                split_by_aspect_protein[(item.aspect, item.protein_id)].add(item.split)
     if config.split_overlap_policy == "disallow":
         overlap = sorted(
             (protein_id, sorted(splits))
@@ -167,6 +171,17 @@ def _load_dataset(config: DatasetConfig) -> Tuple[DatasetResult, Ontology]:
         if overlap:
             raise ValueError(
                 f"{config.id} has proteins crossing splits; first conflicts: {overlap[:5]}"
+            )
+    elif config.split_overlap_policy == "per-ontology-disjoint":
+        overlap = sorted(
+            (aspect, protein_id, sorted(splits))
+            for (aspect, protein_id), splits in split_by_aspect_protein.items()
+            if len(splits) > 1
+        )
+        if overlap:
+            raise ValueError(
+                f"{config.id} has proteins crossing splits within an ontology; "
+                f"first conflicts: {overlap[:5]}"
             )
 
     source_by_split: Mapping[str, Mapping[str, object]] = {

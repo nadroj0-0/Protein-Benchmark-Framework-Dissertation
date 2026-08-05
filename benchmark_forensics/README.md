@@ -20,6 +20,12 @@ The tool never calls taxa "protein families". True protein-family analysis is
 available through `category_sources` only when an InterPro, Pfam, or equivalent
 protein-to-family map is explicitly supplied.
 
+`split_overlap_policy` distinguishes globally disjoint benchmarks
+(`disallow`) from CAFA-style benchmarks that enforce disjointness separately
+inside each ontology (`per-ontology-disjoint`). The latter permits one protein
+to occupy different splits in different ontologies, but still rejects any
+within-ontology train/validation/test overlap.
+
 ## Install and run
 
 ```bash

@@ -165,6 +165,22 @@ Bin-specific optima are descriptive; the common fixed result is visibly
 labelled `descriptive_test_oracle_fixed`. No binwise result is canonical CAFA
 `Smin`.
 
+Completed full-model specificity runs can be combined without treating their
+benchmark-local quartiles as identical term sets:
+
+```bash
+python scripts/diagnostics/compare_pfp_specificity_runs.py \
+  --source cafa3=/path/to/cafa3/specificity \
+  --source global-nk=/path/to/global-nk/specificity \
+  --source nk-lk=/path/to/nk-lk/specificity \
+  --output-dir /absolute/path/to/new/three-way-comparison
+```
+
+The comparator verifies every input manifest and completion marker, preserves
+the full long-form results and bootstrap intervals, and reports Q1-to-Q4
+changes as descriptive robustness evidence. It does not present the three
+benchmarks as a controlled progression.
+
 ## Policy-bound temporal cohort states
 
 For Zijian's published CAFA3 benchmark, use the organizer classifications

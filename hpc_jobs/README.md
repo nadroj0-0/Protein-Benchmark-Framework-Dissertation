@@ -24,6 +24,10 @@ match the accepted test content. `active/hpc_contemporary_followup_analysis.sh`
 runs the CPU-only IA/Xu specificity or validation-fitted calibration analyses.
 Submit calibration with a Grid Engine `-hold_jid` dependency on the paired
 capture job; specificity can start immediately from the accepted test arrays.
+`active/hpc_specificity_comparison.sh` verifies and combines completed IA/Xu
+specificity publications, including held comparisons that wait for a new run.
+`active/hpc_benchmark_forensics.sh` supports published CAFA3, global-NK
+contemporary and per-ontology-disjoint contemporary NK+LK benchmark profiles.
 
 `active/hpc_contemporary_knowledge_cohort_census.sh` is the CPU-only companion
 that reconstructs direct and propagated t0/t1 annotation states from the frozen

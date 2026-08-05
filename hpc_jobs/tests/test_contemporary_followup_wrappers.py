@@ -17,10 +17,7 @@ CAPTURE = (
     / "hpc_contemporary_followup_prediction_capture.sh"
 )
 ANALYSIS = (
-    REPOSITORY_ROOT
-    / "hpc_jobs"
-    / "active"
-    / "hpc_contemporary_followup_analysis.sh"
+    REPOSITORY_ROOT / "hpc_jobs" / "active" / "hpc_contemporary_followup_analysis.sh"
 )
 CENSUS = (
     REPOSITORY_ROOT
@@ -29,16 +26,23 @@ CENSUS = (
     / "hpc_contemporary_knowledge_cohort_census.sh"
 )
 CAFA3_CENSUS = (
-    REPOSITORY_ROOT
-    / "hpc_jobs"
-    / "active"
-    / "hpc_cafa3_knowledge_state_census.sh"
+    REPOSITORY_ROOT / "hpc_jobs" / "active" / "hpc_cafa3_knowledge_state_census.sh"
+)
+FORENSICS = REPOSITORY_ROOT / "hpc_jobs" / "active" / "hpc_benchmark_forensics.sh"
+SPECIFICITY_COMPARISON = (
+    REPOSITORY_ROOT / "hpc_jobs" / "active" / "hpc_specificity_comparison.sh"
 )
 
 
 class ContemporaryFollowupWrapperTests(unittest.TestCase):
     def test_wrappers_are_executable_and_valid_bash(self):
-        for path in (CAPTURE, ANALYSIS, CAFA3_CENSUS):
+        for path in (
+            CAPTURE,
+            ANALYSIS,
+            CAFA3_CENSUS,
+            FORENSICS,
+            SPECIFICITY_COMPARISON,
+        ):
             self.assertTrue(os.access(path, os.X_OK), path)
             completed = subprocess.run(
                 ["bash", "-n", str(path)],
@@ -47,6 +51,21 @@ class ContemporaryFollowupWrapperTests(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_nk_lk_forensics_preserves_per_ontology_split_contract(self):
+        source = FORENSICS.read_text(encoding="utf-8")
+        self.assertIn("contemporary-nk-lk", source)
+        self.assertIn('SPLIT_OVERLAP_POLICY="per-ontology-disjoint"', source)
+        self.assertIn("2025_01_to_2026_02_supervisor_nk_lk", source)
+        self.assertIn("/outputs", source)
+
+    def test_specificity_comparison_is_cpu_only_and_manifest_bound(self):
+        source = SPECIFICITY_COMPARISON.read_text(encoding="utf-8")
+        self.assertIn("compare_pfp_specificity_runs.py", source)
+        self.assertIn("#$ -pe smp 1", source)
+        self.assertNotIn("gpu=true", source)
+        self.assertIn("RUN_COMPLETE.json", source)
+        self.assertIn("output_manifest.json", source)
 
     def test_capture_is_inference_only_and_pinned_to_canonical_variant(self):
         source = CAPTURE.read_text(encoding="utf-8")
@@ -91,7 +110,9 @@ class ContemporaryFollowupWrapperTests(unittest.TestCase):
         self.assertIn('FAILURE_OUTPUT="${OUTPUT_DIR}.failed-${JOB_TOKEN}"', source)
         self.assertIn("publish_failure()", source)
         self.assertIn('cp -p "$LOG_FILE" "$failure_stage/logs/analysis.log"', source)
-        self.assertIn('cp -a "$ANALYSIS_OUTPUT" "$failure_stage/partial_analysis"', source)
+        self.assertIn(
+            'cp -a "$ANALYSIS_OUTPUT" "$failure_stage/partial_analysis"', source
+        )
         self.assertIn('mv "$failure_stage" "$FAILURE_OUTPUT"', source)
         self.assertEqual(source.count('2>&1 | tee "$LOG_FILE"'), 2)
         self.assertLess(
@@ -110,9 +131,7 @@ class ContemporaryFollowupWrapperTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(source.count("manage_output_manifest.py verify"), 1)
         self.assertIn('cp -a "$ANALYSIS_OUTPUT" "$PUBLISH_STAGE/analysis"', source)
-        self.assertIn(
-            '--root "$PUBLISH_STAGE" --include-nested-control-files', source
-        )
+        self.assertIn('--root "$PUBLISH_STAGE" --include-nested-control-files', source)
 
     def test_cafa3_census_uses_official_lists_and_published_csvs(self):
         source = CAFA3_CENSUS.read_text(encoding="utf-8")

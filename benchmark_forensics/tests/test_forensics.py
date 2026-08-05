@@ -263,6 +263,36 @@ class ConfigTests(unittest.TestCase):
 
 
 class AnalysisTests(unittest.TestCase):
+    def test_per_ontology_disjoint_allows_only_cross_ontology_split_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dataset = build_dataset(root, "dataset")
+            benchmark = Path(dataset["benchmark_dir"])
+
+            bp_train = pd.read_csv(benchmark / "bp-training.csv")
+            bp_train.loc[0, "proteins"] = "BP_ONLY"
+            bp_train.to_csv(benchmark / "bp-training.csv", index=False)
+            cc_test = pd.read_csv(benchmark / "cc-test.csv")
+            cc_test.loc[0, "proteins"] = bp_train.loc[0, "proteins"]
+            cc_test.loc[0, "sequences"] = bp_train.loc[0, "sequences"]
+            cc_test.to_csv(benchmark / "cc-test.csv", index=False)
+
+            dataset["split_overlap_policy"] = "per-ontology-disjoint"
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {"schema_version": 1, "run_name": "test", "datasets": [dataset]}
+                )
+            )
+            analyze(load_config(config_path))
+
+            bp_test = pd.read_csv(benchmark / "bp-test.csv")
+            bp_test.loc[0, "proteins"] = bp_train.loc[0, "proteins"]
+            bp_test.loc[0, "sequences"] = bp_train.loc[0, "sequences"]
+            bp_test.to_csv(benchmark / "bp-test.csv", index=False)
+            with self.assertRaisesRegex(ValueError, "within an ontology"):
+                analyze(load_config(config_path))
+
     def test_complete_analysis_and_atomic_reports(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

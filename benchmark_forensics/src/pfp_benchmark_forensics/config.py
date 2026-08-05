@@ -358,8 +358,11 @@ def _dataset(raw: Any, index: int, base: Path) -> DatasetConfig:
         value.get("split_overlap_policy", "disallow"),
         f"{label}.split_overlap_policy",
     )
-    if overlap not in {"allow", "disallow"}:
-        raise ConfigError(f"{label}.split_overlap_policy must be allow or disallow")
+    if overlap not in {"allow", "disallow", "per-ontology-disjoint"}:
+        raise ConfigError(
+            f"{label}.split_overlap_policy must be allow, disallow, "
+            "or per-ontology-disjoint"
+        )
     taxonomy_raw = value.get("taxonomy_sources", [])
     category_raw = value.get("category_sources", [])
     if not isinstance(taxonomy_raw, list):

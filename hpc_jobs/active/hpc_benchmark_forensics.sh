@@ -17,13 +17,13 @@ export PYTHONDONTWRITEBYTECODE=1
 usage() {
   cat <<'EOF'
 Usage: qsub hpc_jobs/active/hpc_benchmark_forensics.sh \
-  --dataset cafa3-published|contemporary \
+  --dataset cafa3-published|contemporary|contemporary-nk-lk \
   --output-dir /SAN/.../unique-run-directory
 
 The CAFA3 mode uses Zijian's published nine CSVs, the published DeepGOPlus
 pre-projection pickles, and the validated paper-faithful inventory of Zijian's
-published embeddings. The contemporary mode uses the completed contemporary
-CSVs and pickles plus the finalized hydrated-cache pair-status evidence.
+published embeddings. The contemporary modes use their completed CSVs and
+pickles plus the matching finalized hydrated-cache pair-status evidence.
 EOF
 }
 
@@ -48,8 +48,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ "$DATASET" == "cafa3-published" || "$DATASET" == "contemporary" ]] || \
-  die "--dataset must be cafa3-published or contemporary"
+[[ "$DATASET" == "cafa3-published" || "$DATASET" == "contemporary" || \
+   "$DATASET" == "contemporary-nk-lk" ]] || \
+  die "--dataset must be cafa3-published, contemporary, or contemporary-nk-lk"
 [[ "$OUTPUT_DIR" == /SAN/* ]] || die "--output-dir must be an absolute SAN path"
 [[ ! -e "$OUTPUT_DIR" ]] || die "Output directory already exists: $OUTPUT_DIR"
 
@@ -69,6 +70,8 @@ CAFA3_MODALITY_INVENTORY="${CAFA3_MODALITY_INVENTORY:-/SAN/bioinf/bmpfp/diagnost
 CONTEMPORARY_BENCHMARK_DIR="${CONTEMPORARY_BENCHMARK_DIR:-/SAN/bioinf/bmpfp/benchmarks/contemporary/2025_01_to_2026_02_supervisor}"
 CONTEMPORARY_OBO_FILE="${CONTEMPORARY_OBO_FILE:-/SAN/bioinf/bmpfp/frozen_inputs/ontology/2025-02-06/go-basic.obo}"
 CONTEMPORARY_MODALITY_STATUS="${CONTEMPORARY_MODALITY_STATUS:-/SAN/bioinf/bmpfp/embeddings/contemporary/2025_01_to_2026_02_supervisor/finalized_pfp_cache/evidence/pair_status.tsv}"
+CONTEMPORARY_NK_LK_BENCHMARK_DIR="${CONTEMPORARY_NK_LK_BENCHMARK_DIR:-/SAN/bioinf/bmpfp/benchmarks/contemporary/2025_01_to_2026_02_supervisor_nk_lk/7128984_20260801_205146/outputs}"
+CONTEMPORARY_NK_LK_MODALITY_STATUS="${CONTEMPORARY_NK_LK_MODALITY_STATUS:-/SAN/bioinf/bmpfp/embeddings/contemporary/2025_01_to_2026_02_supervisor_nk_lk/pair-resolved-paper-faithful/temporal-text-ledger_7132994_20260804T051124Z/final/evidence/pair_status.tsv}"
 
 T0_SPROT_ARCHIVE="${T0_SPROT_ARCHIVE:-/SAN/bioinf/bmpfp/frozen_inputs/uniprot/2025_01/uniprot_sprot-only2025_01.tar.gz}"
 T0_TARGET_TREMBL="${T0_TARGET_TREMBL:-/SAN/bioinf/bmpfp/derived_inputs/uniprot/cafa3_target_taxa/2025_01/uniprot_trembl_cafa3_targets.dat.gz}"
@@ -191,33 +194,49 @@ payload = {
 pathlib.Path(config).write_text(json.dumps(payload, indent=2) + "\n")
 PY
 else
-  for path in "$CONTEMPORARY_BENCHMARK_DIR" "$CONTEMPORARY_OBO_FILE" "$CONTEMPORARY_MODALITY_STATUS"; do
+  BENCHMARK_DIR="$CONTEMPORARY_BENCHMARK_DIR"
+  MODALITY_STATUS="$CONTEMPORARY_MODALITY_STATUS"
+  RUN_NAME="contemporary-2025-01-to-2026-02-forensics"
+  DATASET_ID="contemporary-2025-01-to-2026-02"
+  SPLIT_OVERLAP_POLICY="disallow"
+  PROJECTION_POLICY="Supervisor-profile min_count=50 label-universe projection"
+  if [[ "$DATASET" == "contemporary-nk-lk" ]]; then
+    BENCHMARK_DIR="$CONTEMPORARY_NK_LK_BENCHMARK_DIR"
+    MODALITY_STATUS="$CONTEMPORARY_NK_LK_MODALITY_STATUS"
+    RUN_NAME="contemporary-2025-01-to-2026-02-nk-lk-forensics"
+    DATASET_ID="contemporary-2025-01-to-2026-02-nk-lk"
+    SPLIT_OVERLAP_POLICY="per-ontology-disjoint"
+    PROJECTION_POLICY="Contemporary NK+LK min_count=50 label-universe projection"
+  fi
+  for path in "$BENCHMARK_DIR" "$CONTEMPORARY_OBO_FILE" "$MODALITY_STATUS"; do
     [[ -e "$path" ]] || die "Required contemporary input is missing: $path"
   done
   "$PYTHON_BIN" - "$CONFIG_FILE" "$T0_SPROT_DAT" "$T0_TARGET_TREMBL" \
-    "$T1_SPROT" "$T1_TARGET_TREMBL" "$CONTEMPORARY_BENCHMARK_DIR" \
-    "$CONTEMPORARY_OBO_FILE" "$CONTEMPORARY_MODALITY_STATUS" <<'PY'
+    "$T1_SPROT" "$T1_TARGET_TREMBL" "$BENCHMARK_DIR" \
+    "$CONTEMPORARY_OBO_FILE" "$MODALITY_STATUS" "$RUN_NAME" "$DATASET_ID" \
+    "$SPLIT_OVERLAP_POLICY" "$PROJECTION_POLICY" <<'PY'
 import json
 import pathlib
 import sys
 
 (config, t0_sprot, t0_trembl, t1_sprot, t1_trembl,
- benchmark, obo, modality_status) = sys.argv[1:]
+ benchmark, obo, modality_status, run_name, dataset_id, split_overlap_policy,
+ projection_policy) = sys.argv[1:]
 payload = {
     "schema_version": 1,
-    "run_name": "contemporary-2025-01-to-2026-02-forensics",
+    "run_name": run_name,
     "top_n": 20,
     "datasets": [{
-        "id": "contemporary-2025-01-to-2026-02",
+        "id": dataset_id,
         "benchmark_dir": benchmark,
         "obo_file": obo,
         "allow_legacy_singular_protein_header": False,
         "allow_all_zero_rows": False,
-        "split_overlap_policy": "disallow",
+        "split_overlap_policy": split_overlap_policy,
         "source_annotations": {
             "type": "pfp-pickle-directory",
             "path": benchmark,
-            "projection_policy": "Supervisor-profile min_count=50 label-universe projection",
+            "projection_policy": projection_policy,
         },
         "taxonomy_sources": [
             {
