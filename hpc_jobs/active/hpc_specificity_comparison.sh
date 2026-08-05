@@ -93,7 +93,17 @@ for source in "${SOURCES[@]}"; do
   ARGS+=(--source "$source")
 done
 cd "$FRAMEWORK_DIR"
-python3 scripts/diagnostics/compare_pfp_specificity_runs.py \
+source scripts/reproduction_common.sh
+load_framework_paths "$FRAMEWORK_DIR"
+add_mmfp_singularity_bind "$WORK"
+add_mmfp_singularity_bind "$(dirname "$OUTPUT_DIR")"
+for source in "${SOURCES[@]}"; do
+  add_mmfp_singularity_bind "${source#*=}"
+done
+activate_or_create_mmfp_env
+PYTHON_BIN="$(command -v python)"
+
+"$PYTHON_BIN" scripts/diagnostics/compare_pfp_specificity_runs.py \
   "${ARGS[@]}" \
   --output-dir "$OUTPUT_DIR"
 

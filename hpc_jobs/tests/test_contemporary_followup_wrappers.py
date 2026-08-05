@@ -64,6 +64,9 @@ class ContemporaryFollowupWrapperTests(unittest.TestCase):
         self.assertIn("compare_pfp_specificity_runs.py", source)
         self.assertIn("#$ -pe smp 1", source)
         self.assertNotIn("gpu=true", source)
+        self.assertIn("activate_or_create_mmfp_env", source)
+        self.assertIn('PYTHON_BIN="$(command -v python)"', source)
+        self.assertIn('"$PYTHON_BIN" scripts/diagnostics/compare_pfp_specificity_runs.py', source)
         self.assertIn("RUN_COMPLETE.json", source)
         self.assertIn("output_manifest.json", source)
 
