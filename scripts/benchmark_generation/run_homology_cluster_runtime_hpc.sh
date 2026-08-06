@@ -55,10 +55,8 @@ if [[ -n "$EXTERNAL_CLUSTER_ASSIGNMENTS" || -n "$EXTERNAL_CLUSTER_PROVENANCE" ]]
         echo "External cluster assignments and provenance must both be readable files" >&2
         exit 2
     }
-    [[ "$TASK_ID" == "1" && "$IDENTITY" == "30" ]] || {
-        echo "The currently supplied external supervisor artifact is locked to 30 percent" >&2
-        exit 2
-    }
+    # The provenance loader binds the external artifact to this task's identity,
+    # frozen UniRef input, MMseqs profile, file hash, member count and cluster count.
     EXTERNAL_CLUSTER_MODE=1
 fi
 UNIREF_ROLE="uniref${UNIREF_LEVEL}_fasta"

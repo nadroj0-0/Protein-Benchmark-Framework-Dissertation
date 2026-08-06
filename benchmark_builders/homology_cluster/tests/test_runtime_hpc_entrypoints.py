@@ -39,6 +39,10 @@ SUPERVISOR_DANIEL_30 = (
     WORKSPACE_ROOT / "hpc_jobs" / "active"
     / "hpc_homology_supervisor_daniel_30.sh"
 )
+SUPERVISOR_DANIEL_25_20_15 = (
+    WORKSPACE_ROOT / "hpc_jobs" / "active"
+    / "hpc_homology_supervisor_daniel_25_20_15.sh"
+)
 GUARDED_WORKER = (
     WORKSPACE_ROOT / "hpc_jobs" / "active" / "hpc_homology_cluster_benchmark.sh"
 )
@@ -111,6 +115,17 @@ class RuntimeHPCEntrypointTests(unittest.TestCase):
         self.assertIn("EXTERNAL_CLUSTER_PROVENANCE", worker)
         self.assertIn("unset HOMOLOGY_CLUSTER_CACHE_ROOT", worker)
         self.assertNotIn("qsub", worker)
+
+        threshold_worker = SUPERVISOR_DANIEL_25_20_15.read_text()
+        self.assertIn("#$ -t 2-4", threshold_worker)
+        self.assertIn("export SPLIT_POLICY=cluster-count-random", threshold_worker)
+        self.assertIn("export REQUIRE_HOMOLOGY_COMMON_CACHE=1", threshold_worker)
+        self.assertIn('identity_${IDENTITY}/raw', threshold_worker)
+        self.assertIn("EXTERNAL_CLUSTER_ASSIGNMENTS", threshold_worker)
+        self.assertIn("EXTERNAL_CLUSTER_PROVENANCE", threshold_worker)
+        self.assertIn("unset HOMOLOGY_CLUSTER_CACHE_ROOT", threshold_worker)
+        self.assertNotIn("qsub", threshold_worker)
+        self.assertNotIn("locked to 30 percent", DRIVER.read_text())
 
     def _environment(self, root: Path, kind: str, task: str) -> tuple[dict[str, str], Path]:
         scratch = root / "scratch"
