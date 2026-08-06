@@ -55,6 +55,16 @@ PREPROCESSING_SOURCE_FILES = (
     "uniref_scaffold.py",
 )
 
+# Commit aef2719 added an optional relationship-type filter to ``Ontology`` for
+# read-only policy diagnostics. The default remains ``None`` and preserves the
+# producer's all-relationship closure exactly. This is the only schema-v3
+# predecessor digest accepted in place of the current source digest.
+SCHEMA_V3_COMPATIBLE_PREPROCESSING_SOURCE_SHA256 = {
+    "ontology.py": frozenset({
+        "138374a3338c9f9e38411298284810d16a039b4fc0abaae04ab757ed0ae2439b",
+    }),
+}
+
 # ``common_cache.py`` cannot safely source-bind itself: any compatibility-only
 # validator change would alter its own expected hash and invalidate every cache.
 # Producer-format changes in this module must instead bump CACHE_SCHEMA_VERSION
@@ -321,6 +331,10 @@ def inspect_common_preprocessing_cache(
             isinstance(observed_source_hashes, dict)
             and all(
                 observed_source_hashes.get(name) == digest
+                or observed_source_hashes.get(name)
+                in SCHEMA_V3_COMPATIBLE_PREPROCESSING_SOURCE_SHA256.get(
+                    name, frozenset()
+                )
                 for name, digest in expected_source_hashes.items()
             )
         )

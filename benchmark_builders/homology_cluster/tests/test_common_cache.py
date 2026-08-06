@@ -16,6 +16,7 @@ from homology_cluster_benchmark.common_cache import (
     CACHE_SCHEMA_VERSION,
     CommonPreprocessingState,
     SCHEMA_V2_PREPROCESSING_SOURCE_SHA256,
+    SCHEMA_V3_COMPATIBLE_PREPROCESSING_SOURCE_SHA256,
     _load_common_preprocessing_state,
     build_common_preprocessing_cache,
     inspect_common_preprocessing_cache,
@@ -216,6 +217,33 @@ class CommonPreprocessingCacheTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "unsupported preprocessing code"):
                 inspect_common_preprocessing_cache(cache)
+
+    def test_schema_v3_accepts_exact_pre_filter_ontology_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config, manifest = self._fixture_manifest(root)
+            specs = _input_specs(config)
+            cache = build_common_preprocessing_cache(
+                root / "common-cache",
+                root / "cache-work",
+                manifest.path,
+                {name: spec.path for name, spec in specs.items() if spec.path is not None},
+                source_scope=config.uniprot_source_scope,
+                fixture_mode=True,
+            )
+            marker = cache / CACHE_MARKER
+            payload = json.loads(marker.read_text(encoding="utf-8"))
+            predecessor = next(iter(
+                SCHEMA_V3_COMPATIBLE_PREPROCESSING_SOURCE_SHA256["ontology.py"]
+            ))
+            payload["preprocessing_source_sha256"]["ontology.py"] = predecessor
+            marker.write_text(
+                json.dumps(payload, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            inspected = inspect_common_preprocessing_cache(cache)
+            self.assertEqual(inspected["schema_version"], CACHE_SCHEMA_VERSION)
 
     def test_schema_v2_main_module_state_is_loaded_compatibly(self):
         with tempfile.TemporaryDirectory() as tmp:
