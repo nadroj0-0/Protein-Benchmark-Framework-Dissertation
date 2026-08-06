@@ -823,6 +823,10 @@ def _write_reports(
         "target_reviewed_only": config.target_reviewed_only,
         "allow_frozen_source_fallback": config.allow_frozen_source_fallback,
         "include_relationships": config.include_rels,
+        "included_relationship_types": (
+            sorted(config.relationship_types)
+            if config.relationship_types is not None else "all"
+        ),
         "ontology_policy": (
             "Resolve each GAF against its source product, then map labels into the frozen "
             "t0 benchmark ontology; an exact raw-ID match in the frozen graph may resolve a "
@@ -975,12 +979,20 @@ def build_snapshot_benchmark(config: BuildConfig) -> dict[str, Path]:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
 
     LOGGER.info("Loading frozen benchmark ontology from %s", config.go_obo)
-    benchmark_go = Ontology(config.go_obo, with_rels=config.include_rels)
+    benchmark_go = Ontology(
+        config.go_obo,
+        with_rels=config.include_rels,
+        relationship_types=config.relationship_types,
+    )
     t0_go = benchmark_go if config.ontology_t0 == config.go_obo else Ontology(
-        config.ontology_t0, with_rels=config.include_rels
+        config.ontology_t0,
+        with_rels=config.include_rels,
+        relationship_types=config.relationship_types,
     )
     t1_go = benchmark_go if config.ontology_t1 == config.go_obo else Ontology(
-        config.ontology_t1, with_rels=config.include_rels
+        config.ontology_t1,
+        with_rels=config.include_rels,
+        relationship_types=config.relationship_types,
     )
     LOGGER.info("Loading t0 training UniProt catalogue")
     training_paths = tuple(

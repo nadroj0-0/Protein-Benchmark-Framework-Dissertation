@@ -21,8 +21,14 @@ NAMESPACES = {
 class Ontology(object):
     """DeepGOPlus-compatible OBO graph with explicit GO-ID normalisation."""
 
-    def __init__(self, filename: str | Path, with_rels: bool = False):
+    def __init__(
+        self,
+        filename: str | Path,
+        with_rels: bool = False,
+        relationship_types: frozenset[str] | None = None,
+    ):
         self.filename = Path(filename)
+        self.relationship_types = relationship_types
         self.data_version: str | None = None
         self.canonical_ids: dict[str, str] = {}
         self.obsolete_replacements: dict[str, str] = {}
@@ -122,7 +128,13 @@ class Ontology(object):
                     obj["is_a"].append(value.split(" ! ")[0])
                 elif with_rels and key == "relationship":
                     fields = value.split()
-                    if len(fields) >= 2:
+                    if (
+                        len(fields) >= 2
+                        and (
+                            self.relationship_types is None
+                            or fields[0] in self.relationship_types
+                        )
+                    ):
                         obj["is_a"].append(fields[1])
                 elif key == "name":
                     obj["name"] = value

@@ -30,6 +30,7 @@ SPLIT="${SPLIT:-0.9}"
 SEED="${SEED:-0}"
 NO_STRICT_QC="${NO_STRICT_QC:-0}"
 SKIP_INPUT_CHECKSUMS="${SKIP_INPUT_CHECKSUMS:-0}"
+ONTOLOGY_RELATION_TYPES="${ONTOLOGY_RELATION_TYPES:-}"
 ALLOW_DEPENDENCY_MISMATCH="${ALLOW_DEPENDENCY_MISMATCH:-0}"
 T1_ENDPOINT_POLICY="${T1_ENDPOINT_POLICY:-snapshot-membership}"
 T1_BACKFILL_POLICY="${T1_BACKFILL_POLICY:-allow}"
@@ -499,6 +500,13 @@ fi
 if [[ "$SKIP_INPUT_CHECKSUMS" == "1" ]]; then
     COMMAND+=(--skip-input-checksums)
 fi
+if [[ -n "$ONTOLOGY_RELATION_TYPES" ]]; then
+    IFS=',' read -r -a RELATION_TYPES <<< "$ONTOLOGY_RELATION_TYPES"
+    for relation_type in "${RELATION_TYPES[@]}"; do
+        [[ -n "$relation_type" ]] || continue
+        COMMAND+=(--relationship-type "$relation_type")
+    done
+fi
 
 printf '%q ' "${COMMAND[@]}" > "$LOG_DIR/command.txt"
 printf '\n' >> "$LOG_DIR/command.txt"
@@ -514,6 +522,7 @@ printf '\n' >> "$LOG_DIR/command.txt"
     echo "t1_endpoint_policy=$T1_ENDPOINT_POLICY"
     echo "t1_backfill_policy=$T1_BACKFILL_POLICY"
     echo "strict_qc=$((1 - NO_STRICT_QC))"
+    echo "ontology_relation_types=${ONTOLOGY_RELATION_TYPES:-all}"
 } > "$LOG_DIR/environment.txt"
 
 echo "Running contemporary CAFA benchmark builder"

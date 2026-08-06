@@ -74,6 +74,16 @@ class ParserTests(unittest.TestCase):
         )
         self.assertIn("part_of", ontology.relationship_types)
 
+        narrow = Ontology(
+            FIXTURES / "go-mini.obo",
+            include_relationships=True,
+            relationship_types=frozenset({"part_of"}),
+        )
+        self.assertEqual(
+            narrow.ancestors("GO:0006355"),
+            {"GO:0006355", "GO:0009987", "GO:0008150"},
+        )
+
     def test_goa_exact_policy_and_diagnostics(self):
         ontology = Ontology(FIXTURES / "go-mini.obo")
         result = load_goa(FIXTURES / "goa.gaf", ontology)

@@ -144,6 +144,7 @@ class BuildConfig:
     reviewed_only: bool = True
     target_reviewed_only: bool = False
     include_rels: bool = True
+    relationship_types: frozenset[str] | None = None
     write_intermediates: bool = True
     write_checksums: bool = True
     strict_qc: bool = True

@@ -10,9 +10,15 @@ from .inputs import open_text
 class Ontology:
     """DeepGOPlus-compatible OBO graph with explicit ID diagnostics."""
 
-    def __init__(self, path: str | Path, include_relationships: bool = True):
+    def __init__(
+        self,
+        path: str | Path,
+        include_relationships: bool = True,
+        relationship_types: frozenset[str] | None = None,
+    ):
         self.path = Path(path)
         self.include_relationships = include_relationships
+        self.included_relationship_types = relationship_types
         self.data_version = ""
         self.term_metadata: dict[str, dict[str, object]] = {}
         self.alias_to_primary: dict[str, str] = {}
@@ -93,7 +99,14 @@ class Ontology:
             metadata = objects[term_id]
             raw_parents = list(metadata["parents"])  # type: ignore[arg-type]
             if self.include_relationships:
-                raw_parents.extend(target for _, target in metadata["relationships"])  # type: ignore[union-attr]
+                raw_parents.extend(
+                    target
+                    for relation, target in metadata["relationships"]  # type: ignore[union-attr]
+                    if (
+                        self.included_relationship_types is None
+                        or relation in self.included_relationship_types
+                    )
+                )
             resolved = []
             for raw_parent in raw_parents:
                 parent = self.resolve(str(raw_parent))

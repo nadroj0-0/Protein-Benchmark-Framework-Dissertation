@@ -266,6 +266,19 @@ export T1_ENDPOINT_POLICY="${T1_ENDPOINT_POLICY:-snapshot-membership}"
 export T1_BACKFILL_POLICY="${T1_BACKFILL_POLICY:-allow}"
 
 bash scripts/benchmark_generation/run_contemporary_temporal_benchmark.sh
+if [[ -n "${COMPARE_BENCHMARK_DIR:-}" ]]; then
+    [[ -d "$COMPARE_BENCHMARK_DIR" ]] || {
+        echo "COMPARE_BENCHMARK_DIR does not exist: $COMPARE_BENCHMARK_DIR" >&2
+        exit 1
+    }
+    "$PYTHON_BIN" scripts/diagnostics/compare_go_relationship_policy.py \
+        --broad-label accepted-all-relationships \
+        --broad-dir "$COMPARE_BENCHMARK_DIR" \
+        --narrow-label diagnostic-is-a-plus-part-of \
+        --narrow-dir "$SCRATCH_RUN_ROOT/outputs" \
+        --obo-file "$STAGED_DB_ROOT/ontology/release_2025-02-06/go-basic.obo" \
+        --output-dir "$SCRATCH_RUN_ROOT/diagnostics/go_relationship_policy"
+fi
 copy_results
 
 echo "Finished successfully: $(date)"

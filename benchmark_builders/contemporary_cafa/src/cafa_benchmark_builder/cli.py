@@ -157,6 +157,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--split", type=float, default=0.9)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--no-rels", action="store_true")
+    parser.add_argument(
+        "--relationship-type",
+        action="append",
+        default=[],
+        help=("Relationship type to include in addition to is_a. Repeat as needed. "
+              "The existing default includes every relationship type."),
+    )
     parser.add_argument("--no-intermediates", action="store_true")
     parser.add_argument("--skip-input-checksums", action="store_true")
     parser.add_argument("--no-strict-qc", action="store_true")
@@ -172,6 +179,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def config_from_args(args: argparse.Namespace) -> BuildConfig:
+    if args.no_rels and args.relationship_type:
+        raise SystemExit("--no-rels cannot be combined with --relationship-type")
     required = ["uniprot_t0"]
     if args.test_annotations_file is None:
         required.extend(["uniprot_t1", "goa_t0", "goa_t1"])
@@ -242,6 +251,7 @@ def config_from_args(args: argparse.Namespace) -> BuildConfig:
         reviewed_only=training_reviewed,
         target_reviewed_only=target_reviewed,
         include_rels=not args.no_rels,
+        relationship_types=(frozenset(args.relationship_type) or None),
         write_intermediates=not args.no_intermediates,
         write_checksums=not args.skip_input_checksums,
         strict_qc=not args.no_strict_qc,
