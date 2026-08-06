@@ -72,6 +72,8 @@ def _audit_one(label: str, root: Path) -> dict[str, object]:
     protein_sets: defaultdict[tuple[str, str, str, str], set[str]] = defaultdict(set)
     protein_masks: defaultdict[tuple[str, str, str], set[str]] = defaultdict(set)
     observed_codes: set[str] = set()
+    excluded_rows_outside_final_splits = 0
+    excluded_proteins_outside_final_splits: set[str] = set()
     with gzip.open(annotation_path, "rt", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
         required = {"uniprot_accession", "aspect", "evidence_code", "split"}
@@ -82,10 +84,18 @@ def _audit_one(label: str, root: Path) -> dict[str, object]:
             split_name = row["split"]
             code = row["evidence_code"]
             protein = row["uniprot_accession"]
-            if aspect is None or split_name not in SPLITS or not protein:
+            if aspect is None or not protein:
                 raise ValueError(f"Invalid annotation row in {annotation_path}")
             group = _group(code)
             observed_codes.add(code)
+            if split_name not in SPLITS:
+                if split_name:
+                    raise ValueError(
+                        f"Unexpected non-empty split {split_name!r} in {annotation_path}"
+                    )
+                excluded_rows_outside_final_splits += 1
+                excluded_proteins_outside_final_splits.add(protein)
+                continue
             row_counts[aspect, split_name, code, group] += 1
             protein_sets[aspect, split_name, code, group].add(protein)
             protein_masks[aspect, split_name, protein].add(group)
@@ -160,6 +170,14 @@ def _audit_one(label: str, root: Path) -> dict[str, object]:
         },
         "observed_evidence_codes": sorted(observed_codes),
         "contract_codes_not_observed": sorted(EXPECTED_CODES - observed_codes),
+        "outside_final_splits": {
+            "annotation_rows": excluded_rows_outside_final_splits,
+            "proteins": len(excluded_proteins_outside_final_splits),
+            "interpretation": (
+                "Qualifying annotations retained for provenance whose proteins were not "
+                "assigned to the final training, validation or test CSVs."
+            ),
+        },
         "benchmark_populations": populations,
         "population_rows": population_rows,
         "category_rows": category_rows,
@@ -204,7 +222,14 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         "This read-only audit classifies the direct annotations admitted by the exact 17-code supervisor policy. `Experimental` means the eleven explicitly experimental/high-throughput codes listed below; the remaining six qualifying codes are reported separately rather than described as experimental.",
     ]
     for audit in audits:
-        lines.extend(["", f"## {audit['label']}", "", "| Aspect | Split | Experimental proteins | Benchmark proteins | Experimental coverage | Non-experimental-only proteins |", "|---|---|---:|---:|---:|---:|"])
+        lines.extend([
+            "", f"## {audit['label']}", "",
+            f"Provenance rows outside the final splits: {audit['outside_final_splits']['annotation_rows']:,} "
+            f"rows across {audit['outside_final_splits']['proteins']:,} proteins. These are reported "
+            "but excluded from final benchmark percentages.", "",
+            "| Aspect | Split | Experimental proteins | Benchmark proteins | Experimental coverage | Non-experimental-only proteins |",
+            "|---|---|---:|---:|---:|---:|",
+        ])
         lookup = {(row["aspect"], row["split"], row["category"]): row for row in audit["category_rows"]}
         population_lookup = {
             (row["aspect"], row["split"]): row for row in audit["population_rows"]

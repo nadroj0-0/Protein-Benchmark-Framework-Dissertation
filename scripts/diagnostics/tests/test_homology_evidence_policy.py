@@ -36,6 +36,10 @@ def _write_benchmark(root: Path) -> None:
                 "uniprot_accession": "P1", "aspect": "P",
                 "evidence_code": code, "split": "training",
             })
+        writer.writerow({
+            "uniprot_accession": "P2", "aspect": "F",
+            "evidence_code": "RCA", "split": "",
+        })
 
 
 class HomologyEvidencePolicyTests(unittest.TestCase):
@@ -54,6 +58,8 @@ class HomologyEvidencePolicyTests(unittest.TestCase):
             }
             self.assertEqual(categories["experimental"]["proteins"], 1)
             self.assertEqual(categories["no_biological_data"]["proteins"], 1)
+            self.assertEqual(audit["outside_final_splits"]["annotation_rows"], 1)
+            self.assertEqual(audit["outside_final_splits"]["proteins"], 1)
             self.assertTrue((root / "out" / "RUN_COMPLETE.json").is_file())
 
 
