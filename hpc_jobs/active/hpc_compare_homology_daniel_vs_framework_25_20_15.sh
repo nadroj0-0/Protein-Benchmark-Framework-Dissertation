@@ -94,7 +94,7 @@ mkdir -p "$WORK" "$SCRATCH_OUTPUT" "$SORT_SCRATCH" "$RESULTS_ROOT"
 
 if [[ -z "$FRAMEWORK_COMMIT" ]]; then
   [[ -d "$SUBMISSION_DIR/.git" ]] || die "Submit from a framework checkout"
-  FRAMEWORK_COMMIT="$(git -C "$SUBMISSION_DIR" rev-parse HEAD)"
+  FRAMEWORK_COMMIT="$(git_in_dir "$SUBMISSION_DIR" rev-parse HEAD)"
 fi
 [[ "$FRAMEWORK_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]] || die "FRAMEWORK_COMMIT must be complete"
 
