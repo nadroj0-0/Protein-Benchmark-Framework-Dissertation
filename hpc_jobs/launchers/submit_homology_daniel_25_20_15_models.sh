@@ -20,6 +20,8 @@ CACHE_SHA256="a1cb0cf0fc2e0142a039a146bc86408090632c5eaed001db0f90f235644a188f"
 OBO_FILE="/SAN/bioinf/bmpfp/frozen_inputs/ontology/2026-06-19/go-basic.obo"
 BINDING_ROOT="/SAN/bioinf/bmpfp/embedding_states/homology/2026_02/benchmark_bindings/daniel_stream_cluster_count_random_current_text/$RUN_TAG"
 MODEL_ROOT="/SAN/bioinf/bmpfp/model_runs/homology/2026_02"
+LOG_ROOT="${LOG_ROOT:-$HOME}"
+[[ -d "$LOG_ROOT" ]] || die "Scheduler log directory is missing: $LOG_ROOT"
 
 job_id_from_qsub() {
   local output="$1" job_id
@@ -46,13 +48,13 @@ for identity in 25 20 15; do
     [[ -f "$benchmark_dir/$evidence" ]] || die "Benchmark evidence is missing: $benchmark_dir/$evidence"
   done
 
-  bind_output="$(qsub -N "hd${identity}_bind" \
+  bind_output="$(qsub -N "hd${identity}_bind" -o "$LOG_ROOT" \
     -v "BENCHMARK_DIR=$benchmark_dir,BENCHMARK_ID=$benchmark_id,EMBEDDING_ARCHIVE=$CACHE_ARCHIVE,EMBEDDING_ARCHIVE_SHA256=$CACHE_SHA256,RUN_CONFIG=configs/pfp_benchmark_run.homology.json,EVIDENCE_OUTPUT=$binding_dir,FRAMEWORK_COMMIT=$FRAMEWORK_COMMIT" \
     hpc_jobs/active/hpc_bind_embedding_archive_evidence.sh)"
   bind_job="$(job_id_from_qsub "$bind_output")"
   echo "$bind_output"
 
-  model_output="$(qsub -N "hd${identity}_full" -hold_jid "$bind_job" \
+  model_output="$(qsub -N "hd${identity}_full" -o "$LOG_ROOT" -hold_jid "$bind_job" \
     -v "FRAMEWORK_COMMIT=$FRAMEWORK_COMMIT" \
     hpc_jobs/active/hpc_pfp_benchmark.sh \
     --benchmark-id "$benchmark_id" \
