@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Capture validation and test predictions from the accepted corrected contemporary full model.
+# Capture validation and test predictions from an accepted full-model run.
 
 #$ -S /bin/bash
 #$ -l tmem=32G
@@ -20,12 +20,17 @@ export PYTHONDONTWRITEBYTECODE=1
 usage() {
   cat <<'EOF'
 Usage: qsub hpc_jobs/active/hpc_contemporary_followup_prediction_capture.sh \
+  --source-run /SAN/.../accepted-full-model-run \
+  --cache-archive /SAN/.../embedding-cache.tar.gz \
+  --obo /SAN/.../go.obo \
+  --benchmark-id stable-benchmark-id \
+  --source-label stable-source-label \
   --output-dir /SAN/.../unique-capture-directory
 
 Runs inference only, without retraining. It captures validation and test arrays
-from the accepted full-model checkpoints trained with the corrected 2025-03-08
-text cache and paper-faithful PPI policy. The fresh test capture must exactly
-match the previously accepted test prediction content before publication.
+from accepted full-model checkpoints. The fresh test capture must exactly match
+the previously accepted test prediction content before publication. Omitting
+the source options retains the corrected contemporary global-NK defaults.
 EOF
 }
 
@@ -38,9 +43,19 @@ git_in_dir() {
 }
 
 OUTPUT_DIR=""
+SOURCE_RUN_OVERRIDE="${SOURCE_RUN:-}"
+CACHE_ARCHIVE_OVERRIDE="${CACHE_ARCHIVE:-}"
+OBO_FILE_OVERRIDE="${OBO_FILE:-}"
+BENCHMARK_ID_OVERRIDE="${BENCHMARK_ID:-}"
+SOURCE_LABEL_OVERRIDE="${SOURCE_LABEL:-}"
 SUBMISSION_DIR="${SGE_O_WORKDIR:-$PWD}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --source-run) require_value "$@"; SOURCE_RUN_OVERRIDE="$2"; shift 2 ;;
+    --cache-archive) require_value "$@"; CACHE_ARCHIVE_OVERRIDE="$2"; shift 2 ;;
+    --obo) require_value "$@"; OBO_FILE_OVERRIDE="$2"; shift 2 ;;
+    --benchmark-id) require_value "$@"; BENCHMARK_ID_OVERRIDE="$2"; shift 2 ;;
+    --source-label) require_value "$@"; SOURCE_LABEL_OVERRIDE="$2"; shift 2 ;;
     --output-dir) require_value "$@"; OUTPUT_DIR="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
@@ -50,9 +65,19 @@ done
 [[ "$OUTPUT_DIR" == /SAN/* ]] || die "--output-dir must be an absolute SAN path"
 [[ ! -e "$OUTPUT_DIR" ]] || die "Output directory already exists: $OUTPUT_DIR"
 
-SOURCE_RUN="${SOURCE_RUN:-/SAN/bioinf/bmpfp/model_runs/contemporary/2025_01_to_2026_02_supervisor/variants/text-cutoff-2025-03-08__ppi-paper-faithful/full/7118745_20260728_164527}"
-CACHE_ARCHIVE="${CACHE_ARCHIVE:-/SAN/bioinf/bmpfp/embeddings/contemporary/2025_01_to_2026_02_supervisor/variants/text-cutoff-2025-03-08__ppi-paper-faithful/finalized_pfp_cache/contemporary_embedding_cache.tar.gz}"
-OBO_FILE="${OBO_FILE:-/SAN/bioinf/bmpfp/frozen_inputs/ontology/2025-02-06/go-basic.obo}"
+SOURCE_RUN="${SOURCE_RUN_OVERRIDE:-/SAN/bioinf/bmpfp/model_runs/contemporary/2025_01_to_2026_02_supervisor/variants/text-cutoff-2025-03-08__ppi-paper-faithful/full/7118745_20260728_164527}"
+CACHE_ARCHIVE="${CACHE_ARCHIVE_OVERRIDE:-/SAN/bioinf/bmpfp/embeddings/contemporary/2025_01_to_2026_02_supervisor/variants/text-cutoff-2025-03-08__ppi-paper-faithful/finalized_pfp_cache/contemporary_embedding_cache.tar.gz}"
+OBO_FILE="${OBO_FILE_OVERRIDE:-/SAN/bioinf/bmpfp/frozen_inputs/ontology/2025-02-06/go-basic.obo}"
+BENCHMARK_ID="${BENCHMARK_ID_OVERRIDE:-contemporary-2025_01-to-2026_02-supervisor}"
+SOURCE_LABEL="${SOURCE_LABEL_OVERRIDE:-contemporary-corrected-text-paper-faithful-ppi-full}"
+for value_name in BENCHMARK_ID SOURCE_LABEL; do
+  value="${!value_name}"
+  [[ "$value" =~ ^[A-Za-z0-9._-]+$ ]] || \
+    die "--${value_name,,} must use only letters, digits, dot, underscore or hyphen"
+done
+[[ "$SOURCE_RUN" == /SAN/* ]] || die "--source-run must be an absolute SAN path"
+[[ "$CACHE_ARCHIVE" == /SAN/* ]] || die "--cache-archive must be an absolute SAN path"
+[[ "$OBO_FILE" == /SAN/* ]] || die "--obo must be an absolute SAN path"
 SOURCE_TEST_MANIFEST="$SOURCE_RUN/evaluation/prediction_artifacts/prediction_artifact_manifest.json"
 SOURCE_IA_DIR="$SOURCE_RUN/evaluation/prediction_artifacts"
 SOURCE_CONFIG="$SOURCE_RUN/run_config.json"
@@ -126,7 +151,9 @@ fi
 echo "Host             : $(hostname)"
 echo "Job ID           : ${JOB_ID:-manual}"
 echo "Source run       : $SOURCE_RUN"
-echo "Embedding policy : text-cutoff-2025-03-08__ppi-paper-faithful"
+echo "Cache archive    : $CACHE_ARCHIVE"
+echo "Benchmark ID     : $BENCHMARK_ID"
+echo "Source label     : $SOURCE_LABEL"
 echo "Model mode       : full"
 echo "Framework commit : $FRAMEWORK_COMMIT"
 echo "SAN output       : $OUTPUT_DIR"
@@ -172,7 +199,7 @@ COMMON_ARGS=(
   --mode full
   --aspect BPO --aspect CCO --aspect MFO
   --ia-file-dir "$SOURCE_IA_DIR"
-  --benchmark-id contemporary-2025_01-to-2026_02-supervisor
+  --benchmark-id "$BENCHMARK_ID"
   --framework-commit "$FRAMEWORK_COMMIT"
   --pfp-commit "$PFP_COMMIT"
   --preparation-report "$SOURCE_PREPARATION_REPORT"
@@ -266,8 +293,27 @@ MANIFEST_SHA256="$(
   "$PYTHON_BIN" -c 'import hashlib,pathlib,sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())' \
     "$PUBLISH_STAGE/output_manifest.json"
 )"
-"$PYTHON_BIN" -c 'import json,pathlib,sys; pathlib.Path(sys.argv[1]).write_text(json.dumps({"complete":True,"analysis_kind":"validation_test_prediction_capture","embedding_policy":"text-cutoff-2025-03-08__ppi-paper-faithful","mode":"full","manifest":"output_manifest.json","manifest_sha256":sys.argv[2]},indent=2)+"\n")' \
-  "$PUBLISH_STAGE/WORKFLOW_COMPLETE.json" "$MANIFEST_SHA256"
+"$PYTHON_BIN" - "$PUBLISH_STAGE/WORKFLOW_COMPLETE.json" "$MANIFEST_SHA256" \
+  "$BENCHMARK_ID" "$SOURCE_LABEL" "$SOURCE_RUN" "$CACHE_ARCHIVE" \
+  "$OBO_FILE" "$FRAMEWORK_COMMIT" <<'PY'
+import json
+import pathlib
+import sys
+
+pathlib.Path(sys.argv[1]).write_text(json.dumps({
+    "complete": True,
+    "analysis_kind": "validation_test_prediction_capture",
+    "benchmark_id": sys.argv[3],
+    "source_label": sys.argv[4],
+    "source_run": sys.argv[5],
+    "cache_archive": sys.argv[6],
+    "obo_file": sys.argv[7],
+    "framework_commit": sys.argv[8],
+    "mode": "full",
+    "manifest": "output_manifest.json",
+    "manifest_sha256": sys.argv[2],
+}, indent=2, sort_keys=True) + "\n")
+PY
 "$PYTHON_BIN" scripts/model_execution/manage_output_manifest.py verify \
   --root "$PUBLISH_STAGE" --include-nested-control-files
 mkdir "$PUBLISH_LOCK"

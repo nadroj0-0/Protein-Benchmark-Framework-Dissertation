@@ -17,11 +17,14 @@ With the default one allocated slot, `--num-workers` must remain `0` so the
 main process is not oversubscribed.
 
 `active/hpc_contemporary_followup_prediction_capture.sh` performs inference-only
-validation and test capture from the accepted corrected contemporary full-model
-checkpoints. It is pinned to the `2025-03-08` text cutoff and paper-faithful PPI
-variant, and refuses publication unless the regenerated test arrays exactly
-match the accepted test content. `active/hpc_contemporary_followup_analysis.sh`
-runs the CPU-only IA/Xu specificity or validation-fitted calibration analyses.
+validation and test capture from accepted full-model checkpoints. Its defaults
+remain pinned to the corrected contemporary `2025-03-08` text cutoff and
+paper-faithful PPI variant; explicit source-run, cache, ontology, benchmark-ID
+and source-label arguments make the same provenance checks reusable for NK+LK,
+CAFA3 and homology runs. It refuses publication unless the regenerated test
+arrays exactly match the accepted test content.
+`active/hpc_contemporary_followup_analysis.sh` runs the CPU-only IA/Xu
+specificity or validation-fitted calibration/confidence analyses.
 Submit calibration with a Grid Engine `-hold_jid` dependency on the paired
 capture job; specificity can start immediately from the accepted test arrays.
 `active/hpc_specificity_comparison.sh` verifies and combines completed IA/Xu

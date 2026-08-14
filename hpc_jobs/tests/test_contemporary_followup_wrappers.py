@@ -80,6 +80,20 @@ class ContemporaryFollowupWrapperTests(unittest.TestCase):
         self.assertIn("scores_content_sha256", source)
         self.assertIn("Fresh test capture differs from accepted arrays", source)
 
+    def test_capture_accepts_provenance_safe_benchmark_overrides(self):
+        source = CAPTURE.read_text(encoding="utf-8")
+        for flag in (
+            "--source-run",
+            "--cache-archive",
+            "--obo",
+            "--benchmark-id",
+            "--source-label",
+        ):
+            self.assertIn(flag, source)
+        self.assertIn('--benchmark-id "$BENCHMARK_ID"', source)
+        self.assertIn('"cache_archive": sys.argv[6]', source)
+        self.assertIn('"framework_commit": sys.argv[8]', source)
+
     def test_capture_uses_gpu_and_zeus_but_analysis_is_cpu_only(self):
         capture = CAPTURE.read_text(encoding="utf-8")
         analysis = ANALYSIS.read_text(encoding="utf-8")
@@ -125,7 +139,7 @@ class ContemporaryFollowupWrapperTests(unittest.TestCase):
             'cp -a "$ANALYSIS_OUTPUT" "$failure_stage/partial_analysis"', source
         )
         self.assertIn('mv "$failure_stage" "$FAILURE_OUTPUT"', source)
-        self.assertEqual(source.count('2>&1 | tee "$LOG_FILE"'), 3)
+        self.assertEqual(source.count('2>&1 | tee "$LOG_FILE"'), 4)
         self.assertLess(
             source.index('publish_failure "$status"'),
             source.index('rm -rf -- "$WORK"'),
