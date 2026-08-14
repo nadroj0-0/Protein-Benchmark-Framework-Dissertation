@@ -330,6 +330,48 @@ and usually retraining. Per-prediction uncertainty intervals remain a separate
 publication gate; the point estimates must not be wrapped into a user-facing
 tool until a protein-cluster-aware interval method has been validated.
 
+## Selectable confidence profiles
+
+`generate_pfp_confidence.py` is the reusable confidence stage for completed or
+new PFP workflows. It consumes captured validation and test predictions, so it
+never retrains PFP or modifies checkpoints, embeddings or benchmark data. A new
+workflow can call the same command immediately after both prediction manifests
+have been captured; keeping it separate also makes confidence policy changes
+independently rerunnable.
+
+```bash
+python scripts/diagnostics/generate_pfp_confidence.py \
+  --validation-prediction-manifest /path/to/valid/prediction_artifact_manifest.json \
+  --test-prediction-manifest /path/to/test/prediction_artifact_manifest.json \
+  --obo /path/to/frozen-go.obo \
+  --confidence-method raw-sigmoid \
+  --confidence-method ffpred-style \
+  --confidence-method hierarchy-calibrated \
+  --output-dir /absolute/path/to/new/confidence-profiles
+```
+
+Omitting `--confidence-method` selects all three:
+
+- `raw-sigmoid` preserves PFP's bounded neural-network output. It is explicitly
+  a score, not a calibrated probability and not a p-value. This corresponds to
+  the straightforward output convention used by DMPmetal without adopting the
+  PSIPRED Workbench frontend's misleading p-value wording.
+- `ffpred-style` reconstructs each PFP logit and independently fits a Platt
+  sigmoid for each GO term. It also applies FFPred's published term-level
+  high-reliability conditions: MCC >= 0.3, sensitivity >= 0.3, specificity >=
+  0.7 and precision >= 0.3. Terms without both validation classes remain
+  explicitly unavailable rather than receiving a guessed fallback.
+- `hierarchy-calibrated` uses the existing positive-slope multilevel model with
+  IA-bin and supported-term intercepts, then restores `is_a + part_of`
+  consistency using upward-max projection. Pre-projection values are retained
+  so the effect on calibration can be audited.
+
+The FFPred-style fit is an adaptation, not an exact replay of FFPred training:
+FFPred estimated its sigmoid parameters from out-of-fold SVM outputs, whereas
+this post-processing run uses the already captured PFP validation predictions.
+The model manifest records that distinction and prohibits describing any output
+as a p-value or as unobserved biological truth.
+
 Canonical Fmax, weighted Fmax and Smin can be compared independently from the
 completed PFP run reports:
 

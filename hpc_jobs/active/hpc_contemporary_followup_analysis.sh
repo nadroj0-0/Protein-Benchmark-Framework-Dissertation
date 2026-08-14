@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run specificity or validation-fitted calibration for the corrected contemporary full model.
+# Run follow-up diagnostics for the corrected contemporary full model.
 
 #$ -S /bin/bash
 #$ -l tmem=32G
@@ -35,10 +35,15 @@ Usage:
     --analysis calibration --capture-pair-dir /SAN/.../capture_pair \
     --output-dir /SAN/.../calibration
 
+  qsub hpc_jobs/active/hpc_contemporary_followup_analysis.sh \
+    --analysis confidence --capture-pair-dir /SAN/.../capture_pair \
+    --output-dir /SAN/.../confidence
+
 All modes are CPU-only. Specificity uses the selected full-model test arrays.
 Diagnostics runs both root-only exclusion and IA/Xu specificity from those
 same immutable arrays. Calibration fits on a newly captured validation split
-and applies the fitted model once to its paired test split.
+and applies the fitted model once to its paired test split. Confidence emits
+raw-sigmoid, FFPred-style and hierarchy-calibrated post-processing profiles.
 EOF
 }
 
@@ -71,15 +76,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ "$ANALYSIS" == "specificity" || "$ANALYSIS" == "diagnostics" || \
-   "$ANALYSIS" == "calibration" ]] || \
-  die "--analysis must be specificity, diagnostics or calibration"
+   "$ANALYSIS" == "calibration" || "$ANALYSIS" == "confidence" ]] || \
+  die "--analysis must be specificity, diagnostics, calibration or confidence"
 [[ "$OUTPUT_DIR" == /SAN/* ]] || die "--output-dir must be an absolute SAN path"
 [[ ! -e "$OUTPUT_DIR" ]] || die "Output directory already exists: $OUTPUT_DIR"
 [[ "$SOURCE_LABEL" =~ ^[A-Za-z0-9._-]+$ ]] || \
   die "--source-label must use only letters, digits, dot, underscore or hyphen"
-if [[ "$ANALYSIS" == "calibration" ]]; then
+if [[ "$ANALYSIS" == "calibration" || "$ANALYSIS" == "confidence" ]]; then
   [[ "$CAPTURE_PAIR_DIR" == /SAN/* ]] || \
-    die "Calibration requires --capture-pair-dir on SAN"
+    die "$ANALYSIS requires --capture-pair-dir on SAN"
 fi
 
 SOURCE_RUN="${SOURCE_RUN_OVERRIDE:-/SAN/bioinf/bmpfp/model_runs/contemporary/2025_01_to_2026_02_supervisor/variants/text-cutoff-2025-03-08__ppi-paper-faithful/full/7118745_20260728_164527}"
@@ -192,7 +197,7 @@ fi
 [[ "$FRAMEWORK_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]] || \
   die "FRAMEWORK_COMMIT must be a full commit"
 
-if [[ "$ANALYSIS" == "calibration" ]]; then
+if [[ "$ANALYSIS" == "calibration" || "$ANALYSIS" == "confidence" ]]; then
   [[ -f "$CAPTURE_PAIR_DIR/WORKFLOW_COMPLETE.json" ]] || \
     die "Paired capture is incomplete: $CAPTURE_PAIR_DIR"
   VALIDATION_MANIFEST="$CAPTURE_PAIR_DIR/valid/evaluation/prediction_artifacts/prediction_artifact_manifest.json"
@@ -254,11 +259,23 @@ elif [[ "$ANALYSIS" == "diagnostics" ]]; then
       --bootstrap-seed 42 \
       --output-dir "$ANALYSIS_OUTPUT/specificity"
   } 2>&1 | tee "$LOG_FILE"
-else
+elif [[ "$ANALYSIS" == "calibration" ]]; then
   "$PYTHON_BIN" scripts/diagnostics/calibrate_pfp_predictions.py \
     --validation-prediction-manifest "$VALIDATION_MANIFEST" \
     --test-prediction-manifest "$TEST_MANIFEST" \
     --obo "$OBO_FILE" \
+    --positive-ia-bins 4 \
+    --reliability-bins 10 \
+    --output-dir "$ANALYSIS_OUTPUT" \
+    2>&1 | tee "$LOG_FILE"
+else
+  "$PYTHON_BIN" scripts/diagnostics/generate_pfp_confidence.py \
+    --validation-prediction-manifest "$VALIDATION_MANIFEST" \
+    --test-prediction-manifest "$TEST_MANIFEST" \
+    --obo "$OBO_FILE" \
+    --confidence-method raw-sigmoid \
+    --confidence-method ffpred-style \
+    --confidence-method hierarchy-calibrated \
     --positive-ia-bins 4 \
     --reliability-bins 10 \
     --output-dir "$ANALYSIS_OUTPUT" \

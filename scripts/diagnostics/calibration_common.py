@@ -79,6 +79,45 @@ class CalibrationPolicy:
         }
 
 
+@dataclass(frozen=True)
+class FFPredPlattPolicy:
+    """Settings for the PFP adaptation of FFPred's per-term Platt scaling."""
+
+    score_clip_epsilon: float = 1e-6
+    minimum_term_positives: int = 1
+    minimum_term_negatives: int = 1
+    maximum_iterations: int = 200
+    optimizer_tolerance: float = 1e-7
+    protein_chunk_size: int = 256
+
+    def validate(self) -> None:
+        if not 0 < self.score_clip_epsilon < 0.5:
+            raise ValueError("score_clip_epsilon must lie between zero and 0.5")
+        for name in (
+            "minimum_term_positives",
+            "minimum_term_negatives",
+            "maximum_iterations",
+            "protein_chunk_size",
+        ):
+            if getattr(self, name) < 1:
+                raise ValueError(f"{name} must be positive")
+        if self.optimizer_tolerance <= 0:
+            raise ValueError("optimizer_tolerance must be positive")
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            key: getattr(self, key)
+            for key in (
+                "score_clip_epsilon",
+                "minimum_term_positives",
+                "minimum_term_negatives",
+                "maximum_iterations",
+                "optimizer_tolerance",
+                "protein_chunk_size",
+            )
+        }
+
+
 def _logit_scores(scores: np.ndarray, epsilon: float) -> np.ndarray:
     clipped = np.clip(scores, epsilon, 1.0 - epsilon)
     return np.log(clipped) - np.log1p(-clipped)
@@ -379,6 +418,271 @@ def apply_calibrator(
     ):
         raise RuntimeError("Calibrated values are invalid")
     return calibrated, list(model["fallback_by_term"])
+
+
+def fit_ffpred_platt_calibrator(
+    scores: np.ndarray,
+    truth: np.ndarray,
+    term_ids: Sequence[str],
+    policy: FFPredPlattPolicy,
+) -> dict[str, Any]:
+    """Fit independent per-term sigmoid calibrators in the style of FFPred."""
+    policy.validate()
+    _validate_matrices(scores, truth)
+    protein_count, term_count = scores.shape
+    if term_count != len(term_ids):
+        raise ValueError("FFPred-style term metadata does not match matrix columns")
+    if len(set(term_ids)) != len(term_ids):
+        raise ValueError("FFPred-style term IDs must be unique")
+
+    positives = truth.sum(axis=0, dtype=np.int64)
+    negatives = protein_count - positives
+    supported = np.flatnonzero(
+        (positives >= policy.minimum_term_positives)
+        & (negatives >= policy.minimum_term_negatives)
+    )
+    status_by_term = np.full(term_count, "uncalibrated_insufficient_support", dtype=object)
+    status_by_term[supported] = "term_platt"
+
+    if not supported.size:
+        result = {
+            "family": "ffpred_style_independent_platt",
+            "status": "uncalibrated_insufficient_support",
+            "formula": "q=1/(1+exp(-(intercept+positive_slope*logit(score))))",
+            "term_ids": list(term_ids),
+            "intercepts": {},
+            "positive_slopes": {},
+            "status_by_term": status_by_term.tolist(),
+            "support": {
+                "proteins": protein_count,
+                "term_positives": positives.tolist(),
+                "term_negatives": negatives.tolist(),
+                "supported_terms": [],
+            },
+            "policy": policy.as_dict(),
+        }
+        result["model_sha256"] = sha256_json(result)
+        return result
+
+    selected_positives = positives[supported].astype(np.float64)
+    selected_negatives = negatives[supported].astype(np.float64)
+    positive_targets = (selected_positives + 1.0) / (selected_positives + 2.0)
+    negative_targets = 1.0 / (selected_negatives + 2.0)
+    prevalence = (
+        selected_positives + 1.0
+    ) / (selected_positives + selected_negatives + 2.0)
+
+    selected_count = int(supported.size)
+    objective_scale = float(protein_count * selected_count)
+    initial = np.zeros(2 * selected_count, dtype=np.float64)
+    initial[:selected_count] = np.log(prevalence) - np.log1p(-prevalence)
+
+    def objective(parameters: np.ndarray) -> tuple[float, np.ndarray]:
+        intercept = parameters[:selected_count]
+        slope = np.exp(parameters[selected_count:])
+        loss = 0.0
+        intercept_gradient = np.zeros(selected_count, dtype=np.float64)
+        slope_gradient = np.zeros(selected_count, dtype=np.float64)
+        for start in range(0, protein_count, policy.protein_chunk_size):
+            stop = min(protein_count, start + policy.protein_chunk_size)
+            x = _logit_scores(
+                scores[start:stop, supported], policy.score_clip_epsilon
+            )
+            y = truth[start:stop, supported]
+            target = np.where(
+                y == 1,
+                positive_targets[np.newaxis, :],
+                negative_targets[np.newaxis, :],
+            )
+            eta = intercept[np.newaxis, :] + slope[np.newaxis, :] * x
+            loss += float(np.sum(np.logaddexp(0.0, eta) - target * eta))
+            residual = expit(eta) - target
+            intercept_gradient += residual.sum(axis=0)
+            slope_gradient += np.sum(residual * (slope[np.newaxis, :] * x), axis=0)
+        return (
+            loss / objective_scale,
+            np.concatenate((intercept_gradient, slope_gradient)) / objective_scale,
+        )
+
+    bounds = [(-30.0, 30.0)] * selected_count + [(-8.0, 8.0)] * selected_count
+    fit = minimize(
+        objective,
+        initial,
+        method="L-BFGS-B",
+        jac=True,
+        bounds=bounds,
+        options={
+            "maxiter": policy.maximum_iterations,
+            "ftol": policy.optimizer_tolerance,
+            "gtol": policy.optimizer_tolerance,
+            "maxls": 30,
+        },
+    )
+    if not fit.success or not np.isfinite(fit.fun):
+        raise RuntimeError(
+            "FFPred-style optimizer failed: "
+            f"status={fit.status}, message={fit.message}"
+        )
+    parameters = np.asarray(fit.x, dtype=np.float64)
+    intercept_values = parameters[:selected_count]
+    slope_values = np.exp(parameters[selected_count:])
+    if not np.isfinite(slope_values).all() or np.any(slope_values <= 0):
+        raise RuntimeError("FFPred-style slopes are not finite and positive")
+
+    result = {
+        "family": "ffpred_style_independent_platt",
+        "status": "complete",
+        "formula": "q=1/(1+exp(-(intercept+positive_slope*logit(score))))",
+        "historical_correspondence": (
+            "FFPred converted each GO-term SVM decision value with independently "
+            "fitted sigmoid A/B parameters; PFP sigmoid outputs are converted back "
+            "to logits before the analogous per-term fit"
+        ),
+        "term_ids": list(term_ids),
+        "intercepts": {
+            term_ids[index]: float(value)
+            for index, value in zip(supported, intercept_values)
+        },
+        "positive_slopes": {
+            term_ids[index]: float(value)
+            for index, value in zip(supported, slope_values)
+        },
+        "status_by_term": status_by_term.tolist(),
+        "support": {
+            "proteins": protein_count,
+            "term_positives": positives.tolist(),
+            "term_negatives": negatives.tolist(),
+            "supported_terms": [term_ids[index] for index in supported],
+            "platt_target_smoothing": "Lin_Lin_Weng_2007",
+        },
+        "policy": policy.as_dict(),
+        "optimizer": {
+            "name": "scipy_L-BFGS-B",
+            "objective_scaling": "mean_over_supported_protein_term_events",
+            "success": bool(fit.success),
+            "status": int(fit.status),
+            "message": str(fit.message),
+            "iterations": int(fit.nit),
+            "function_evaluations": int(fit.nfev),
+            "objective": float(fit.fun),
+        },
+    }
+    result["model_sha256"] = sha256_json(result)
+    return result
+
+
+def apply_ffpred_platt_calibrator(
+    scores: np.ndarray,
+    term_ids: Sequence[str],
+    model: Mapping[str, Any],
+    *,
+    protein_chunk_size: int = 256,
+) -> tuple[np.ndarray, list[str]]:
+    if scores.ndim != 2 or scores.shape[1] != len(term_ids):
+        raise ValueError("FFPred-style application term dimensions differ")
+    if list(term_ids) != list(model["term_ids"]):
+        raise ValueError("FFPred-style application GO-term order differs")
+    if protein_chunk_size < 1:
+        raise ValueError("protein_chunk_size must be positive")
+    statuses = list(model["status_by_term"])
+    calibrated = np.full(scores.shape, np.nan, dtype=np.float32)
+    supported = np.asarray(
+        [index for index, status in enumerate(statuses) if status == "term_platt"],
+        dtype=np.int64,
+    )
+    if not supported.size:
+        return calibrated, statuses
+
+    intercept = np.asarray(
+        [float(model["intercepts"][term_ids[index]]) for index in supported],
+        dtype=np.float64,
+    )
+    slope = np.asarray(
+        [float(model["positive_slopes"][term_ids[index]]) for index in supported],
+        dtype=np.float64,
+    )
+    epsilon = float(model["policy"]["score_clip_epsilon"])
+    for start in range(0, scores.shape[0], protein_chunk_size):
+        stop = min(scores.shape[0], start + protein_chunk_size)
+        x = _logit_scores(scores[start:stop, supported], epsilon)
+        calibrated[start:stop, supported] = expit(
+            intercept[np.newaxis, :] + slope[np.newaxis, :] * x
+        ).astype(np.float32)
+    selected = calibrated[:, supported]
+    if (
+        not np.isfinite(selected).all()
+        or np.any(selected < 0)
+        or np.any(selected > 1)
+    ):
+        raise RuntimeError("FFPred-style calibrated values are invalid")
+    return calibrated, statuses
+
+
+def ffpred_term_reliability(
+    probabilities: np.ndarray,
+    truth: np.ndarray,
+    term_ids: Sequence[str],
+    statuses: Sequence[str],
+) -> list[dict[str, Any]]:
+    """Apply FFPred's published H/L classifier reliability conditions."""
+    if probabilities.shape != truth.shape or probabilities.ndim != 2:
+        raise ValueError("FFPred reliability arrays differ")
+    if probabilities.shape[1] != len(term_ids) or len(term_ids) != len(statuses):
+        raise ValueError("FFPred reliability term metadata differs")
+    rows = []
+    for index, (term_id, status) in enumerate(zip(term_ids, statuses)):
+        if status != "term_platt":
+            rows.append(
+                {
+                    "go_term": term_id,
+                    "calibration_status": status,
+                    "reliability_level": "unavailable",
+                    "mcc": None,
+                    "sensitivity": None,
+                    "specificity": None,
+                    "precision": None,
+                    "positives": int(truth[:, index].sum()),
+                    "negatives": int(truth.shape[0] - truth[:, index].sum()),
+                }
+            )
+            continue
+        observed = truth[:, index].astype(bool)
+        predicted = probabilities[:, index] >= 0.5
+        tp = int(np.sum(predicted & observed))
+        tn = int(np.sum(~predicted & ~observed))
+        fp = int(np.sum(predicted & ~observed))
+        fn = int(np.sum(~predicted & observed))
+        sensitivity = tp / (tp + fn) if tp + fn else None
+        specificity = tn / (tn + fp) if tn + fp else None
+        precision = tp / (tp + fp) if tp + fp else None
+        denominator = math.sqrt(
+            (tp + fp) * (tp + fn) * (tn + fp) * (tn + fn)
+        )
+        mcc = ((tp * tn) - (fp * fn)) / denominator if denominator else None
+        high = (
+            mcc is not None
+            and sensitivity is not None
+            and specificity is not None
+            and precision is not None
+            and mcc >= 0.3
+            and sensitivity >= 0.3
+            and specificity >= 0.7
+            and precision >= 0.3
+        )
+        rows.append(
+            {
+                "go_term": term_id,
+                "calibration_status": status,
+                "reliability_level": "high" if high else "low",
+                "mcc": mcc,
+                "sensitivity": sensitivity,
+                "specificity": specificity,
+                "precision": precision,
+                "positives": tp + fn,
+                "negatives": tn + fp,
+            }
+        )
+    return rows
 
 
 def calibration_metrics(
