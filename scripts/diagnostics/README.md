@@ -372,6 +372,12 @@ this post-processing run uses the already captured PFP validation predictions.
 The model manifest records that distinction and prohibits describing any output
 as a p-value or as unobserved biological truth.
 
+The fit directly bounds its slope above zero, preserving monotonicity without a
+less stable log-slope parameterization. If L-BFGS-B stops only because one
+configured iteration block is exhausted, it resumes deterministically from the
+finite solution up to the recorded restart limit. Other optimizer failures
+still stop the analysis.
+
 Canonical Fmax, weighted Fmax and Smin can be compared independently from the
 completed PFP run reports:
 

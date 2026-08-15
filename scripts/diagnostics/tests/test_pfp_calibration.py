@@ -6,6 +6,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 import numpy as np
 
@@ -25,6 +27,7 @@ from calibration_common import (  # noqa: E402
     fit_ffpred_platt_calibrator,
     fit_monotone_hierarchical_calibrator,
 )
+import calibration_common  # noqa: E402
 import test_pfp_label_sensitivity as sensitivity_tests  # noqa: E402
 
 
@@ -117,6 +120,49 @@ class PfpCalibrationTests(unittest.TestCase):
         )
         repeated = fit_ffpred_platt_calibrator(scores, truth, terms, policy)
         self.assertEqual(model["model_sha256"], repeated["model_sha256"])
+
+    def test_ffpred_style_continues_after_iteration_limit(self) -> None:
+        scores = np.asarray(
+            [[0.05], [0.20], [0.70], [0.95]], dtype=np.float64
+        )
+        truth = np.asarray([[0], [0], [1], [1]], dtype=np.uint8)
+        policy = FFPredPlattPolicy(
+            maximum_iterations=100,
+            maximum_restarts=1,
+            protein_chunk_size=2,
+        )
+        real_minimize = calibration_common.minimize
+        call_count = 0
+
+        def iteration_limited_then_real(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                initial = np.asarray(args[1], dtype=np.float64)
+                return SimpleNamespace(
+                    success=False,
+                    status=1,
+                    message="TOTAL NO. of ITERATIONS REACHED LIMIT",
+                    nit=100,
+                    nfev=101,
+                    fun=1.0,
+                    x=initial,
+                )
+            return real_minimize(*args, **kwargs)
+
+        with mock.patch.object(
+            calibration_common,
+            "minimize",
+            side_effect=iteration_limited_then_real,
+        ):
+            model = fit_ffpred_platt_calibrator(
+                scores, truth, ["GO:0000001"], policy
+            )
+        self.assertEqual(model["status"], "complete")
+        self.assertEqual(len(model["optimizer"]["attempts"]), 2)
+        self.assertEqual(
+            model["optimizer"]["parameterization"], "bounded_positive_slope"
+        )
 
     def test_cli_fits_validation_only_and_publishes_no_p_values(self) -> None:
         helper = sensitivity_tests.PfpLabelSensitivityTests(methodName="runTest")

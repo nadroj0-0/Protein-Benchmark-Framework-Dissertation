@@ -109,6 +109,7 @@ FAILURE_OUTPUT="${OUTPUT_DIR}.failed-${JOB_TOKEN}"
 FRAMEWORK_REPO_URL="${FRAMEWORK_REPO_URL:-https://github.com/nadroj0-0/Protein-Benchmark-Framework-Dissertation.git}"
 FRAMEWORK_COMMIT="${FRAMEWORK_COMMIT:-}"
 LOCK_HELD=0
+FAILURE_PYTHON_BIN="$(command -v python3 || command -v python || true)"
 
 publish_failure() {
   local status="$1"
@@ -127,7 +128,18 @@ publish_failure() {
       return 1
     }
   fi
-  python3 - "$failure_stage/WORKFLOW_FAILED.json" "$status" "$ANALYSIS" \
+  if [[ -z "$FAILURE_PYTHON_BIN" ]]; then
+    printf 'analysis=%s\nsource_label=%s\njob_id=%s\nexit_status=%s\n' \
+      "$ANALYSIS" "$SOURCE_LABEL" "${JOB_ID:-manual}" "$status" \
+      >"$failure_stage/WORKFLOW_FAILED.txt"
+    mv "$failure_stage" "$FAILURE_OUTPUT" || {
+      rm -rf -- "$failure_stage"
+      return 1
+    }
+    echo "Published text failure diagnostics: $FAILURE_OUTPUT" >&2
+    return 0
+  fi
+  "$FAILURE_PYTHON_BIN" - "$failure_stage/WORKFLOW_FAILED.json" "$status" "$ANALYSIS" \
     "$SOURCE_LABEL" "$SOURCE_RUN" "$OBO_FILE" "$FRAMEWORK_COMMIT" \
     "${JOB_ID:-manual}" <<'PY' || {
 import json
@@ -231,6 +243,7 @@ add_mmfp_singularity_bind "$WORK"
 add_mmfp_singularity_bind /SAN/bioinf/bmpfp
 activate_or_create_mmfp_env
 PYTHON_BIN="$(command -v python)"
+FAILURE_PYTHON_BIN="$PYTHON_BIN"
 
 if [[ "$ANALYSIS" == "specificity" ]]; then
   "$PYTHON_BIN" scripts/diagnostics/evaluate_pfp_information_content.py \

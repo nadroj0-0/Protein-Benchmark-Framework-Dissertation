@@ -87,6 +87,7 @@ class FFPredPlattPolicy:
     minimum_term_positives: int = 1
     minimum_term_negatives: int = 1
     maximum_iterations: int = 200
+    maximum_restarts: int = 4
     optimizer_tolerance: float = 1e-7
     protein_chunk_size: int = 256
 
@@ -101,6 +102,8 @@ class FFPredPlattPolicy:
         ):
             if getattr(self, name) < 1:
                 raise ValueError(f"{name} must be positive")
+        if self.maximum_restarts < 0:
+            raise ValueError("maximum_restarts must be non-negative")
         if self.optimizer_tolerance <= 0:
             raise ValueError("optimizer_tolerance must be positive")
 
@@ -112,6 +115,7 @@ class FFPredPlattPolicy:
                 "minimum_term_positives",
                 "minimum_term_negatives",
                 "maximum_iterations",
+                "maximum_restarts",
                 "optimizer_tolerance",
                 "protein_chunk_size",
             )
@@ -474,12 +478,12 @@ def fit_ffpred_platt_calibrator(
 
     selected_count = int(supported.size)
     objective_scale = float(protein_count * selected_count)
-    initial = np.zeros(2 * selected_count, dtype=np.float64)
+    initial = np.ones(2 * selected_count, dtype=np.float64)
     initial[:selected_count] = np.log(prevalence) - np.log1p(-prevalence)
 
     def objective(parameters: np.ndarray) -> tuple[float, np.ndarray]:
         intercept = parameters[:selected_count]
-        slope = np.exp(parameters[selected_count:])
+        slope = parameters[selected_count:]
         loss = 0.0
         intercept_gradient = np.zeros(selected_count, dtype=np.float64)
         slope_gradient = np.zeros(selected_count, dtype=np.float64)
@@ -498,34 +502,59 @@ def fit_ffpred_platt_calibrator(
             loss += float(np.sum(np.logaddexp(0.0, eta) - target * eta))
             residual = expit(eta) - target
             intercept_gradient += residual.sum(axis=0)
-            slope_gradient += np.sum(residual * (slope[np.newaxis, :] * x), axis=0)
+            slope_gradient += np.sum(residual * x, axis=0)
         return (
             loss / objective_scale,
             np.concatenate((intercept_gradient, slope_gradient)) / objective_scale,
         )
 
-    bounds = [(-30.0, 30.0)] * selected_count + [(-8.0, 8.0)] * selected_count
-    fit = minimize(
-        objective,
-        initial,
-        method="L-BFGS-B",
-        jac=True,
-        bounds=bounds,
-        options={
-            "maxiter": policy.maximum_iterations,
-            "ftol": policy.optimizer_tolerance,
-            "gtol": policy.optimizer_tolerance,
-            "maxls": 30,
-        },
-    )
+    bounds = [(-30.0, 30.0)] * selected_count + [
+        (math.exp(-8.0), math.exp(8.0))
+    ] * selected_count
+    attempts = []
+    fit = None
+    parameters = initial
+    for attempt_index in range(policy.maximum_restarts + 1):
+        fit = minimize(
+            objective,
+            parameters,
+            method="L-BFGS-B",
+            jac=True,
+            bounds=bounds,
+            options={
+                "maxiter": policy.maximum_iterations,
+                "ftol": policy.optimizer_tolerance,
+                "gtol": policy.optimizer_tolerance,
+                "maxls": 30,
+            },
+        )
+        attempts.append({
+            "attempt": attempt_index + 1,
+            "success": bool(fit.success),
+            "status": int(fit.status),
+            "message": str(fit.message),
+            "iterations": int(fit.nit),
+            "function_evaluations": int(fit.nfev),
+            "objective": float(fit.fun),
+        })
+        if fit.success:
+            break
+        if (
+            int(fit.status) != 1
+            or not np.isfinite(fit.fun)
+            or not np.isfinite(fit.x).all()
+        ):
+            break
+        parameters = np.asarray(fit.x, dtype=np.float64)
+    assert fit is not None
     if not fit.success or not np.isfinite(fit.fun):
         raise RuntimeError(
             "FFPred-style optimizer failed: "
-            f"status={fit.status}, message={fit.message}"
+            f"attempts={len(attempts)}, status={fit.status}, message={fit.message}"
         )
     parameters = np.asarray(fit.x, dtype=np.float64)
     intercept_values = parameters[:selected_count]
-    slope_values = np.exp(parameters[selected_count:])
+    slope_values = parameters[selected_count:]
     if not np.isfinite(slope_values).all() or np.any(slope_values <= 0):
         raise RuntimeError("FFPred-style slopes are not finite and positive")
 
@@ -558,6 +587,7 @@ def fit_ffpred_platt_calibrator(
         "policy": policy.as_dict(),
         "optimizer": {
             "name": "scipy_L-BFGS-B",
+            "parameterization": "bounded_positive_slope",
             "objective_scaling": "mean_over_supported_protein_term_events",
             "success": bool(fit.success),
             "status": int(fit.status),
@@ -565,6 +595,7 @@ def fit_ffpred_platt_calibrator(
             "iterations": int(fit.nit),
             "function_evaluations": int(fit.nfev),
             "objective": float(fit.fun),
+            "attempts": attempts,
         },
     }
     result["model_sha256"] = sha256_json(result)
