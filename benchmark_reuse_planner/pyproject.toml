@@ -18,6 +18,3 @@ where = ["src"]
 [tool.ruff]
 line-length = 110
 target-version = "py39"
-
-[tool.ruff.lint.per-file-ignores]
-"tests/*.py" = ["E402"]

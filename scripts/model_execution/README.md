@@ -174,14 +174,6 @@ bash scripts/model_execution/run_pfp_benchmark.sh \
   --execution-mode prepare-only
 ```
 
-The local test suite uses tiny fixtures and fake PFP boundaries. It never
-downloads data or starts real training:
-
-```bash
-PYTHONDONTWRITEBYTECODE=1 \
-  python3 -m unittest discover -s scripts/model_execution/tests -v
-```
-
 ## CAFA3 v1.5 acceptance rung
 
 The orchestration-only control uses Zijian's published CSVs, embeddings,
@@ -242,28 +234,6 @@ The artifact is intentionally larger than the ordinary metric report. Capture
 it only for runs that will be analysed, then pass its manifest to
 `scripts/diagnostics/evaluate_pfp_label_sensitivity.py`. That analysis is
 separately staged and can never overwrite the canonical run.
-
-## Existing embedding-state evidence upgrade
-
-States initialized before per-array evidence hashes were introduced must not be
-re-initialized with a newer framework commit. After every retry job targeting
-the state has finished and final coverage has been read, submit the dedicated
-additive upgrade instead:
-
-```bash
-qsub hpc_jobs/active/hpc_embedding_state_evidence_upgrade.sh \
-  --state-root /SAN/.../retry_state \
-  --confirm-retries-finished
-```
-
-The command preserves the existing contract, accepted membership, failure
-ledger and cumulative cache. It verifies the contracted baseline archive,
-hashes every accepted baseline and delta array under the state lock, refreshes
-`pair_status.tsv`, and fails if accepted counts differ before and after. Expect
-it to take longer than the original initialization because it reads every
-accepted array. Do not submit it while a retry generation job is still running;
-the lock can serialize merges but cannot detect a job that has not reached its
-merge step yet.
 
 ## Contemporary training
 

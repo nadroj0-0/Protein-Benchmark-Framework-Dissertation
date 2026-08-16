@@ -72,7 +72,7 @@ if [ -n "${CAFA_ASSESSMENT_COMMIT}" ]; then
   echo "==> Pinned CAFA_assessment_tool: ${observed_cafa_commit}"
 fi
 # --- 1b. Stage the CAFA3-era GO ontology expected at data/go.obo -------
-# reproduce_embeddings_retrain_eval.sh checks `data/go.obo`, and train.py/eval
+# The model execution path checks `data/go.obo`, and train.py/eval
 # parse it for GO DAG propagation. It ships in the CAFA tool cloned above as
 # precrec/go_cafa3.obo (GO release 2016-05-31 — the correct ontology for CAFA3;
 # do NOT substitute a current .obo or you contaminate the benchmark).

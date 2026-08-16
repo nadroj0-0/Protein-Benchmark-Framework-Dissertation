@@ -226,8 +226,7 @@ metrics, aggregate metadata, and source-prefixed output paths.
 
 ## Scope-aware frozen manifest
 
-`frozen_input_manifest.template.json` is a deliberately non-authorizing Swiss-Prot example. A
-production manifest uses schema version 2 and records for every required role:
+A production frozen-input manifest uses schema version 2 and records for every required role:
 
 - logical role and source population;
 - release, local filename, authoritative URL, expected/observed SHA-256, and byte size;
@@ -279,8 +278,8 @@ the reviewed attrition policy; there is no hidden hard-coded biological toleranc
 ## Production attrition gate
 
 Production requires a reviewed JSON policy based on evidence such as the 30% diagnostic pilot.
-`attrition_policy.template.json` contains placeholders and cannot authorize a run. It binds the
-scope, releases, full framework commit, frozen-manifest hash, author/reviewer/date, rationale, and
+The policy binds the scope, releases, full framework commit, frozen-manifest hash,
+author/reviewer/date, rationale, and
 an explicit minimum or maximum for every registered metric:
 
 | Metric | Numerator / denominator | Bound |
@@ -298,8 +297,8 @@ an explicit minimum or maximum for every registered metric:
 | `training_split_deviation` | absolute achieved-minus-requested training-within-development member fraction / one ratio unit | maximum |
 
 The code does not choose final biological thresholds. A failed limit prevents production
-publication. A deliberate exception requires `attrition_override.template.json`'s structured
-document bound to the exact failed metric names and observed ratios, run input-manifest hash,
+publication. A deliberate exception requires a structured override document bound to the exact
+failed metric names and observed ratios, run input-manifest hash,
 scope, commit, reviewer/date, justification, and run identifier. There is no
 `--ignore-attrition` flag. Because failures can differ by identity, the six-task launcher rejects
 one array-wide override; any exception must be reviewed for the specific failed task before a
@@ -530,75 +529,11 @@ copy-back, logs, and source-specific counts. Obtain runtime and peak memory from
 Engine accounting, peak scratch from explicit task scratch monitoring, and output bytes from a
 reviewed filesystem measurement. Do not relabel end-of-run scratch size as peak usage.
 
-### 5. Create reviewed policy, measurement evidence, and approval
+### 5. Supply reviewed policy and approval evidence
 
-Copy the three non-authorizing templates. Edit the reviewed policy first, using the pilot
-observations to set every limit. Then calculate evidence hashes, complete the measurement file,
-calculate its hash, and only then complete the approval. Keep `approved: false` until a human has
-reviewed all evidence; change it to `true` only as the final manual approval action.
-
-```bash
-cp benchmark_builders/homology_cluster/attrition_policy.template.json \
-  '/persistent/review/homology-attrition-policy.json'
-cp benchmark_builders/homology_cluster/pilot_measurement_evidence.template.json \
-  '/persistent/review/homology-pilot-measurements.json'
-cp benchmark_builders/homology_cluster/pilot_approval.template.json \
-  '/persistent/review/homology-pilot-approval.json'
-export ATTRITION_POLICY='/persistent/review/homology-attrition-policy.json'
-export PILOT_MEASUREMENT_EVIDENCE='/persistent/review/homology-pilot-measurements.json'
-export PILOT_APPROVAL='/persistent/review/homology-pilot-approval.json'
-
-vi "$ATTRITION_POLICY"
-python3 -m json.tool "$ATTRITION_POLICY" >/dev/null
-export REVIEWED_ATTRITION_POLICY_SHA256="$(sha256sum "$ATTRITION_POLICY" | awk '{print $1}')"
-export PILOT_COMPLETION_MARKER_SHA256="$(sha256sum "$PILOT_COMPLETION_MARKER" | awk '{print $1}')"
-export PILOT_ATTRITION_REPORT_SHA256="$(sha256sum "$PILOT_ATTRITION_REPORT" | awk '{print $1}')"
-export PILOT_TASK_CONTEXT_SHA256="$(sha256sum "$PILOT_TASK_CONTEXT" | awk '{print $1}')"
-export FROZEN_INPUT_MANIFEST_SHA256="$(sha256sum "$FROZEN_INPUT_MANIFEST" | awk '{print $1}')"
-
-vi "$PILOT_MEASUREMENT_EVIDENCE"
-python3 -m json.tool "$PILOT_MEASUREMENT_EVIDENCE" >/dev/null
-export PILOT_MEASUREMENT_EVIDENCE_SHA256="$(
-  sha256sum "$PILOT_MEASUREMENT_EVIDENCE" | awk '{print $1}'
-)"
-
-vi "$PILOT_APPROVAL"
-python3 -m json.tool "$PILOT_APPROVAL" >/dev/null
-
-python3 -m homology_cluster_benchmark authorize-array \
-  --attrition-policy "$ATTRITION_POLICY" \
-  --pilot-approval "$PILOT_APPROVAL" \
-  --pilot-completion-marker "$PILOT_COMPLETION_MARKER" \
-  --pilot-attrition-report "$PILOT_ATTRITION_REPORT" \
-  --pilot-run-dir "$PILOT_RUN_DIR" \
-  --pilot-task-context "$PILOT_TASK_CONTEXT" \
-  --pilot-measurement-evidence "$PILOT_MEASUREMENT_EVIDENCE" \
-  --frozen-input-manifest "$FROZEN_INPUT_MANIFEST" \
-  --framework-revision "$FRAMEWORK_REVISION" \
-  --uniprot-source-scope "$UNIPROT_SOURCE_SCOPE" \
-  --split-policy "$SPLIT_POLICY" \
-  --training-population "$TRAINING_POPULATION" \
-  --expected-mmseqs-version "$EXPECTED_MMSEQS_VERSION" \
-  --uniprot-release "$UNIPROT_RELEASE" \
-  --goa-release "$GOA_RELEASE" \
-  --ontology-release "$ONTOLOGY_RELEASE"
-```
-
-Populate the JSON fields with the calculated values above. In particular,
-`reviewed_attrition_policy_sha256` is `$REVIEWED_ATTRITION_POLICY_SHA256`; it is not the pilot
-report's `policy_sha256`. The latter identifies the software-generated, non-production measurement
-policy used to let the diagnostic pilot finish and cannot authorize the full array. The approval's
-other evidence hashes must use the corresponding calculated variables, and `approved` is changed
-to `true` only after manual review.
-
-The approval binds task 1/30%, successful marker hash, complete validated pilot publication,
-attrition report hash and scope/commit bindings, reviewed attrition-policy hash, task-context hash,
-measurement-evidence hash, pilot job/run IDs, commit, frozen manifest, scope, methodology, MMseqs2
-version, positive finite measurements, reviewer/date, and notes. Authorization reconstructs every
-pilot metric from its numerator and denominator, checks the recorded definitions/ratio, and
-requires the reviewed production limits to accept those observations. The marker, task context,
-and measurement evidence must all bind the same run ID. Template placeholders are rejected. The
-pilot never approves itself.
+Production authorization accepts reviewer-authored JSON documents through the
+CLI. Their schemas and required bindings are validated by `authorization.py`
+and `attrition.py`; no placeholder templates are included in the submission.
 
 ### 6. Preview the authorized six-task array
 
@@ -642,10 +577,8 @@ python3 -m homology_cluster_benchmark summarize \
 
 ```bash
 cd benchmark_builders/homology_cluster
-PYTHONPYCACHEPREFIX=/tmp/homology-cluster-pycache PYTHONPATH=src \
-  python3 -m unittest discover -s tests
-PYTHONPYCACHEPREFIX=/tmp/homology-cluster-pycache python3 -m compileall -q src tests
-ruff check --no-cache src tests
+PYTHONPYCACHEPREFIX=/tmp/homology-cluster-pycache python3 -m compileall -q src
+ruff check --no-cache src
 
 cd ../..
 bash -n scripts/benchmark_generation/run_homology_cluster_benchmark.sh \
@@ -654,9 +587,6 @@ bash -n scripts/benchmark_generation/run_homology_cluster_benchmark.sh \
   hpc_jobs/launchers/submit_homology_cluster_pilot.sh \
   hpc_jobs/launchers/submit_homology_cluster_array.sh
 ```
-
-Launcher tests use only a temporary fake `qsub` that records arguments and controlled return
-statuses. The real-MMseqs2 integration test skips explicitly when MMseqs2 is absent.
 
 ## Validation boundary and unresolved decisions
 

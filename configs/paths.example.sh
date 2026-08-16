@@ -50,7 +50,3 @@ export CONDA_EXE="${CONDA_EXE:-/share/apps/miniforge3_mamba/bin/conda}"
 # Root-level reproduction wrappers clone/reuse PFP here.
 export PFP_GIT_URL="${PFP_GIT_URL:-https://github.com/psipred/PFP.git}"
 export PFP_CLONE_DIR="${PFP_CLONE_DIR:-PFP}"
-
-# Scratch directory for verify_csv.sh. The script writes downloaded Zenodo CSVs,
-# generated split artefacts, and a patched temporary prepare_cafa3_data.py here.
-export VERIFY_CSV_WORKDIR="${VERIFY_CSV_WORKDIR:-$HOME/mmfp_csv_verify}"

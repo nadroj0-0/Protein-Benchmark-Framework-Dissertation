@@ -36,8 +36,8 @@ contracts before expensive training is launched.
 │   ├── reproduction/                      # Main PFP reproduction entrypoints
 │   ├── embeddings/                        # Embedding wrappers and FASTA builder
 │   ├── verification/                      # Shell and Python verification gates
-│   ├── data_acquisition/                  # HPC/raw database download and inspection helpers
-│   ├── diagnostics/                       # Environment probes and comparison diagnostics
+│   ├── data_acquisition/                  # Frozen database acquisition and validation
+│   ├── diagnostics/                       # Benchmark and model diagnostics
 │   ├── benchmark_generation/              # Reusable contemporary benchmark runner
 │   ├── validation/                        # Historical benchmark validation workflows
 │   └── model_execution/                   # Generic validated PFP prepare/train/eval layer
@@ -49,7 +49,6 @@ contracts before expensive training is launched.
 │   ├── cafa3.json                         # Default CAFA3 verification config
 │   ├── embedding_inventory.cafa3_published.json
 │   ├── embedding_inventory.contemporary.json
-│   ├── embedding_inventory.homology.example.json
 │   ├── artifact_paths.example.tsv         # Example machine-local artifact map
 │   └── paths.example.sh                   # Example local/HPC path configuration
 ```
@@ -60,8 +59,7 @@ the excluded paths.
 
 ## Persistent frozen inputs
 
-The persistent UCL project store is populated by the idempotent SAN acquisition
-workflow rather than the older `$HOME/protein_databases` downloader:
+Frozen inputs are populated by the idempotent acquisition workflow:
 
 ```bash
 bash scripts/data_acquisition/populate_san_frozen_inputs.sh --dry-run
@@ -74,8 +72,7 @@ under `/SAN/bioinf/bmpfp`. Downloads are resumable, release-guarded,
 checksum-checked where a trusted checksum is known, structurally validated,
 and accompanied by SHA-256/provenance sidecars. See
 [`scripts/data_acquisition/README.md`](scripts/data_acquisition/README.md) for
-profiles, storage estimates, verification modes, and the distinction from the
-legacy home-directory script.
+profiles, storage estimates, and verification modes.
 
 ## Portable artifact catalogue
 
@@ -137,8 +134,7 @@ python scripts/verification/inventory_embeddings.py \
 
 See [`embedding_inventory/README.md`](embedding_inventory/README.md) for the
 decision model, canonical CAFA3 configuration, output contract, alias format,
-integration tests, future temporal/homology commands, and scientific
-limitations.
+and scientific limitations.
 
 To exercise the planner against a completed contemporary benchmark and
 Zijian's real published cache on UCL Grid Engine:
@@ -189,8 +185,8 @@ variables include `PFP_DIR`, `CAFA_ASSESSMENT_DIR`, `CAFA3_RAW_DIR`,
 `MMFP_TORCH_INDEX_URL`, `MMFP_PYG_WHEEL_BASE`,
 `MMFP_SINGULARITY_DIR`, `MMFP_SINGULARITY_IMAGE`,
 `MMFP_SINGULARITY_VENV`, `MMFP_SINGULARITY_IMAGE_URI`,
-`PFP_GIT_URL`, `PFP_CLONE_DIR`, `PFP_EXTERNAL_DIR`, `PFP_DATA_DIR`,
-`DEPENDENCY_ENV`, and `VERIFY_CSV_WORKDIR`.
+`PFP_GIT_URL`, `PFP_CLONE_DIR`, `PFP_EXTERNAL_DIR`, `PFP_DATA_DIR`, and
+`DEPENDENCY_ENV`.
 
 ## Contemporary benchmark builder
 
@@ -216,22 +212,11 @@ named profiles, required frozen inputs, reports and QC gates.
 
 ## Quick start
 
-Run the lightest reproduction path first:
+Run the validated model execution layer in evaluation-only or fresh-training
+mode as described in `scripts/model_execution/README.md`:
 
 ``` bash
-bash scripts/reproduction/reproduce_eval_only.sh
-```
-
-Retrain using downloaded artefacts:
-
-``` bash
-bash scripts/reproduction/reproduce_retrain_eval.sh
-```
-
-Run the full embedding-generation workflow:
-
-``` bash
-bash scripts/reproduction/reproduce_embeddings_retrain_eval.sh
+bash scripts/model_execution/run_pfp_benchmark.sh --help
 ```
 
 Run the hardened full CAFA3 audit on the UCL cluster:
@@ -246,8 +231,8 @@ trains fresh checkpoints, evaluates them against the paper values, and copies
 back a compact provenance-rich report. See `hpc_jobs/README.md` for the exact
 contract and output layout.
 
-The final route clones/builds the upstream PFP environment before
-invoking `scripts/embeddings/generate_embeddings_run_all.sh`.
+The CAFA3 embedding-generation entrypoint is
+`scripts/reproduction/run_cafa3_full_from_scratch_reproduction.sh`.
 
 New `mmfp` environments use Python `3.9.23` and the package versions supplied
 by Zijian for the MMFP/PFP paper environment. Those versions are pinned
@@ -259,20 +244,6 @@ matches the installed PyTorch/CUDA build. An existing `mmfp` environment is
 reused without modification, but every active workflow validates the exact
 Python and supplied package versions, required imports, PyG binary compatibility,
 and `pip check` before proceeding.
-
-The official PyTorch 2.8 Linux wheels require glibc 2.28 or newer. Environment
-creation checks this before creating a partial environment and fails with a
-container-runtime instruction on older hosts such as CentOS 7; it never silently
-substitutes a different Python or PyTorch version.
-
-On the UCL CentOS 7 cluster, stop jobs that use `mmfp` and rebuild the compatible
-Singularity-backed entrypoint with:
-
-```bash
-REBUILD_MMFP=YES bash scripts/environment/rebuild_mmfp_singularity.sh
-```
-
-See `scripts/environment/README.md` for the runtime layout and validation notes.
 
 ## HPC jobs
 
@@ -286,11 +257,11 @@ wrappers should remain thin scheduler-facing launchers.
 
 ## Embedding-generation workflow
 
-`scripts/embeddings/generate_embeddings_run_all.sh` is a sub-orchestrator. It assumes:
+The current embedding entrypoints call the retained modality wrappers with:
 
 -   the upstream `PFP` repository has already been cloned;
 -   the required Python environment is active;
--   the current working directory is the upstream `PFP` repository root.
+-   generated outputs written outside this framework checkout.
 
 Pipeline stages:
 

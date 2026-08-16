@@ -140,11 +140,10 @@ nine payload reports written before it. It excludes itself and the subsequently
 written completion marker; `RUN_COMPLETE.json` records the output-manifest
 identity.
 
-## Development checks
+## Static checks
 
 ```bash
 cd benchmark_reuse_planner
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python -m unittest discover -s tests -v
-PYTHONPYCACHEPREFIX=/tmp/pfp-reuse-pycache python -m compileall -q src tests
-ruff check --no-cache src tests
+PYTHONPYCACHEPREFIX=/tmp/pfp-reuse-pycache python -m compileall -q src
+ruff check --no-cache src
 ```

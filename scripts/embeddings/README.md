@@ -5,23 +5,21 @@ upstream PFP embedding scripts. Run them from a PFP repository root with the
 framework paths supplied by the caller. PFP is treated as immutable upstream
 code.
 
-## Original CAFA3 path
+## CAFA3 path
 
-`generate_embeddings_run_all.sh` follows the published PFP README route. Its
-parallel mode runs ProtT5, text, and ESM-IF1 on three separate GPUs while STRING
-PPI extraction runs on CPU. The modality wrappers remain the reference path for
-the contemporary workflow:
+The current CAFA3 driver runs the retained modality wrappers while preserving
+the upstream PFP checkout:
 
 ```text
 generate_embeddings_sequence.sh
-generate_embeddings_text.sh
+generate_embeddings_text_temporal_cls.sh
 generate_embeddings_structure.sh
 generate_embeddings_ppi.sh
 ```
 
 For the hardened end-to-end historical experiment, use
 `scripts/reproduction/run_cafa3_full_from_scratch_reproduction.sh` through its
-HPC wrapper. That workflow still calls these modality wrappers, but adds the
+HPC wrapper. That workflow calls these modality wrappers and adds the
 current IF1/PPI compatibility copies, temporal CLS reduction, a reversible
 bounded preflight, exhaustive output validation, and comparison against the
 authenticated published cache before fresh training.
@@ -259,36 +257,6 @@ reports, failure history and source caches remain. Any earlier failure leaves
 both source embedding copies untouched. Archive extraction rejects traversal,
 links, duplicate members, unknown modality directories and unsafe filenames.
 
-### Same-node text and structure diagnostic
-
-`run_contemporary_embedding_reproducibility.sh` investigates a failed
-subset-equivalence gate without changing the cumulative state. For either
-`text` or `structure` it:
-
-1. deterministically selects 20 accepted controls, balanced across the global
-   training, validation and test splits;
-2. materializes their accepted arrays into disposable scratch;
-3. builds one shared control-only PFP input view;
-4. freezes and hashes one exact text TSV or set of AlphaFold PDB files;
-5. generates the controls twice as separate model invocations on the same GPU;
-6. compares repeat 1 with repeat 2 and both repeats with the baseline;
-7. records maximum/mean absolute difference, RMSE, L2 difference, relative
-   difference, cosine similarity, existing `allclose` status and exact equality.
-
-The corresponding HPC wrapper is pinned to `animal-206-2.local`, requests one
-GPU, verifies the assigned host at runtime, and publishes the reference and two
-small generated control caches with JSON, TSV and Markdown reports. It records
-GPU/driver/PyTorch settings and hashes the exact sources and inputs. Numerical
-differences are observations, not automatic failures; missing, malformed or
-non-finite control arrays remain hard integrity failures.
-
-There is deliberately no `merge` operation in this workflow. The experiment
-does not silently relax the production tolerance or alter accepted SAN arrays.
-Its repeat-to-repeat distribution provides the evidence needed for a later,
-explicit tolerance decision. Model weights or authenticated AlphaFold PDBs may
-be added to the state's non-scientific `source_cache`; the accepted-array
-ledger, coverage and benchmark contract are not changed.
-
 ### Reusing frozen dependencies
 
 Embedding workflows resolve static inputs in the same order as the rest of the
@@ -308,20 +276,16 @@ repeat downloads of large frozen files.
 
 ## Lightweight validation
 
-No network, model, or full-data access is needed for the focused contract
-tests:
+Shell syntax can be checked without network, model, or full-data access:
 
 ```bash
-python -m unittest discover -s scripts/embeddings/tests -v
 bash -n scripts/embeddings/run_contemporary_embedding_generation.sh
 bash -n scripts/embeddings/initialize_contemporary_embedding_state.sh
 bash -n scripts/embeddings/run_contemporary_embedding_retry.sh
-bash -n scripts/embeddings/run_contemporary_embedding_reproducibility.sh
 bash -n scripts/embeddings/generate_embeddings_structure.sh
 bash -n hpc_jobs/active/hpc_contemporary_embedding_generation.sh
 bash -n hpc_jobs/active/hpc_contemporary_embedding_state_initialize.sh
 bash -n hpc_jobs/active/hpc_contemporary_embedding_retry.sh
-bash -n hpc_jobs/active/hpc_contemporary_embedding_reproducibility.sh
 ```
 
 The HPC wrapper performs the real bounded preflight before the full run. It
@@ -363,11 +327,10 @@ Baseline hashes are taken while authenticating the published archive; retry
 hashes are taken from the cumulative state cache. Do not rerun initialization
 to upgrade an older state: its immutable contract correctly rejects a newer
 framework commit. After every retry job has finished, use
-`upgrade_embedding_state_evidence.sh --confirm-retries-finished` or its HPC
-wrapper. The dedicated operation re-authenticates the contracted archive and
-assembly report while preserving the contract and exact accepted-pair
-membership. This lets downstream model execution reject a correctly shaped but
-substituted array.
+`finalize_embedding_state.py --confirm-retries-finished`. Finalization upgrades
+the evidence hashes, re-authenticates the contracted archive and assembly
+report, and preserves the exact accepted-pair membership. This lets downstream
+model execution reject a correctly shaped but substituted array.
 
 The historical gate is tied to the published CAFA3 cache counts, not the older
 generic lower bounds:

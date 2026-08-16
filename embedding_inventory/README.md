@@ -223,40 +223,6 @@ only for the fixed STRING v12 published extractor identity. Missing, invalid,
 ambiguous, unavailable, and unknown-provenance cases all receive action
 `regenerate`; their detailed reasons remain auditable.
 
-Future homology benchmark uses the same executable and nine CSV interface:
-
-```bash
-python3 scripts/verification/inventory_embeddings.py \
-  --benchmark-dir "/path/to/homology/generated" \
-  --source-benchmark-dir "/path/to/cafa3_raw" \
-  --embedding-cache "/path/to/PFP_reference_clone/data/embedding_cache" \
-  --config configs/embedding_inventory.homology.example.json \
-  --policy maximize-coverage \
-  --report-level compact \
-  --output-dir "/path/to/results/homology_plan"
-```
-
-The command is unchanged for future nine-CSV benchmarks; the target contract
-and modality evidence config express the benchmark-specific scientific rules.
-The homology command checks global ID and exact-sequence separation, not cluster
-membership.
-
-## Tests
-
-```bash
-cd embedding_inventory
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
-```
-
-The opt-in real test defaults to a temporary output directory. Supply an
-explicit persistent archive only when reports should be retained:
-
-```bash
-PFP_RUN_REAL_INTEGRATION=1 \
-PFP_INVENTORY_REAL_OUTPUT_ROOT="/path/to/supplementary/results/run" \
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests/test_real_integration.py -v
-```
-
 Internal validation proves schema consistency, exact set/hash relations,
 array shape/finiteness, and the recorded artifact gate. It does not establish
 external biological correctness, cluster separation without assignments, or a

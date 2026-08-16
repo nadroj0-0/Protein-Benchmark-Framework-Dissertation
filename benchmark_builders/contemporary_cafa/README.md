@@ -299,18 +299,6 @@ Expected exclusions such as a valid post-`t0` GO term outside the frozen graph,
 an accession merge, a sequence change, or a `t1`-only protein are counted in the
 reports rather than silently discarded.
 
-## Tests
-
-```bash
-cd benchmark_builders/contemporary_cafa
-PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -v
-```
-
-The tests cover evidence/NOT filtering, backfill removal, `t0`-presence rules,
-`t0` sequence use, secondary-accession mapping, ambiguous merges, sequence
-changes, GO alternate/replacement IDs, all nine PFP CSVs, historical modes and
-byte-identical repeated fixture outputs.
-
 ## Historical modes
 
 These validated paths remain available and are intentionally separate from the

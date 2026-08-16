@@ -186,13 +186,3 @@ or model results. Those outputs belong under the corresponding
 `benchmarks/`, `embeddings/`, `models/`, and `runs/` SAN directories. Per-run
 AlphaFold downloads and model caches remain workflow-managed rather than being
 treated as frozen global inputs.
-
-## Historical home-directory acquisition
-
-`protein_database_download.sh` is retained unchanged as evidence of the older
-`$HOME/protein_databases` workflow used during initial investigation. It is not
-the SAN population entrypoint and should not be repurposed: changing it would
-erase the behavior that earlier logs and diary entries refer to.
-
-`inspect_protein_databases.sh` likewise describes that older home-directory
-layout.

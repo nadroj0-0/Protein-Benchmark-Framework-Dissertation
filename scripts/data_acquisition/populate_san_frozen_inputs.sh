@@ -1,9 +1,7 @@
 #!/bin/bash
 # Populate the dissertation SAN with authenticated, frozen public inputs.
 #
-# This is deliberately separate from protein_database_download.sh. That older
-# script documents the historical home-directory acquisition workflow; this
-# script owns the persistent /SAN/bioinf/bmpfp contract.
+# Canonical frozen-input acquisition for the submitted benchmark workflows.
 
 set -euo pipefail
 

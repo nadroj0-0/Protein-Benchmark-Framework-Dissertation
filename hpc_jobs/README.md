@@ -137,7 +137,6 @@ the framework, run a workflow, and copy results home.
 hpc_jobs/
 ├── active/    # Current qsub wrappers used for reproduction jobs
 ├── launchers/ # Reviewed dry-run/pilot/array launchers for guarded workflows
-├── tests/     # Scheduler-free tests for shared submission behavior
 ├── qsub_with_notifications.sh # Optional machine-local Grid Engine mail wrapper
 ├── examples/  # Scheduler examples/templates
 └── archive/   # Historical scripts kept for provenance
@@ -155,7 +154,6 @@ prints a warning and submits the original command normally without email.
 Use it anywhere that `qsub` would otherwise be used:
 
 ```bash
-hpc_jobs/qsub_with_notifications.sh hpc_jobs/active/hpc_reproduce_eval_only.sh
 hpc_jobs/qsub_with_notifications.sh -v PROFILE=supervisor \
   hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh
 ```
@@ -169,9 +167,6 @@ Submit active wrappers from the repository root or by giving `qsub` the
 full path:
 
 ```bash
-qsub hpc_jobs/active/hpc_reproduce_eval_only.sh
-qsub hpc_jobs/active/hpc_reproduce_retrain_eval.sh
-qsub hpc_jobs/active/hpc_reproduce_embeddings_retrain_eval.sh
 qsub hpc_jobs/active/hpc_cafa3_full_from_scratch_reproduction.sh
 qsub hpc_jobs/active/hpc_cafa3_deepgoplus_pickle_generation_validation.sh
 qsub hpc_jobs/active/hpc_cafa3_deepgoplus_validation.sh
@@ -500,25 +495,6 @@ arrays, merges valid successes into one SAN delta, publishes compact reports
 under `$HOME/contemporary_embedding_retry_results`, and always deletes its
 scratch directory. These commands are intentionally manual; the initializer
 does not submit retries automatically.
-
-If text or structure stops at the subset-equivalence gate, diagnose the
-numerical floor before retrying or changing tolerance:
-
-```bash
-qsub hpc_jobs/active/hpc_contemporary_embedding_reproducibility.sh \
-  --modality text
-qsub hpc_jobs/active/hpc_contemporary_embedding_reproducibility.sh \
-  --modality structure
-```
-
-These are independent diagnostic jobs. Both are pinned to
-`animal-206-2.local`, request one GPU, run the same 20 controls twice from one
-hashed input view, and write to
-`$HOME/contemporary_embedding_reproducibility_results`. They never merge into
-SAN retry state. Inspect `embedding_reproducibility.md`, the detailed TSV and
-`runtime_hardware.json` before deciding whether the production tolerance is too
-strict. The wrapper always copies compact evidence home and removes its owned
-scratch directory, including on failure.
 
 After a corrected full text-only archive has completed, replace the legacy
 text layer without regenerating it or editing the old final cache:
