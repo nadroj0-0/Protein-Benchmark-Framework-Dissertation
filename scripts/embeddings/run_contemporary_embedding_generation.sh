@@ -70,9 +70,9 @@ done
 [[ ! -e "$OUTPUT_DIR" ]] || die "Output directory already exists: $OUTPUT_DIR"
 command -v "$PYTHON_BIN" >/dev/null 2>&1 || die "Python not found: $PYTHON_BIN"
 PFP_ROOT="$(cd "$PFP_ROOT" && pwd)"
+verify_clean_pinned_git_checkout "$PFP_ROOT" "$MMFP_PFP_COMMIT" "PFP" || \
+  die "PFP checkout failed source authentication"
 observed_pfp_commit="$(git -C "$PFP_ROOT" rev-parse HEAD)"
-[[ "$observed_pfp_commit" == "$MMFP_PFP_COMMIT" ]] || \
-  die "PFP commit mismatch: expected $MMFP_PFP_COMMIT, found $observed_pfp_commit"
 artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 
 mkdir -p \

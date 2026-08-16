@@ -92,9 +92,9 @@ FULL_TEXT_SELECTION=$((REFRESH_ALL_TEXT || GENERATE_ALL_TEXT_ONLY))
 [[ ! -e "$OUTPUT_DIR" ]] || die "Output directory exists: $OUTPUT_DIR"
 
 PFP_ROOT="$(cd "$PFP_ROOT" && pwd)"
+verify_clean_pinned_git_checkout "$PFP_ROOT" "$MMFP_PFP_COMMIT" "PFP" || \
+  die "PFP checkout failed source authentication"
 pfp_commit="$(git_in_dir "$PFP_ROOT" rev-parse HEAD)"
-[[ "$pfp_commit" == "$MMFP_PFP_COMMIT" ]] || \
-  die "PFP commit mismatch: expected $MMFP_PFP_COMMIT, found $pfp_commit"
 export PFP_COMMIT="$pfp_commit"
 BENCHMARK_DIR="$(cd "$BENCHMARK_DIR" && pwd)"
 PLAN_DIR="$(cd "$PLAN_DIR" && pwd)"

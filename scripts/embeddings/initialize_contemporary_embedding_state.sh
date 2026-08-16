@@ -78,10 +78,10 @@ for path in \
   [[ -f "$path" ]] || die "Missing required input: $path"
 done
 
-expected_pfp_commit="1e04fd6d6d3c40458fd41ec1a881ed6e24de768e"
+PFP_ROOT="$(cd "$PFP_ROOT" && pwd)"
+verify_clean_pinned_git_checkout "$PFP_ROOT" "$MMFP_PFP_COMMIT" "PFP" || \
+  die "PFP checkout failed source authentication"
 pfp_commit="$(git_in_dir "$PFP_ROOT" rev-parse HEAD)"
-[[ "$pfp_commit" == "$expected_pfp_commit" ]] || \
-  die "PFP commit mismatch: expected $expected_pfp_commit, found $pfp_commit"
 
 CACHE_ROLE="$("$PYTHON_BIN" - "$BASELINE_ROOT" "$BASELINE_ARCHIVE" \
   "$BASELINE_REPORT" "$TEXT_CUTOFF_DATE" "$REUSE_TABLE" \
@@ -248,7 +248,6 @@ STATE_ROOT="$(cd "$STATE_ROOT" && pwd)"
 BENCHMARK_DIR="$(cd "$BENCHMARK_DIR" && pwd)"
 PLAN_DIR="$(cd "$PLAN_DIR" && pwd)"
 BASELINE_ROOT="$(cd "$BASELINE_ROOT" && pwd)"
-PFP_ROOT="$(cd "$PFP_ROOT" && pwd)"
 POLICY="$(cd "$(dirname "$POLICY")" && pwd)/$(basename "$POLICY")"
 
 validate_mmfp_env "$PYTHON_BIN" > "$OUTPUT_DIR/environment_validation.txt"

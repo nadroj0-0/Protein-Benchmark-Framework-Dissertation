@@ -61,11 +61,9 @@ if [ -n "${CAFA_ASSESSMENT_COMMIT}" ]; then
     exit 1
   }
   git_in_dir "${CAFA_ASSESSMENT_DIR}" checkout --detach "${CAFA_ASSESSMENT_COMMIT}"
+  verify_clean_pinned_git_checkout \
+    "${CAFA_ASSESSMENT_DIR}" "${CAFA_ASSESSMENT_COMMIT}" "CAFA Assessment Tool" || exit 1
   observed_cafa_commit="$(git_in_dir "${CAFA_ASSESSMENT_DIR}" rev-parse HEAD)"
-  if [[ "${observed_cafa_commit}" != "${CAFA_ASSESSMENT_COMMIT}" ]]; then
-    echo "CAFA assessment commit mismatch: ${observed_cafa_commit}" >&2
-    exit 1
-  fi
   echo "==> Pinned CAFA_assessment_tool: ${observed_cafa_commit}"
 fi
 # --- 1b. Stage the CAFA3-era GO ontology expected at data/go.obo -------

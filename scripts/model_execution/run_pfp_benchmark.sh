@@ -5,6 +5,8 @@ export PYTHONDONTWRITEBYTECODE=1
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRAMEWORK_ROOT="$(cd "$HERE/../.." && pwd)"
+# shellcheck source=../reproduction_common.sh
+source "$FRAMEWORK_ROOT/scripts/reproduction_common.sh"
 PYTHON_BIN="${PYTHON_BIN:-$(command -v python3 || command -v python || true)}"
 [[ -n "$PYTHON_BIN" ]] || { echo "ERROR: Python is required" >&2; exit 2; }
 
@@ -118,19 +120,9 @@ fi
 [[ -f "$OBO_FILE" ]] || die "GO OBO file does not exist: $OBO_FILE"
 [[ -f "$PFP_ROOT/train.py" && -f "$PFP_ROOT/scripts/prepare_cafa3_data.py" ]] || \
   die "PFP root is not a compatible checkout: $PFP_ROOT"
-git -C "$PFP_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || \
-  die "PFP root must be the pinned Git checkout"
+verify_clean_pinned_git_checkout "$PFP_ROOT" "$EXPECTED_PFP_COMMIT" "PFP" || \
+  die "PFP checkout failed source authentication"
 OBSERVED_PFP_COMMIT="$(git -C "$PFP_ROOT" rev-parse HEAD)"
-[[ "$OBSERVED_PFP_COMMIT" == "$EXPECTED_PFP_COMMIT" ]] || \
-  die "PFP commit mismatch: expected $EXPECTED_PFP_COMMIT, found $OBSERVED_PFP_COMMIT"
-[[ -z "$(git -C "$PFP_ROOT" status --porcelain --untracked-files=no)" ]] || \
-  die "PFP has tracked modifications; use an immutable checkout"
-while IFS= read -r untracked; do
-  case "$untracked" in
-    *.py|*.pyc|*.pyo|*.so|*.pth|*.egg-info/*)
-      die "PFP contains an untracked executable/importable file: $untracked" ;;
-  esac
-done < <(git -C "$PFP_ROOT" ls-files --others --exclude-standard)
 [[ -f "$CONFIG" ]] || die "Run config does not exist: $CONFIG"
 if [[ -n "$IA_FILE_DIR" ]]; then
   [[ -d "$IA_FILE_DIR" ]] || die "IA file directory does not exist: $IA_FILE_DIR"

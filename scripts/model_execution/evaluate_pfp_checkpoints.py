@@ -7,6 +7,7 @@ import argparse
 import json
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -34,6 +35,48 @@ from prediction_artifacts import (
     EvaluationArrayCapture,
     publish_prediction_artifacts,
 )
+
+PFP_COMMIT = "1e04fd6d6d3c40458fd41ec1a881ed6e24de768e"
+IMPORTABLE_SUFFIXES = {".py", ".pyc", ".pyo", ".so", ".pth"}
+
+
+def git_output(root: Path, *arguments: str) -> str:
+    try:
+        result = subprocess.run(
+            ("git", "-C", str(root), *arguments),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as exc:
+        raise ValueError("Git is required to authenticate the PFP checkout") from exc
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise ValueError(f"Cannot authenticate PFP checkout: {detail}")
+    return result.stdout.strip()
+
+
+def authenticate_pfp_checkout(root: Path) -> str:
+    top_level = Path(git_output(root, "rev-parse", "--show-toplevel")).resolve()
+    if top_level != root:
+        raise ValueError("PFP root is not the Git checkout root")
+    observed_commit = git_output(root, "rev-parse", "HEAD")
+    if observed_commit != PFP_COMMIT:
+        raise ValueError(
+            f"PFP commit mismatch: expected {PFP_COMMIT}, found {observed_commit}"
+        )
+    if git_output(root, "status", "--porcelain", "--untracked-files=no"):
+        raise ValueError("PFP has tracked modifications; use an immutable checkout")
+    untracked = git_output(root, "ls-files", "--others", "--exclude-standard")
+    for name in untracked.splitlines():
+        path = Path(name)
+        if (
+            (root / path).stat().st_mode & 0o111
+            or path.suffix in IMPORTABLE_SUFFIXES
+            or any(part.endswith(".egg-info") for part in path.parts)
+        ):
+            raise ValueError(f"PFP contains untracked executable/importable code: {name}")
+    return observed_commit
 
 
 def strict_cafa_runner(
@@ -111,12 +154,13 @@ def main() -> int:
         ),
     )
     args = parser.parse_args()
-    if args.pfp_commit != "1e04fd6d6d3c40458fd41ec1a881ed6e24de768e":
+    if args.pfp_commit != PFP_COMMIT:
         raise ValueError("Evaluation requires the submitted PFP revision")
 
     pfp_root = args.pfp_root.resolve()
     if not (pfp_root / "mmfp" / "dataset.py").is_file():
         raise FileNotFoundError(f"Not a PFP checkout: {pfp_root}")
+    pfp_commit = authenticate_pfp_checkout(pfp_root)
     if not args.obo_file.is_file():
         raise FileNotFoundError(f"GO OBO file is missing: {args.obo_file}")
     sys.path.insert(0, str(pfp_root))
@@ -149,7 +193,7 @@ def main() -> int:
             )
         prediction_destination.parent.mkdir(parents=True, exist_ok=True)
         required_provenance = {
-            "--pfp-commit": args.pfp_commit,
+            "--pfp-commit": pfp_commit,
             "--preparation-report": args.preparation_report,
             "--embedding-report": args.embedding_report,
         }
@@ -161,10 +205,8 @@ def main() -> int:
                 "Prediction capture requires provenance arguments: "
                 + ", ".join(missing_provenance)
             )
-        if not isinstance(args.pfp_commit, str) or re.fullmatch(
-            r"[0-9a-f]{40}", args.pfp_commit
-        ) is None:
-            raise ValueError("--pfp-commit must be a 40-character lowercase git commit")
+        if re.fullmatch(r"[0-9a-f]{40}", pfp_commit) is None:
+            raise ValueError("Observed PFP commit is not a full lowercase Git revision")
         assert args.preparation_report is not None
         assert args.embedding_report is not None
         preparation, preparation_snapshot = load_passed_report(
@@ -234,7 +276,7 @@ def main() -> int:
             },
             "provenance": {
                 "framework_commit": args.framework_commit or "unknown",
-                "pfp_commit": args.pfp_commit,
+                "pfp_commit": pfp_commit,
                 "benchmark_fingerprint": benchmark_fingerprint,
                 "source_csv_sha256": preparation.get("source_csv_sha256", {}),
                 "preparation_report": copied_reports["preparation_report.json"],

@@ -7,6 +7,45 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/artifact_catalog.sh"
 readonly MMFP_PFP_COMMIT="1e04fd6d6d3c40458fd41ec1a881ed6e24de768e"
 readonly MMFP_CAFA_ASSESSMENT_COMMIT="d72f0a5abb66d3224bd808e2015b55f1c9d18340"
 
+verify_clean_pinned_git_checkout() {
+  local directory="$1"
+  local expected_commit="$2"
+  local label="$3"
+  local top_level=""
+  local observed_commit=""
+  local untracked=""
+
+  top_level="$(git -C "$directory" rev-parse --show-toplevel 2>/dev/null)" || {
+    echo "$label must be a Git checkout: $directory" >&2
+    return 1
+  }
+  [[ "$(cd "$top_level" && pwd -P)" == "$(cd "$directory" && pwd -P)" ]] || {
+    echo "$label root is not the checkout root: $directory" >&2
+    return 1
+  }
+  observed_commit="$(git -C "$directory" rev-parse HEAD)"
+  [[ "$observed_commit" == "$expected_commit" ]] || {
+    echo "$label commit mismatch: expected $expected_commit, found $observed_commit" >&2
+    return 1
+  }
+  [[ -z "$(git -C "$directory" status --porcelain --untracked-files=no)" ]] || {
+    echo "$label has tracked modifications; use an immutable checkout" >&2
+    return 1
+  }
+  while IFS= read -r untracked; do
+    if [[ -x "$directory/$untracked" ]]; then
+      echo "$label contains untracked executable/importable code: $untracked" >&2
+      return 1
+    fi
+    case "$untracked" in
+      *.py|*.pyc|*.pyo|*.so|*.pth|*.egg-info/*)
+        echo "$label contains untracked executable/importable code: $untracked" >&2
+        return 1
+        ;;
+    esac
+  done < <(git -C "$directory" ls-files --others --exclude-standard)
+}
+
 load_framework_paths() {
   local framework_root="$1"
   if [ -f "${framework_root}/configs/paths.local.sh" ]; then
