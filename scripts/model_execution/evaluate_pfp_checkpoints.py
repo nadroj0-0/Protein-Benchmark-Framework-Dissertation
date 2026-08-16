@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -56,6 +58,21 @@ def git_output(root: Path, *arguments: str) -> str:
     return result.stdout.strip()
 
 
+def git_bytes(root: Path, *arguments: str) -> bytes:
+    try:
+        result = subprocess.run(
+            ("git", "-C", str(root), *arguments),
+            check=False,
+            capture_output=True,
+        )
+    except FileNotFoundError as exc:
+        raise ValueError("Git is required to authenticate the PFP checkout") from exc
+    if result.returncode != 0:
+        detail = os.fsdecode(result.stderr).strip() or os.fsdecode(result.stdout).strip()
+        raise ValueError(f"Cannot authenticate PFP checkout: {detail}")
+    return result.stdout
+
+
 def authenticate_pfp_checkout(root: Path) -> str:
     top_level = Path(git_output(root, "rev-parse", "--show-toplevel")).resolve()
     if top_level != root:
@@ -67,11 +84,23 @@ def authenticate_pfp_checkout(root: Path) -> str:
         )
     if git_output(root, "status", "--porcelain", "--untracked-files=no"):
         raise ValueError("PFP has tracked modifications; use an immutable checkout")
-    untracked = git_output(root, "ls-files", "--others", "--exclude-standard")
-    for name in untracked.splitlines():
+    untracked = git_bytes(root, "ls-files", "--others", "-z", "--")
+    for encoded_name in untracked.split(b"\0"):
+        if not encoded_name:
+            continue
+        name = os.fsdecode(encoded_name)
         path = Path(name)
+        candidate = root / path
+        try:
+            mode = candidate.stat().st_mode
+        except OSError as exc:
+            raise ValueError(
+                f"PFP untracked path changed during authentication: {name}"
+            ) from exc
+        if stat.S_ISDIR(mode):
+            raise ValueError(f"PFP contains an untracked nested directory: {name}")
         if (
-            (root / path).stat().st_mode & 0o111
+            (stat.S_ISREG(mode) and mode & 0o111)
             or path.suffix in IMPORTABLE_SUFFIXES
             or any(part.endswith(".egg-info") for part in path.parts)
         ):
@@ -163,6 +192,7 @@ def main() -> int:
     pfp_commit = authenticate_pfp_checkout(pfp_root)
     if not args.obo_file.is_file():
         raise FileNotFoundError(f"GO OBO file is missing: {args.obo_file}")
+    sys.dont_write_bytecode = True
     sys.path.insert(0, str(pfp_root))
     from mmfp.dataset import MultiModalDataset, collate_fn  # noqa: E402
     import mmfp.evaluation as pfp_evaluation  # noqa: E402

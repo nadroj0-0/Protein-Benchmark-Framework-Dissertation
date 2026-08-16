@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Shared shell helpers for the root-level PFP reproduction wrappers.
 
+export PYTHONDONTWRITEBYTECODE=1
+
 # shellcheck disable=SC1091
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/artifact_catalog.sh"
 
@@ -13,7 +15,9 @@ verify_clean_pinned_git_checkout() {
   local label="$3"
   local top_level=""
   local observed_commit=""
+  local tracked_status=""
   local untracked=""
+  local candidate=""
 
   top_level="$(git -C "$directory" rev-parse --show-toplevel 2>/dev/null)" || {
     echo "$label must be a Git checkout: $directory" >&2
@@ -28,22 +32,42 @@ verify_clean_pinned_git_checkout() {
     echo "$label commit mismatch: expected $expected_commit, found $observed_commit" >&2
     return 1
   }
-  [[ -z "$(git -C "$directory" status --porcelain --untracked-files=no)" ]] || {
+  tracked_status="$(git -C "$directory" status --porcelain --untracked-files=no)" || {
+    echo "$label tracked-file authentication failed" >&2
+    return 1
+  }
+  [[ -z "$tracked_status" ]] || {
     echo "$label has tracked modifications; use an immutable checkout" >&2
     return 1
   }
-  while IFS= read -r untracked; do
-    if [[ -x "$directory/$untracked" ]]; then
-      echo "$label contains untracked executable/importable code: $untracked" >&2
-      return 1
-    fi
-    case "$untracked" in
-      *.py|*.pyc|*.pyo|*.so|*.pth|*.egg-info/*)
-        echo "$label contains untracked executable/importable code: $untracked" >&2
-        return 1
-        ;;
-    esac
-  done < <(git -C "$directory" ls-files --others --exclude-standard)
+  if ! (
+    set -o pipefail
+    git -C "$directory" ls-files --others -z -- |
+      while IFS= read -r -d '' untracked; do
+        candidate="$directory/$untracked"
+        if [[ ! -e "$candidate" && ! -L "$candidate" ]]; then
+          echo "$label untracked path changed during authentication: $untracked" >&2
+          exit 1
+        fi
+        if [[ -d "$candidate" ]]; then
+          echo "$label contains an untracked nested directory or checkout: $untracked" >&2
+          exit 1
+        fi
+        if [[ -f "$candidate" && -x "$candidate" ]]; then
+          echo "$label contains untracked executable/importable code: $untracked" >&2
+          exit 1
+        fi
+        case "$untracked" in
+          *.py|*.pyc|*.pyo|*.so|*.pth|*.egg-info|*.egg-info/*)
+            echo "$label contains untracked executable/importable code: $untracked" >&2
+            exit 1
+            ;;
+        esac
+      done
+  ); then
+    echo "$label untracked-file authentication failed" >&2
+    return 1
+  fi
 }
 
 load_framework_paths() {

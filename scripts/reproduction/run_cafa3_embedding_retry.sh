@@ -70,7 +70,6 @@ while [[ $# -gt 0 ]]; do
 done
 artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 
-[[ -d "$PFP_ROOT/.git" ]] || die "PFP root is not a Git checkout: $PFP_ROOT"
 [[ -n "$WORK_DIR" ]] || die "--work-dir is required"
 [[ -n "$OUTPUT_DIR" ]] || die "--output-dir is required"
 [[ -n "$EMBEDDING_STATE_ROOT" ]] || die "--embedding-state-root is required"

@@ -58,7 +58,6 @@ done
 [[ -d "$PLAN_DIR" ]] || die "Missing reuse plan: $PLAN_DIR"
 [[ -d "$BASELINE_ROOT" ]] || die "Missing baseline root: $BASELINE_ROOT"
 [[ -n "$STATE_ROOT" ]] || die "--state-root is required"
-[[ -d "$PFP_ROOT/.git" ]] || die "PFP root is not a Git checkout: $PFP_ROOT"
 [[ -n "$OUTPUT_DIR" ]] || die "--output-dir is required"
 [[ "$TEXT_CUTOFF_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || \
   die "Invalid text cutoff date: $TEXT_CUTOFF_DATE"

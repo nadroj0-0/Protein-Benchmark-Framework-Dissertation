@@ -444,8 +444,11 @@ done
 
 echo "==> [4/7] Extract the authenticated published cache in work space"
 if [[ -n "$PFP_REFERENCE_DIR" ]]; then
-  [[ -d "${PFP_REFERENCE_DIR}/.git" ]] || \
-    die "PFP reference directory is not a Git clone: $PFP_REFERENCE_DIR"
+  PFP_REFERENCE_DIR="$(cd "$PFP_REFERENCE_DIR" && pwd -P)"
+  pfp_reference_top="$(git -C "$PFP_REFERENCE_DIR" rev-parse --show-toplevel 2>/dev/null)" || \
+    die "PFP reference directory is not a Git checkout: $PFP_REFERENCE_DIR"
+  [[ "$(cd "$pfp_reference_top" && pwd -P)" == "$(cd "$PFP_REFERENCE_DIR" && pwd -P)" ]] || \
+    die "PFP reference directory is not the checkout root: $PFP_REFERENCE_DIR"
   git clone --no-checkout "$PFP_REFERENCE_DIR" "$PUBLISHED_ROOT"
   PFP_REFERENCE_ORIGIN="$PFP_REFERENCE_DIR"
 else

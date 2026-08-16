@@ -61,7 +61,6 @@ done
 
 [[ -d "$TARGET_BENCHMARK_DIR" ]] || die "Missing target benchmark: $TARGET_BENCHMARK_DIR"
 [[ -d "$REUSE_PLAN_DIR" ]] || die "Missing reuse plan: $REUSE_PLAN_DIR"
-[[ -d "$PFP_ROOT/.git" ]] || die "PFP root is not a Git checkout: $PFP_ROOT"
 [[ -n "$WORK_DIR" ]] || die "--work-dir is required"
 [[ -n "$OUTPUT_DIR" ]] || die "--output-dir is required"
 [[ "$TEXT_CUTOFF_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || \
@@ -73,6 +72,7 @@ PFP_ROOT="$(cd "$PFP_ROOT" && pwd)"
 verify_clean_pinned_git_checkout "$PFP_ROOT" "$MMFP_PFP_COMMIT" "PFP" || \
   die "PFP checkout failed source authentication"
 observed_pfp_commit="$(git -C "$PFP_ROOT" rev-parse HEAD)"
+export PFP_COMMIT="$observed_pfp_commit"
 artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 
 mkdir -p \

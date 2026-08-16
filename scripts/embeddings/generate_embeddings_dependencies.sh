@@ -1,7 +1,9 @@
 #!/bin/bash
 # generate_embeddings_dependencies.sh
-# Downloads ALL external resources for from-scratch embedding generation into
-# PFP/external/, and writes external/dependency_env.sh with the env-var exports.
+# Downloads external resources for from-scratch embedding generation and writes
+# PFP/external/dependency_env.sh with the env-var exports. The separately pinned
+# CAFA Assessment Tool checkout defaults outside PFP so it cannot contaminate
+# PFP source authentication.
 # Run from the PFP repo root.
 set -euo pipefail
 
@@ -17,11 +19,13 @@ source "${REPO_ROOT}/scripts/reproduction_common.sh"
 artifact_catalog_configure "${REPO_ROOT}" "${ARTIFACT_CATALOG:-}"
 
 PFP_ROOT="${PFP_ROOT:-$(pwd)}"
+PFP_ROOT="$(cd "$PFP_ROOT" && pwd -P)"
+verify_clean_pinned_git_checkout "$PFP_ROOT" "$MMFP_PFP_COMMIT" "PFP" || exit 1
 EXT="${PFP_EXTERNAL_DIR:-${PFP_ROOT}/external}"
 DATA_DIR="${PFP_DATA_DIR:-${PFP_ROOT}/data}"
 DEPENDENCY_ENV="${DEPENDENCY_ENV:-${EXT}/dependency_env.sh}"
 CAFA_ASSESSMENT_REPO_URL="${CAFA_ASSESSMENT_REPO_URL:-https://github.com/ashleyzhou972/CAFA_assessment_tool.git}"
-CAFA_ASSESSMENT_DIR="${CAFA_ASSESSMENT_DIR:-${EXT}/CAFA_assessment_tool}"
+CAFA_ASSESSMENT_DIR="${CAFA_ASSESSMENT_DIR:-$(dirname "$PFP_ROOT")/CAFA_assessment_tool}"
 CAFA_ASSESSMENT_COMMIT="$MMFP_CAFA_ASSESSMENT_COMMIT"
 PFP_CAFA3_RAW_DIR="${PFP_CAFA3_RAW_DIR:-${EXT}/cafa3_raw}"
 PFP_STRING_DIR="${PFP_STRING_DIR:-${EXT}/string}"
@@ -29,6 +33,28 @@ CAFA3_BASE="${CAFA3_BASE:-https://zenodo.org/records/7409660/files}"
 STRING_DOWNLOAD_BASE="${STRING_DOWNLOAD_BASE:-https://stringdb-downloads.org/download}"
 CAFA3_SOURCE_DIR="${CAFA3_SOURCE_DIR:-}"
 EMBEDDING_DEPENDENCY_PROFILE="${EMBEDDING_DEPENDENCY_PROFILE:-all}"
+CAFA_ASSESSMENT_NAME="$(basename "$CAFA_ASSESSMENT_DIR")"
+[[ -n "$CAFA_ASSESSMENT_NAME" && "$CAFA_ASSESSMENT_NAME" != "." && \
+   "$CAFA_ASSESSMENT_NAME" != ".." ]] || {
+  echo "Invalid CAFA Assessment Tool destination: ${CAFA_ASSESSMENT_DIR}" >&2
+  exit 1
+}
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+command -v "$PYTHON_BIN" >/dev/null 2>&1 || {
+  echo "Python is required to resolve the CAFA Assessment Tool destination" >&2
+  exit 1
+}
+CAFA_ASSESSMENT_DIR="$(
+  "$PYTHON_BIN" -c \
+    'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve(strict=False))' \
+    "$CAFA_ASSESSMENT_DIR"
+)"
+case "$CAFA_ASSESSMENT_DIR/" in
+  "$PFP_ROOT/"|"$PFP_ROOT/"*)
+    echo "CAFA Assessment Tool must be outside the authenticated PFP checkout" >&2
+    exit 1
+    ;;
+esac
 case "${EMBEDDING_DEPENDENCY_PROFILE}" in
   all|sequence|text|structure|ppi) ;;
   *)
@@ -56,8 +82,13 @@ else
   echo "==> CAFA_assessment_tool already present, skipping"
 fi
 if [ -n "${CAFA_ASSESSMENT_COMMIT}" ]; then
-  [ -d "${CAFA_ASSESSMENT_DIR}/.git" ] || {
-    echo "Cannot pin non-Git CAFA assessment directory: ${CAFA_ASSESSMENT_DIR}" >&2
+  CAFA_ASSESSMENT_DIR="$(cd "${CAFA_ASSESSMENT_DIR}" && pwd -P)"
+  cafa_top_level="$(git -C "${CAFA_ASSESSMENT_DIR}" rev-parse --show-toplevel 2>/dev/null)" || {
+    echo "CAFA Assessment Tool must be a Git checkout: ${CAFA_ASSESSMENT_DIR}" >&2
+    exit 1
+  }
+  [[ "$(cd "$cafa_top_level" && pwd -P)" == "$CAFA_ASSESSMENT_DIR" ]] || {
+    echo "CAFA Assessment Tool root is not the checkout root: ${CAFA_ASSESSMENT_DIR}" >&2
     exit 1
   }
   git_in_dir "${CAFA_ASSESSMENT_DIR}" checkout --detach "${CAFA_ASSESSMENT_COMMIT}"

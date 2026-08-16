@@ -13,6 +13,7 @@
 export PFP_DIR="${PFP_DIR:-$HOME/PFP}"
 
 # CAFA assessment tool used by the original evaluation/embedding workflow.
+# Keep this checkout outside PFP so PFP source authentication remains isolated.
 export CAFA_ASSESSMENT_DIR="${CAFA_ASSESSMENT_DIR:-$HOME/CAFA_assessment_tool}"
 
 # Canonical nine CAFA3 CSVs used to prepare PFP-compatible splits.

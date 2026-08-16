@@ -47,7 +47,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -d "$PFP_ROOT/.git" ]] || die "PFP root is not a Git checkout: $PFP_ROOT"
 [[ -d "$BENCHMARK_DIR" ]] || die "Missing benchmark: $BENCHMARK_DIR"
 [[ -d "$LEDGER_DIR" ]] || die "Missing source-resolved ledger: $LEDGER_DIR"
 [[ -f "$POLICY" ]] || die "Missing embedding policy: $POLICY"
@@ -55,6 +54,13 @@ command -v "$PYTHON_BIN" >/dev/null 2>&1 || die "Python not found: $PYTHON_BIN"
 [[ -n "$WORK_DIR" && ! -e "$WORK_DIR" ]] || die "Work directory is missing or exists"
 [[ -n "$OUTPUT_DIR" && ! -e "$OUTPUT_DIR" ]] || die "Output directory is missing or exists"
 case "$MODALITY" in sequence|text|structure|ppi) ;; *) die "Invalid modality: $MODALITY" ;; esac
+
+PFP_ROOT="$(cd "$PFP_ROOT" && pwd)"
+verify_clean_pinned_git_checkout "$PFP_ROOT" "$MMFP_PFP_COMMIT" "PFP" || \
+  die "PFP checkout failed source authentication"
+observed_pfp_commit="$(git -C "$PFP_ROOT" rev-parse HEAD)"
+artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
+
 required_text_cutoff="$("$PYTHON_BIN" - "$POLICY" <<'PY'
 import json
 import sys
@@ -82,11 +88,6 @@ if [[ "$MODALITY" == "text" && -n "$required_text_cutoff" ]]; then
 fi
 [[ "$PREFLIGHT_PER_SPLIT" =~ ^[1-9][0-9]*$ ]] || die "PREFLIGHT_PER_SPLIT must be positive"
 
-PFP_ROOT="$(cd "$PFP_ROOT" && pwd)"
-verify_clean_pinned_git_checkout "$PFP_ROOT" "$MMFP_PFP_COMMIT" "PFP" || \
-  die "PFP checkout failed source authentication"
-observed_pfp_commit="$(git -C "$PFP_ROOT" rev-parse HEAD)"
-artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 mkdir -p "$WORK_DIR" "$OUTPUT_DIR/logs" "$OUTPUT_DIR/reports" "$OUTPUT_DIR/artifacts"
 WORK_DIR="$(cd "$WORK_DIR" && pwd)"
 OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
