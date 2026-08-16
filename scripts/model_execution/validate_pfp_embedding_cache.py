@@ -219,11 +219,16 @@ def main() -> int:
         evidence_contract = json.loads(
             args.composition_base_evidence_policy.read_text(encoding="utf-8")
         )
-        if evidence_contract != {
-            "schema_version": 1,
-            "required": True,
-            "cache_role": "composition-base-only",
-        }:
+        if (
+            not isinstance(evidence_contract, dict)
+            or set(evidence_contract)
+            != {"schema_version", "required", "cache_role"}
+            or type(evidence_contract["schema_version"]) is not int
+            or evidence_contract["schema_version"] != 1
+            or evidence_contract["required"] is not True
+            or type(evidence_contract["cache_role"]) is not str
+            or evidence_contract["cache_role"] != "composition-base-only"
+        ):
             raise ValueError("Invalid composition-base evidence policy")
     cache_root = args.cache_root.resolve()
     directories = modality_paths(cache_root, config)

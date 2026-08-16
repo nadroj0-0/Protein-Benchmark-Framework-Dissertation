@@ -142,7 +142,8 @@ def build_final_evidence(
     archive_name: str,
     archive_report: dict,
 ) -> dict:
-    source_contract = load_json(source_state / "contract.json")
+    source_contract_path = source_state / "contract.json"
+    source_contract = load_json(source_contract_path)
     source_coverage = load_json(source_state / "coverage.json")
     source_contract_hash = source_contract.get("contract_sha256")
     if not isinstance(source_contract_hash, str):
@@ -174,12 +175,14 @@ def build_final_evidence(
     final_coverage["finalized_archive_sha256"] = archive_report["archive_sha256"]
 
     evidence_dir.mkdir(parents=True, exist_ok=False)
+    shutil.copy2(source_contract_path, evidence_dir / "source_state_contract.json")
     atomic_write_json(evidence_dir / "contract.json", final_contract)
     atomic_write_json(evidence_dir / "coverage.json", final_coverage)
     shutil.copy2(source_state / "targets.tsv", evidence_dir / "targets.tsv")
     shutil.copy2(source_state / "pair_status.tsv", evidence_dir / "pair_status.tsv")
     return {
         "source_contract_sha256": source_contract_hash,
+        "source_contract_file_sha256": sha256_file(source_contract_path),
         "final_contract_sha256": final_contract["contract_sha256"],
         "accepted_counts": accepted_counts(evidence_dir / "pair_status.tsv"),
         "embedding_gate_passed": bool(final_coverage.get("embedding_gate_passed")),
@@ -522,6 +525,9 @@ def main() -> int:
             "missing_nonsequence_policy": "PFP native zero-vector plus availability mask",
             "embedding_gate_passed": evidence_summary["embedding_gate_passed"],
             "source_contract_sha256": evidence_summary["source_contract_sha256"],
+            "source_contract_file_sha256": evidence_summary[
+                "source_contract_file_sha256"
+            ],
             "final_contract_sha256": evidence_summary["final_contract_sha256"],
         }
         if args.composition_base_evidence_policy is not None:

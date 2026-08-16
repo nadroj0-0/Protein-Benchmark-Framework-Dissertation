@@ -176,10 +176,16 @@ required_text = {
     "state_modified": False,
 }
 for key, expected in required_composition.items():
-    if composition.get(key) != expected:
+    observed = composition.get(key)
+    if (type(expected) is bool and observed is not expected) or (
+        type(expected) is not bool and observed != expected
+    ):
         raise SystemExit(f"Composition evidence mismatch for {key}")
 for key, expected in required_text.items():
-    if text.get(key) != expected:
+    observed = text.get(key)
+    if (type(expected) is bool and observed is not expected) or (
+        type(expected) is not bool and observed != expected
+    ):
         raise SystemExit(f"Text-generation evidence mismatch for {key}")
 if composition.get("combined_archive_sha256") != sha256(archive):
     raise SystemExit("Composition evidence does not authenticate the baseline archive")
@@ -198,7 +204,7 @@ for label, value in (
     if type(value) is not int or value != len(targets):
         raise SystemExit(f"{label} target count differs from the planner population")
 
-source_contract_path = root / "provenance" / "contract.json"
+source_contract_path = root / "provenance" / "source_state_contract.json"
 if not source_contract_path.is_file() or source_contract_path.is_symlink():
     raise SystemExit("Corrected baseline lacks a safe source-state contract")
 source_contract_sha = require_sha256(
@@ -219,7 +225,9 @@ if source_contract.get("pfp_commit") != expected_pfp_commit:
     raise SystemExit("Source-state contract has the wrong PFP commit")
 source_targets = source_contract.get("targets", {})
 if (
-    source_targets.get("count") != len(targets)
+    not isinstance(source_targets, dict)
+    or type(source_targets.get("count")) is not int
+    or source_targets.get("count") != len(targets)
     or source_targets.get("manifest_sha256") != target_manifest_sha256
 ):
     raise SystemExit("Source-state contract targets differ from the planner population")

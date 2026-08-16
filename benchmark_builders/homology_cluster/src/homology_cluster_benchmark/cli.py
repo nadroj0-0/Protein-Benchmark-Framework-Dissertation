@@ -49,7 +49,11 @@ def _parser() -> argparse.ArgumentParser:
         description="Build a frozen UniRef/MMseqs2 whole-cluster PFP benchmark",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    build = subparsers.add_parser("build", help="Build one or all locked identity thresholds")
+    build = subparsers.add_parser(
+        "build",
+        help="Build one or all locked identity thresholds",
+        allow_abbrev=False,
+    )
     build.add_argument(
         "--identity", action="append", default=[], metavar="{30,25,20,15,10,5,all}",
         help="Locked identity percentage; repeat or use 'all'",

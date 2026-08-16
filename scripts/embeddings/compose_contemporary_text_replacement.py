@@ -163,6 +163,13 @@ def compose(args: argparse.Namespace) -> dict:
     base_archive_sha256 = require_archive_hash(
         base_archive, base_marker.get("archive_sha256"), "Base archive"
     )
+    source_state_contract = args.base_final_root / "evidence/source_state_contract.json"
+    if source_state_contract.is_symlink() or not source_state_contract.is_file():
+        raise ValueError("Base final evidence lacks a safe source-state contract")
+    if sha256_file(source_state_contract) != base_marker.get(
+        "source_contract_file_sha256"
+    ):
+        raise ValueError("Base marker does not authenticate the source-state contract")
 
     replacement_marker_path = args.replacement_run_root / "TEXT_GENERATION_COMPLETE.json"
     replacement_marker = load_json(replacement_marker_path)
@@ -276,12 +283,14 @@ def compose(args: argparse.Namespace) -> dict:
         for name in (
             "CACHE_ARCHIVE_VALIDATED.json",
             "evidence/contract.json",
+            "evidence/source_state_contract.json",
             "evidence/coverage.json",
         ):
             source = args.base_final_root / name
-            if source.is_file():
-                destination = provenance / Path(name).name
-                shutil.copy2(source, destination)
+            if source.is_symlink() or not source.is_file():
+                raise ValueError(f"Missing or unsafe base provenance: {source}")
+            destination = provenance / Path(name).name
+            shutil.copy2(source, destination)
 
         roundtrip_report = extract_archive(
             archive_output, roundtrip_cache, args.config
