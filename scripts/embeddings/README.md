@@ -326,11 +326,24 @@ atomically after every merge.
 Baseline hashes are taken while authenticating the published archive; retry
 hashes are taken from the cumulative state cache. Do not rerun initialization
 to upgrade an older state: its immutable contract correctly rejects a newer
-framework commit. After every retry job has finished, use
-`finalize_embedding_state.py --confirm-retries-finished`. Finalization upgrades
-the evidence hashes, re-authenticates the contracted archive and assembly
-report, and preserves the exact accepted-pair membership. This lets downstream
-model execution reject a correctly shaped but substituted array.
+framework commit. After every retry job has finished, perform a non-destructive
+evidence-only upgrade with:
+
+```bash
+python3 scripts/embeddings/manage_resumable_embedding_state.py \
+  upgrade-evidence-hashes \
+  --state-root /path/to/retry_state \
+  --report /path/to/evidence_hash_upgrade.json
+```
+
+This re-authenticates the contracted archive and assembly report while
+preserving the exact accepted-pair membership. The broader
+`finalize_embedding_state.py` command invokes the same upgrade before hydration,
+validation and publication, but it requires all benchmark, ontology, PFP,
+configuration, work, final-output and report paths as well as both
+`--confirm-retries-finished` and `--retire-source-embeddings`. Use that command
+only for final publication because it retires the superseded source embedding
+bytes after the consolidated archive is validated.
 
 The historical gate is tied to the published CAFA3 cache counts, not the older
 generic lower bounds:

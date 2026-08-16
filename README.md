@@ -257,11 +257,12 @@ wrappers should remain thin scheduler-facing launchers.
 
 ## Embedding-generation workflow
 
-The current embedding entrypoints call the retained modality wrappers with:
+The current embedding entrypoints call the retained modality wrappers and
+require:
 
--   the upstream `PFP` repository has already been cloned;
--   the required Python environment is active;
--   generated outputs written outside this framework checkout.
+-   an existing upstream `PFP` checkout;
+-   an active Python environment with the required dependencies;
+-   an output path outside this framework checkout.
 
 Pipeline stages:
 

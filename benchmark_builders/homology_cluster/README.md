@@ -226,7 +226,9 @@ metrics, aggregate metadata, and source-prefixed output paths.
 
 ## Scope-aware frozen manifest
 
-A production frozen-input manifest uses schema version 2 and records for every required role:
+A production frozen-input manifest uses schema version 2 for UniRef90 or
+version 3 for UniRef50, as emitted by the runtime-contract generator. It records
+for every required role:
 
 - logical role and source population;
 - release, local filename, authoritative URL, expected/observed SHA-256, and byte size;
