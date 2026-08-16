@@ -183,10 +183,13 @@ def compose(args: argparse.Namespace) -> dict:
         "state_modified": False,
     }
     for key, expected in required_replacement_values.items():
-        if replacement_marker.get(key) != expected:
+        observed = replacement_marker.get(key)
+        if (type(expected) is bool and observed is not expected) or (
+            type(expected) is not bool and observed != expected
+        ):
             raise ValueError(
                 f"Replacement marker mismatch for {key}: "
-                f"{replacement_marker.get(key)!r} != {expected!r}"
+                f"{observed!r} != {expected!r}"
             )
     replacement_archive = resolve_declared_file(
         args.replacement_run_root,
@@ -204,11 +207,15 @@ def compose(args: argparse.Namespace) -> dict:
         args.plan_dir / "regenerate_proteins.tsv",
     )
     targets = load_target_tables(target_tables)
-    if len(targets) != replacement_marker.get("target_count"):
+    target_count = replacement_marker.get("target_count")
+    if type(target_count) is not int or target_count != len(targets):
         raise ValueError(
             "Replacement target count differs from the bound planner population: "
-            f"{replacement_marker.get('target_count')} != {len(targets)}"
+            f"{target_count!r} != {len(targets)}"
         )
+    text_available = replacement_marker.get("text_available")
+    if type(text_available) is not int or text_available < 0:
+        raise ValueError("Replacement text count is not a non-negative integer")
 
     args.work_dir.mkdir(parents=True, exist_ok=True)
     base_cache = args.work_dir / "base_cache"
@@ -222,10 +229,10 @@ def compose(args: argparse.Namespace) -> dict:
     for modality, directory in directories.items():
         observed = int(replacement_counts.get(directory, 0))
         if modality == "text":
-            if observed != replacement_marker.get("text_available"):
+            if observed != text_available:
                 raise ValueError(
                     f"Replacement text count mismatch: {observed} != "
-                    f"{replacement_marker.get('text_available')}"
+                    f"{text_available}"
                 )
         elif observed != 0:
             raise ValueError(
@@ -244,7 +251,7 @@ def compose(args: argparse.Namespace) -> dict:
             raise ValueError("Replacement extraction contains unconsumed cache entries")
 
     available, combined_counts = validate_cache(base_cache, targets, policy)
-    if combined_counts["text"] != replacement_marker.get("text_available"):
+    if combined_counts["text"] != text_available:
         raise ValueError("Combined cache did not retain the complete replacement text layer")
     for modality, directory in directories.items():
         if modality == "text":
