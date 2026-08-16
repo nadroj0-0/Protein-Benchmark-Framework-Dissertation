@@ -291,6 +291,27 @@ deployment-like gained-term performance, and the `t0` annotation-copy
 baseline. These are flat diagnostics. They become strict unseen results only
 after a separately authorized disjoint retraining design.
 
+The accepted `supervisor-nk-lk` benchmark already publishes its per-ontology
+no-knowledge/limited-knowledge assignments as
+`test_knowledge_cohort_membership.tsv`. Evaluate that completed model directly
+against those builder-owned assignments with:
+
+```bash
+python scripts/diagnostics/evaluate_nk_lk_completed_run.py \
+  --framework-root /path/to/this/framework \
+  --prediction-manifest /path/to/nk-lk/prediction_artifact_manifest.json \
+  --membership-tsv /path/to/nk-lk/reports/test_knowledge_cohort_membership.tsv \
+  --nk-evaluation-summary /path/to/global-nk/evaluation_summary.json \
+  --bootstrap-replicates 2000 \
+  --bootstrap-seed 20260805 \
+  --output-dir /absolute/path/to/new/nk-lk-analysis
+```
+
+This is the analysis used for the reported completed NK+LK cohort result. It
+requires exact population agreement between predictions and membership rows,
+keeps no-knowledge and limited-knowledge distinct, and reports the root-only
+composition and fixed-threshold non-root metrics for each cohort.
+
 ## Validation prediction capture foundation
 
 `evaluate_pfp_checkpoints.py` keeps `--evaluation-split test` as its default.
