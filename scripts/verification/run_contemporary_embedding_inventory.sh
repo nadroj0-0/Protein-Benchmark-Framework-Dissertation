@@ -27,7 +27,7 @@ OUTPUT_DIR=""
 WORK_DIR=""
 ALIASES_FILE=""
 CONFIG_PATH="${FRAMEWORK_ROOT}/configs/embedding_inventory.contemporary.json"
-POLICY="maximize-coverage"
+POLICY="paper-faithful"
 REPORT_LEVEL="compact"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 

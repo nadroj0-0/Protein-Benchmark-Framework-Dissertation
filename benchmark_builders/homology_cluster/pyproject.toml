@@ -5,11 +5,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "homology-cluster-benchmark"
 version = "0.2.0"
-description = "Frozen UniRef90/MMseqs2 whole-cluster benchmark builder for immutable PFP"
+description = "Frozen UniRef50/MMseqs2 whole-cluster benchmark builder for immutable PFP"
 requires-python = ">=3.10"
 dependencies = [
-  "numpy",
-  "pandas",
+  "numpy==2.0.2",
+  "pandas==2.3.3",
 ]
 
 [project.scripts]

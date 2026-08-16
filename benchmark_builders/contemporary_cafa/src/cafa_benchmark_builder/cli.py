@@ -67,7 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
               "cafa3-files recreates pickles from official CAFA files."),
     )
     parser.add_argument("--profile", choices=sorted(BENCHMARK_PROFILES),
-                        default="contemporary-cafa3-style")
+                        default="supervisor")
     parser.add_argument("--deepgoplus-dir", type=Path)
     parser.add_argument("--train-sequences-file", type=Path)
     parser.add_argument("--train-annotations-file", type=Path)

@@ -42,6 +42,9 @@ OFFICIAL_READMES = ("benchmark20171115/00README.txt",)
 TOO_FEW_PATTERN = re.compile(
     r"^benchmark20171115/lists/too_few/(bp|cc|mf)o_[^/]+_(type1|type2)\.txt$"
 )
+DEFAULT_ORGANIZER_ARCHIVE_SHA256 = (
+    "d41dd38436461f4aa8072fca0e3c7476f36475e68cf1dc2555e78ccbdb15d70c"
+)
 
 
 def _require_file(path: Path, label: str) -> Path:
@@ -368,6 +371,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--published-csv-dir", type=Path, required=True)
     parser.add_argument("--official-cafa-archive", type=Path, required=True)
+    parser.add_argument(
+        "--expected-official-archive-sha256",
+        default=DEFAULT_ORGANIZER_ARCHIVE_SHA256,
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--benchmark-id", default="cafa3/zijian-published-nine-csvs")
     args = parser.parse_args()
@@ -375,6 +382,15 @@ def main() -> int:
     started = time.perf_counter()
     csv_dir = args.published_csv_dir.resolve()
     archive_path = _require_file(args.official_cafa_archive, "official CAFA3 archive")
+    expected_archive_sha = args.expected_official_archive_sha256.lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_archive_sha):
+        raise ValueError("Expected official CAFA3 archive SHA-256 is invalid")
+    observed_archive_sha = sha256_file(archive_path)
+    if observed_archive_sha != expected_archive_sha:
+        raise ValueError(
+            "Official CAFA3 archive SHA-256 mismatch: "
+            f"expected {expected_archive_sha}, observed {observed_archive_sha}"
+        )
     output_dir = args.output_dir.resolve()
     if output_dir.exists():
         raise ValueError(f"Output directory already exists: {output_dir}")

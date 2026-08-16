@@ -27,7 +27,7 @@ PFP_CAFA3_RAW_DIR="${PFP_CAFA3_RAW_DIR:-${EXT}/cafa3_raw}"
 PFP_STRING_DIR="${PFP_STRING_DIR:-${EXT}/string}"
 CAFA3_BASE="${CAFA3_BASE:-https://zenodo.org/records/7409660/files}"
 STRING_DOWNLOAD_BASE="${STRING_DOWNLOAD_BASE:-https://stringdb-downloads.org/download}"
-CAFA3_SOURCE_DIR="${CAFA3_SOURCE_DIR:-${SAN_CAFA3_RAW_DIR:-}}"
+CAFA3_SOURCE_DIR="${CAFA3_SOURCE_DIR:-}"
 EMBEDDING_DEPENDENCY_PROFILE="${EMBEDDING_DEPENDENCY_PROFILE:-all}"
 case "${EMBEDDING_DEPENDENCY_PROFILE}" in
   all|sequence|text|structure|ppi) ;;
@@ -62,13 +62,10 @@ if [ -n "${CAFA_ASSESSMENT_COMMIT}" ]; then
   }
   git_in_dir "${CAFA_ASSESSMENT_DIR}" checkout --detach "${CAFA_ASSESSMENT_COMMIT}"
   observed_cafa_commit="$(git_in_dir "${CAFA_ASSESSMENT_DIR}" rev-parse HEAD)"
-  case "${observed_cafa_commit}" in
-    "${CAFA_ASSESSMENT_COMMIT}"*) ;;
-    *)
-      echo "CAFA assessment commit mismatch: ${observed_cafa_commit}" >&2
-      exit 1
-      ;;
-  esac
+  if [[ "${observed_cafa_commit}" != "${CAFA_ASSESSMENT_COMMIT}" ]]; then
+    echo "CAFA assessment commit mismatch: ${observed_cafa_commit}" >&2
+    exit 1
+  fi
   echo "==> Pinned CAFA_assessment_tool: ${observed_cafa_commit}"
 fi
 # --- 1b. Stage the CAFA3-era GO ontology expected at data/go.obo -------
@@ -168,7 +165,7 @@ if [ "${EMBEDDING_DEPENDENCY_PROFILE}" = "all" ] || \
    [ "${EMBEDDING_DEPENDENCY_PROFILE}" = "ppi" ]; then
   mkdir -p "${PFP_STRING_DIR}"
   if [ ! -f "${STRING_ALIAS}" ]; then
-    alias_source="$(resolve_artifact_path string_aliases "${STRING_ALIAS_GZ_FILE:-${SAN_STRING_ALIAS_GZ:-}}" || true)"
+    alias_source="$(resolve_artifact_path string_aliases "${STRING_ALIAS_GZ_FILE:-}" || true)"
     if [ -n "$alias_source" ]; then
       echo "==> Expanding STRING aliases v12.0 from existing artifact: $alias_source"
       gzip -dc "$alias_source" > "${STRING_ALIAS}.partial"
@@ -182,7 +179,7 @@ if [ "${EMBEDDING_DEPENDENCY_PROFILE}" = "all" ] || \
     echo "==> STRING aliases already present, skipping"
   fi
 
-  STRING_H5="$(resolve_artifact_path string_embeddings "${STRING_H5_FILE:-${SAN_STRING_H5:-}}" || true)"
+  STRING_H5="$(resolve_artifact_path string_embeddings "${STRING_H5_FILE:-}" || true)"
   if [ -n "$STRING_H5" ]; then
     echo "==> Using existing STRING network embeddings: $STRING_H5"
   else
@@ -194,7 +191,6 @@ if [ "${EMBEDDING_DEPENDENCY_PROFILE}" = "all" ] || \
   else
     echo "==> STRING network embeddings already present, skipping"
   fi
-  add_mmfp_singularity_bind "$(dirname "$STRING_H5")"
 else
   STRING_H5="${PFP_STRING_DIR}/protein.network.embeddings.v12.0.h5"
   echo "==> Skipping STRING staging for ${EMBEDDING_DEPENDENCY_PROFILE} dependency profile"
@@ -212,7 +208,6 @@ export CAFA_ASSESSMENT_DIR="${CAFA_ASSESSMENT_DIR}"
 export CAFA3_RAW_DIR="${RAW}"
 export STRING_H5_FILE="${STRING_H5}"
 export STRING_ALIAS_FILE="${STRING_ALIAS}"
-export SINGULARITY_BINDPATH="${SINGULARITY_BINDPATH:-}"
 EOF
 
 echo ""

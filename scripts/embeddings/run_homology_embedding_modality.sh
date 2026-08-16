@@ -8,7 +8,7 @@ FRAMEWORK_ROOT="$(cd "${HERE}/../.." && pwd)"
 # shellcheck source=../reproduction_common.sh
 source "$FRAMEWORK_ROOT/scripts/reproduction_common.sh"
 
-PYTHON_BIN="${PYTHON_BIN:-python}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 PREFLIGHT_PER_SPLIT="${PREFLIGHT_PER_SPLIT:-1}"
 PFP_ROOT=""
 WORK_DIR=""
@@ -17,6 +17,7 @@ BENCHMARK_DIR=""
 LEDGER_DIR=""
 MODALITY=""
 TEXT_CUTOFF_DATE=""
+POLICY="$FRAMEWORK_ROOT/configs/homology_embedding_generation.json"
 
 usage() {
   cat <<'EOF'
@@ -24,7 +25,7 @@ Usage: run_homology_embedding_modality.sh \
   --pfp-root PATH --work-dir PATH --output-dir PATH \
   --benchmark-dir PATH --ledger-dir PATH \
   --modality sequence|text|structure|ppi [--text-cutoff-date YYYY-MM-DD] \
-  [--artifact-catalog PATH]
+  [--policy PATH] [--artifact-catalog PATH]
 EOF
 }
 
@@ -39,6 +40,7 @@ while [[ $# -gt 0 ]]; do
     --ledger-dir) LEDGER_DIR="$2"; shift 2 ;;
     --modality) MODALITY="$2"; shift 2 ;;
     --text-cutoff-date) TEXT_CUTOFF_DATE="$2"; shift 2 ;;
+    --policy) POLICY="$2"; shift 2 ;;
     --artifact-catalog) ARTIFACT_CATALOG="$2"; export ARTIFACT_CATALOG; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; die "Unknown argument: $1" ;;
@@ -48,6 +50,7 @@ done
 [[ -d "$PFP_ROOT/.git" ]] || die "PFP root is not a Git checkout: $PFP_ROOT"
 [[ -d "$BENCHMARK_DIR" ]] || die "Missing benchmark: $BENCHMARK_DIR"
 [[ -d "$LEDGER_DIR" ]] || die "Missing source-resolved ledger: $LEDGER_DIR"
+[[ -f "$POLICY" ]] || die "Missing embedding policy: $POLICY"
 [[ -n "$WORK_DIR" && ! -e "$WORK_DIR" ]] || die "Work directory is missing or exists"
 [[ -n "$OUTPUT_DIR" && ! -e "$OUTPUT_DIR" ]] || die "Output directory is missing or exists"
 case "$MODALITY" in sequence|text|structure|ppi) ;; *) die "Invalid modality: $MODALITY" ;; esac
@@ -188,7 +191,7 @@ archive="$OUTPUT_DIR/artifacts/generated_${MODALITY}.tar.gz"
 assembly="$OUTPUT_DIR/artifacts/generated_${MODALITY}_assembly.tsv.gz"
 "$PYTHON_BIN" "$HERE/build_embedding_baseline_archive.py" \
   --generated-cache-root "$PFP_ROOT/data/embedding_cache" \
-  --data-dir "$PFP_ROOT/data" --policy "$FRAMEWORK_ROOT/configs/homology_embedding_generation.json" \
+  --data-dir "$PFP_ROOT/data" --policy "$POLICY" \
   --only-modality "$MODALITY" --archive "$archive" \
   --assembly-report "$assembly" --report "$OUTPUT_DIR/reports/delta_archive.json"
 
@@ -217,10 +220,9 @@ fi
 
 echo "==> [7/7] Publish the completion marker"
 "$PYTHON_BIN" - "$OUTPUT_DIR" "$MODALITY" "$LEDGER_DIR" "$BENCHMARK_DIR" \
-  "$TEXT_CUTOFF_DATE" <<'PY'
+  "$TEXT_CUTOFF_DATE" "$observed_pfp_commit" "$POLICY" <<'PY'
 import hashlib
 import json
-import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -238,15 +240,15 @@ def sha(path):
 payload = {
     "schema_version": 1,
     "complete": True,
-    "analysis_kind": "homology_embedding_modality_delta",
+    "analysis_kind": "pair_resolved_embedding_modality_delta",
     "completed_at": datetime.now(timezone.utc).isoformat(),
     "modality": modality,
     "ledger_dir": str(Path(sys.argv[3]).resolve()),
     "ledger_output_manifest_sha256": sha(Path(sys.argv[3]) / "output_manifest.json"),
     "benchmark_dir": str(Path(sys.argv[4]).resolve()),
     "text_cutoff_date": sys.argv[5] or None,
-    "framework_commit": os.environ.get("FRAMEWORK_COMMIT", "unknown"),
-    "pfp_commit": os.environ.get("PFP_COMMIT", "unknown"),
+    "pfp_commit": sys.argv[6],
+    "policy_sha256": sha(Path(sys.argv[7])),
     "archive": str(archive.relative_to(root)),
     "archive_sha256": sha(archive),
     "assembly_report": str(assembly.relative_to(root)),

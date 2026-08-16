@@ -8,7 +8,7 @@ FRAMEWORK_ROOT="$(cd "${HERE}/../.." && pwd)"
 # shellcheck source=../reproduction_common.sh
 source "$FRAMEWORK_ROOT/scripts/reproduction_common.sh"
 
-PYTHON_BIN="${PYTHON_BIN:-python}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 CAFA_ASSESSMENT_COMMIT="${CAFA_ASSESSMENT_COMMIT:-d72f0a5abb66d3224bd808e2015b55f1c9d18340}"
 EXPECTED_PFP_COMMIT="${EXPECTED_PFP_COMMIT:-1e04fd6d6d3c40458fd41ec1a881ed6e24de768e}"
 CONTROL_COUNT="${CONTROL_COUNT:-20}"

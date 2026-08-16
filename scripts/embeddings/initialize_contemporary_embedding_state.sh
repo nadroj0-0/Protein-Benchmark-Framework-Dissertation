@@ -8,7 +8,7 @@ FRAMEWORK_ROOT="$(cd "${HERE}/../.." && pwd)"
 # shellcheck source=../reproduction_common.sh
 source "$FRAMEWORK_ROOT/scripts/reproduction_common.sh"
 
-PYTHON_BIN="${PYTHON_BIN:-python}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 BENCHMARK_DIR=""
 PLAN_DIR=""
 BASELINE_ROOT=""

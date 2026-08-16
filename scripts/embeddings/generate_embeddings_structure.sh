@@ -45,7 +45,7 @@ if [ "$ALPHAFOLD_ACQUISITION_MODE" = "framework-bounded" ]; then
     echo "Set ALPHAFOLD_PERSISTENT_CACHE_DIR for framework-bounded acquisition" >&2
     exit 1
   }
-  python "${REPO_ROOT}/scripts/embeddings/prefetch_alphafold_structures.py" \
+  "$IF1_PYTHON_BIN" "${REPO_ROOT}/scripts/embeddings/prefetch_alphafold_structures.py" \
     --pfp-root "$PWD" \
     --cafa-assessment-dir "${CAFA_ASSESSMENT_DIR}" \
     --data-dir data \
@@ -56,7 +56,7 @@ if [ "$ALPHAFOLD_ACQUISITION_MODE" = "framework-bounded" ]; then
     --api-workers "$ALPHAFOLD_API_WORKERS" \
     --download-workers "$ALPHAFOLD_DOWNLOAD_WORKERS"
 elif [ "$ALPHAFOLD_ACQUISITION_MODE" = "pfp" ]; then
-  python scripts/check_alphafold_coverage.py \
+  "$IF1_PYTHON_BIN" scripts/check_alphafold_coverage.py \
     --cafa-assessment-dir "${CAFA_ASSESSMENT_DIR}" \
     --data-dir data \
     --pdb-output-dir data/alphafold_structures \
@@ -67,8 +67,7 @@ else
 fi
 
 if [ -n "$IF1_PYTHONPATH" ]; then
-  SINGULARITYENV_PYTHONPATH="$IF1_PYTHONPATH" \
-    MMFP_PYTHONPATH="$IF1_PYTHONPATH" \
+  PYTHONPATH="$IF1_PYTHONPATH${PYTHONPATH:+:$PYTHONPATH}" \
     "$IF1_PYTHON_BIN" "$IF1_EXTRACT_SCRIPT" \
       --pdb_dir data/alphafold_structures \
       --output_dir data/embedding_cache/IF1 \

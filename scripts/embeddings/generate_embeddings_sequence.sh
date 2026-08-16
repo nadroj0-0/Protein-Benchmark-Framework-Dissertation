@@ -6,7 +6,8 @@
 set -euo pipefail
 
 DEVICE="${DEVICE:-cuda}"
-python scripts/extract_prott5_embeddings.py \
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+"$PYTHON_BIN" scripts/extract_prott5_embeddings.py \
     --fasta_file data/proteins.fasta \
     --output_dir data/embedding_cache/prott5 \
     --batch_size 8 \

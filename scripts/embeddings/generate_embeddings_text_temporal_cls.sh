@@ -9,7 +9,7 @@ CAFA_ASSESSMENT_DIR="${CAFA_ASSESSMENT_DIR:-external/CAFA_assessment_tool}"
 TEXT_CUTOFF_DATE="${TEXT_CUTOFF_DATE:?Set TEXT_CUTOFF_DATE to YYYY-MM-DD}"
 TEXT_HISTORY_WORKERS="${TEXT_HISTORY_WORKERS:-5}"
 TEXT_REPORT_DIR="${TEXT_REPORT_DIR:-results/embedding_reports/text}"
-PYTHON_BIN="${PYTHON_BIN:-python}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 CURRENT_CACHE="data/embedding_cache/exp_text_embeddings"
 TEMPORAL_CACHE="data/embedding_cache/exp_text_embeddings_temporal"
 

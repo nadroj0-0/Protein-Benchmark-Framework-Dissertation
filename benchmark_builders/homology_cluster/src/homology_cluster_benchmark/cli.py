@@ -10,9 +10,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from .attrition import load_attrition_policy
-from .authorization import validate_pilot_approval
 from .config import (
+    MMSEQS_PROFILE_FRAMEWORK,
     MMSEQS_PROFILE_LEGACY,
     MMSEQS_PROFILE_POLICIES,
     MMSEQS_PROFILES,
@@ -66,8 +65,8 @@ def _parser() -> argparse.ArgumentParser:
         help="annotated-only is implemented; all-cluster-members is explicitly unsupported",
     )
     build.add_argument(
-        "--uniref-level", type=int, choices=SUPPORTED_UNIREF_LEVELS, default=90,
-        help="Clustering scaffold; legacy production remains UniRef90, Daniel's fast route uses UniRef50",
+        "--uniref-level", type=int, choices=SUPPORTED_UNIREF_LEVELS, default=50,
+        help="Clustering scaffold; the submitted workflow uses UniRef50",
     )
     _add_input(build, "uniref90-fasta", "UniRef90 FASTA")
     _add_input(build, "uniref50-fasta", "UniRef50 FASTA")
@@ -75,6 +74,7 @@ def _parser() -> argparse.ArgumentParser:
     build.add_argument(
         "--uniprot-source-scope",
         choices=UNIPROT_SOURCE_SCOPES,
+        default="sprot-and-trembl",
         help="Required production supervised-population scope; --uniref-level selects the scaffold",
     )
     _add_input(build, "uniprot-sprot-sequences", "frozen Swiss-Prot DAT")
@@ -141,11 +141,10 @@ def _parser() -> argparse.ArgumentParser:
         help="MMseqs2 sensitivity; defaults to 7.5 for UniRef90 and 4.0 for UniRef50",
     )
     build.add_argument(
-        "--mmseqs-profile", choices=MMSEQS_PROFILES, default=MMSEQS_PROFILES[0],
+        "--mmseqs-profile", choices=MMSEQS_PROFILES, default=MMSEQS_PROFILE_FRAMEWORK,
         help=(
-            "Locked MMseqs2 command/export profile. The Daniel-aligned profile uses "
-            "MMseqs2's default E-value and input shuffle, disables reassignment, and "
-            "persists alignment statistics plus cluster FASTA in the cluster cache."
+            "Locked MMseqs2 command profile. The submitted profile uses MMseqs2's "
+            "default E-value and input shuffle and disables reassignment."
         ),
     )
     build.add_argument(
@@ -182,25 +181,6 @@ def _parser() -> argparse.ArgumentParser:
         "--run-dir", type=Path, action="append", required=True,
         help="Published run leaf or parent containing exactly one publication; repeat exactly six times",
     )
-    authorize = subparsers.add_parser(
-        "authorize-array",
-        help="Validate reviewed attrition policy and 30%% pilot approval before qsub",
-    )
-    authorize.add_argument("--attrition-policy", type=Path, required=True)
-    authorize.add_argument("--pilot-approval", type=Path, required=True)
-    authorize.add_argument("--pilot-completion-marker", type=Path, required=True)
-    authorize.add_argument("--pilot-attrition-report", type=Path, required=True)
-    authorize.add_argument("--pilot-run-dir", type=Path, required=True)
-    authorize.add_argument("--pilot-task-context", type=Path, required=True)
-    authorize.add_argument("--pilot-measurement-evidence", type=Path, required=True)
-    authorize.add_argument("--frozen-input-manifest", type=Path, required=True)
-    authorize.add_argument("--uniprot-source-scope", choices=UNIPROT_SOURCE_SCOPES, required=True)
-    authorize.add_argument("--split-policy", choices=("cluster-count-random", "sequence-balanced"), required=True)
-    authorize.add_argument("--training-population", required=True)
-    authorize.add_argument("--expected-mmseqs-version", required=True)
-    authorize.add_argument("--uniprot-release", default="2026_02")
-    authorize.add_argument("--goa-release", default="234")
-    authorize.add_argument("--ontology-release", default="releases/2026-06-15")
     return parser
 
 
@@ -657,7 +637,7 @@ def _cross_threshold_reports(
             {
                 "name": "all_six_identities_exactly_once",
                 "passed": percentages == sorted(expected_percentages, reverse=True),
-                "detail": "The aggregate contains exactly Daniel's six locked thresholds",
+                "detail": "The aggregate contains exactly the six submitted thresholds",
                 "observed": percentages,
             },
             {
@@ -820,48 +800,6 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         except (OSError, ValueError, RuntimeError) as exc:
             parser.error(str(exc))
-    if args.command == "authorize-array":
-        try:
-            pilot_run_dir = args.pilot_run_dir.resolve()
-            if args.pilot_completion_marker.resolve() != pilot_run_dir / "RUN_COMPLETE.json":
-                raise ValueError(
-                    "Pilot completion marker must be RUN_COMPLETE.json in --pilot-run-dir"
-                )
-            if args.pilot_attrition_report.resolve() != pilot_run_dir / "attrition_report.json":
-                raise ValueError(
-                    "Pilot attrition report must be attrition_report.json in --pilot-run-dir"
-                )
-            validate_publication(pilot_run_dir)
-            manifest_hash = sha256_file(args.frozen_input_manifest)
-            reviewed_policy, reviewed_policy_sha256 = load_attrition_policy(
-                args.attrition_policy,
-                source_scope=args.uniprot_source_scope,
-                expected_releases={
-                    "uniprot_uniref": args.uniprot_release,
-                    "goa": args.goa_release,
-                    "ontology": args.ontology_release,
-                },
-                frozen_input_manifest_sha256=manifest_hash,
-            )
-            validate_pilot_approval(
-                args.pilot_approval,
-                completion_marker_path=args.pilot_completion_marker,
-                attrition_report_path=args.pilot_attrition_report,
-                task_context_path=args.pilot_task_context,
-                measurement_evidence_path=args.pilot_measurement_evidence,
-                frozen_input_manifest_sha256=manifest_hash,
-                source_scope=args.uniprot_source_scope,
-                split_policy=args.split_policy,
-                training_population=args.training_population,
-                mmseqs_version=args.expected_mmseqs_version,
-                reviewed_attrition_policy=reviewed_policy,
-                reviewed_attrition_policy_sha256=reviewed_policy_sha256,
-            )
-            print("Reviewed pilot approval and attrition policy authorize array preview/submission")
-            return 0
-        except (OSError, ValueError, RuntimeError) as exc:
-            parser.error(str(exc))
-
     logging.basicConfig(level=getattr(logging, args.verbosity), format="%(levelname)s %(message)s")
     try:
         identities = _identities(args.identity)

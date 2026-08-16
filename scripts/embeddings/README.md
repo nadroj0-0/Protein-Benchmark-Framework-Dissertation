@@ -1,389 +1,131 @@
 # Embedding Workflows
 
-The scripts in this directory are scheduler-neutral wrappers around the
-upstream PFP embedding scripts. Run them from a PFP repository root with the
-framework paths supplied by the caller. PFP is treated as immutable upstream
-code.
+The retained workflows generate and authenticate the four PFP modalities:
+ProtT5 sequence, temporal/current UniProt text, ESM-IF1 structure, and STRING
+PPI. Upstream PFP is pinned to
+`1e04fd6d6d3c40458fd41ec1a881ed6e24de768e`.
 
-## CAFA3 path
+## CAFA3
 
-The current CAFA3 driver runs the retained modality wrappers while preserving
-the upstream PFP checkout:
-
-```text
-generate_embeddings_sequence.sh
-generate_embeddings_text_temporal_cls.sh
-generate_embeddings_structure.sh
-generate_embeddings_ppi.sh
-```
-
-For the hardened end-to-end historical experiment, use
-`scripts/reproduction/run_cafa3_full_from_scratch_reproduction.sh` through its
-HPC wrapper. That workflow calls these modality wrappers and adds the
-current IF1/PPI compatibility copies, temporal CLS reduction, a reversible
-bounded preflight, exhaustive output validation, and comparison against the
-authenticated published cache before fresh training.
-
-The preflight helper `prepare_cafa3_embedding_preflight.py` backs up all 27
-prepared split view files plus the exact full `proteins.fasta`, subsets every
-ontology/split, and restores each original byte only after authenticating its
-SHA-256. This preserves the full FASTA ordering used for ProtT5 batching. It
-never changes the canonical CSVs or upstream PFP source.
-
-## Contemporary reuse and regeneration
-
-`run_contemporary_embedding_generation.sh` consumes two immutable inputs:
-
-1. Nine PFP-compatible contemporary CSVs.
-2. A completed `benchmark_reuse_planner` plan containing exact binary
-   `reuse` and `regenerate` partitions.
-
-It binds the plan to the nine CSV SHA-256 values, creates minimal PFP split
-views for only the regenerate proteins, runs a small parallel preflight, and
-then resumes the same caches for the full parallel run.
-
-The workflow deliberately keeps action and source coupled:
-
-| Planner action | Permitted cache source |
-|---|---|
-| `reuse` | Authenticated arrays from Zijian's published archive |
-| `regenerate` | Arrays created during this job |
-
-A regenerate protein never falls back to a published array. Generated files
-outside the regenerate partition are rejected. Every selected array must have
-the exact PFP dimension, a numeric dtype, and finite values.
-
-ProtT5 must exist for every regenerate protein. Text, structure, and PPI can be
-absent when their external source is unavailable; each absence is listed by ID
-and the final PFP cache omits that array so the existing PFP loader applies its
-normal mask and zero vector.
-
-### Temporal text
-
-PFP's text extraction functions are called directly by
-`run_pfp_temporal_text.py`, with the benchmark's t0 date supplied at runtime.
-The framework passes that date into PFP's historical version selector explicitly;
-changing the module-level `CUTOFF_DATE` is insufficient because PFP bound its
-original value as a Python default argument. Historical TSVs, checkpoints and
-raw UniSave records live under a cutoff-specific state directory whose contract
-also binds the test-protein set and PFP extractor hash. A run may therefore
-resume the same cutoff safely but cannot reuse historical records from another
-cutoff. Requested and effective cutoffs are both recorded and must agree.
-
-The PFP source file is not edited. `generate_embeddings_text_temporal_cls.sh`
-runs PFP's PubMedBERT embedder and simultaneously invokes
-`reduce_text_embeddings_to_cls.py`. Each completed `(1, L, 768)` hidden-state
-array is atomically replaced by `array[0, 0, :].astype(float32)`, the exact
-`(768,)` CLS vector selected by PFP's flatten-and-truncate loader behavior and
-confirmed by Zijian. This streaming reduction is required to keep scratch use
-bounded.
-
-PFP's documentation lists both `exp_text_embeddings/` and
-`exp_text_embeddings_temporal/` as outputs of
-`embed_uniprot_descriptions.py`, but that script physically writes only the
-former. The hardened wrapper intentionally uses that fixed directory as a
-staging name: it embeds the mixed current-train/validation plus historical-test
-TSV, performs CLS reduction, and then renames the completed directory to
-`exp_text_embeddings_temporal/`. The current-only embedding cache is not needed
-by the published full-model route and is not generated as a duplicate.
-
-Hydration never combines an old and corrected text vector for the same protein.
-The resumable state manager rejects a pair that exists in both its immutable
-baseline and retry delta, and it rejects conflicting files already present in a
-hydration destination. A future corrected-cutoff text refresh must therefore
-publish a new versioned combined cache: retain validated non-text modalities,
-replace the complete text layer one-for-one, validate it exhaustively, and only
-then atomically publish the new archive. The old archive remains immutable
-evidence rather than being edited in place.
-
-`manage_resumable_embedding_state.py hydrate --exclude-modality text` provides
-the first half of that transaction: it materializes every accepted non-text
-array into a fresh destination while proving that no old text array entered it.
-The corrected text run must cover the complete contemporary target population,
-not merely pairs currently marked missing, before that destination can become a
-new authenticated baseline.
-
-The guarded production entry point for this transaction is:
+The fresh CAFA3 driver prepares the benchmark, generates all modalities,
+validates coverage, publishes resumable state, and compares regenerated arrays
+with authenticated published arrays:
 
 ```bash
-qsub hpc_jobs/active/hpc_contemporary_embedding_retry.sh \
-  --modality text --refresh-all-text \
-  --results-root /SAN/bioinf/bmpfp/embeddings/contemporary/<new-release>
+bash scripts/reproduction/run_cafa3_full_from_scratch_reproduction.sh --help
 ```
 
-The mode requires an explicit SAN destination. It selects every state target,
-does not run old-versus-new subset equivalence because the old cutoff is known
-to be wrong, and never invokes the state merge command. Its completion marker
-binds the new archive to the requested/effective cutoff and exact framework and
-PFP revisions. Do not use the ordinary missing-pair text retry for this repair.
-
-### PPI compatibility
-
-PFP's PPI extractor divides a diagnostic mapped-CAFA count by the number of
-CAFA IDs. Contemporary IDs are UniProt accessions, so that diagnostic set is
-empty. `build_pfp_ppi_compat_copy.py` validates the exact upstream expression
-and writes a separate scratch copy with a denominator guard. The generated PPI
-values and mapping logic are unchanged; `generate_embeddings_ppi.sh` keeps its
-original source path by default and accepts the copied path through
-`PPI_EXTRACT_SCRIPT` only for this workflow.
-
-### ESM-IF1 compatibility
-
-Zijian's stated NumPy 2.0.2 and Biotite 0.38.0 pins cannot import the compiled
-`biotite.structure` extension from the published Biotite wheel. The main MMFP
-environment keeps those author-supplied pins. During this workflow only, an
-isolated NumPy 1.26.4 overlay is installed into job-owned scratch and exposed
-only to the IF1 process. The overlay is reported in
-`reports/if1_environment.json` and is removed with the rest of scratch.
-
-fair-esm 2.0.0's `get_encoder_output()` creates its coordinate, confidence, and
-mask tensors on CPU even when PFP moves the IF1 model to CUDA.
-`build_pfp_if1_compat_copy.py` validates the exact upstream source blocks and
-writes a separate scratch copy that creates the same encoder inputs explicitly
-on the model device. It also exits non-zero when dependencies cannot import or
-all PDB files fail. The source PFP checkout is not modified, and the source and
-compatibility-copy hashes are recorded in `reports/pfp_if1_compatibility.json`.
-
-## Final artifact
-
-`assemble_contemporary_embedding_cache.py` writes the standard PFP layout:
-
-```text
-data/embedding_cache/
-├── prott5/
-├── exp_text_embeddings_temporal/
-├── IF1/
-└── ppi/
-```
-
-The HPC wrapper packages that directory as
-`contemporary_embedding_cache.tar.gz`; unpacked arrays remain in scratch. The
-assembly report records source, action, availability, dtype, dimension, and
-transfer method for every protein and modality. The compact reuse-plan
-completion, output, run, and summary manifests are copied beside the assembly
-reports, while the acquisition table records their hashes and original paths.
-
-The completion marker no longer invokes `git` from the Python runtime. The HPC
-wrapper already resolves and verifies both commits before entering the workflow;
-it passes those values as environment metadata to the final JSON writer. A
-missing `git` executable inside the MMFP container therefore cannot invalidate
-an otherwise complete embedding run.
-
-## Archive-backed contemporary retries
-
-The successful 2025_01 to 2026_02 supervisor-profile cache contains hundreds
-of thousands of `.npy` files. Extracting all of them on SAN would exceed the
-project store's file quota. The contemporary retry path therefore treats the
-authenticated `contemporary_embedding_cache.tar.gz` as an immutable baseline
-and stores only newly recovered arrays under `retry_state/cache/`. Together the
-archive and retry delta form one logical cache.
-
-The CAFA3 full-from-scratch workflow uses the same storage model from its first
-full generation. It validates the generated arrays in scratch, creates one
-deterministic baseline archive plus a complete assembly report, publishes those
-two files atomically, and initializes the retry state from the archive. A
-diagnostic merge records missing-pair reasons without copying accepted arrays
-back into loose SAN files. AlphaFold PDB acquisition files remain in job-owned
-scratch; only the resulting IF1 arrays enter the baseline. This keeps the
-69,811-protein, four-modality run below the SAN inode quota while preserving the
-existing retry and hydration interfaces.
-
-`initialize_contemporary_embedding_state.sh` binds this state to:
-
-- all nine contemporary CSV hashes;
-- every target protein and sequence SHA-256 from the exact reuse plan;
-- the benchmark build and reuse-plan manifests;
-- the PFP commit, environment report, compatibility scripts and runtime policy;
-- the baseline archive and its complete assembly report.
-
-It verifies that the assembly report covers every target/modality pair and that
-the archive contains exactly the arrays reported as available. It indexes the
-archive without extracting it persistently. Contract drift is rejected.
-The HPC initializer and retry wrappers explicitly bind their caller-selected
-benchmark, reuse-plan, baseline and state directories into the MMFP Singularity
-runtime; SAN is not visible inside that container unless it is bound.
-
-The gate in `configs/contemporary_embedding_resume.json` scales Zijian's
-published CAFA3 coverage proportions to the contemporary target count. For the
-current 156,421 proteins this means:
-
-```text
-ProtT5      ceil(156,421 * 69,811 / 69,811) = 156,421
-text        ceil(156,421 * 69,517 / 69,811) = 155,763
-ESM-IF1     ceil(156,421 * 67,948 / 69,811) = 152,247
-PPI         ceil(156,421 * 58,294 / 69,811) = 130,616
-```
-
-These are scaled coverage floors, not the raw CAFA3 counts. Retaining the raw
-counts would make the larger contemporary benchmark pass with much poorer
-relative coverage.
-
-`run_contemporary_embedding_retry.sh` selects only currently missing pairs for
-one modality. Twenty accepted controls are materialized temporarily from the
-baseline archive or retry delta and regenerated with the requested subset. At
-least five must pass the modality comparison tolerance before valid outputs are
-atomically merged. Text, structure and PPI use `rtol=1e-5`, `atol=1e-4`;
-sequence retains `rtol=1e-5`, `atol=1e-6`. The compatibility tolerance is above
-the observed `7.10e-5` cross-run IF1 wobble and the `5.72e-6` earlier text
-wobble. Missing, malformed and non-finite arrays still fail unconditionally.
-The real retry wrapper is pinned to `animal-206-2.local` to remove GPU-model
-variation.
-The wrappers never edit PFP and always remove job-owned scratch.
-
-The state binds the exact PFP commit, text cutoff, environment fingerprint, and
-hashes of all extraction and compatibility scripts. Framework Git metadata is
-informational only and never blocks initialization or retry.
-
-### Transactional final cache consolidation
-
-After every retry job has finished, the finalization wrapper turns the
-immutable baseline archive plus `retry_state/cache` into one self-contained PFP
-archive. It upgrades per-array evidence hashes, hydrates the logical cache in
-job-owned scratch, validates every accepted array, creates the consolidated
-archive, copies it to SAN staging, extracts those copied bytes into fresh
-scratch, and repeats the exhaustive validation.
-
-The final directory is published with an atomic same-filesystem rename. Only
-after publication, checksum verification and the SAN read-back validation does
-the job retire the old baseline archive and retry delta. Compact state evidence,
-reports, failure history and source caches remain. Any earlier failure leaves
-both source embedding copies untouched. Archive extraction rejects traversal,
-links, duplicate members, unknown modality directories and unsafe filenames.
-
-### Reusing frozen dependencies
-
-Embedding workflows resolve static inputs in the same order as the rest of the
-framework: explicit path, `ARTIFACT_CATALOG`, then network fallback. The
-catalogued embedding inputs are the nine canonical CAFA3 CSVs, STRING v12.0
-aliases/network embeddings, and Zijian's published embedding bundles. On UCL
-HPC, pass:
+If the state is incomplete, continue one modality with:
 
 ```bash
---artifact-catalog /SAN/bioinf/bmpfp/manifests/artifact_paths.tsv
+bash scripts/reproduction/run_cafa3_embedding_retry.sh --help
 ```
 
-The catalogue does not replace dynamic per-protein acquisition. UniProt text,
-AlphaFold structures not already present in resumable source state, and model
-caches remain workflow-managed. This keeps the code portable while avoiding
-repeat downloads of large frozen files.
+Retry output is merged only after subset-equivalence and state-contract checks.
+The full driver stops after embedding comparison; model training belongs to
+`scripts/model_execution/run_pfp_benchmark.sh`.
 
-## Lightweight validation
+## Contemporary Global-NK
 
-Shell syntax can be checked without network, model, or full-data access:
+The submitted route is:
+
+1. build a paper-faithful inventory and exact reuse plan;
+2. generate the coarse-plan regeneration population;
+3. generate temporal text with cutoff `2025-03-08` for every target;
+4. replace the complete text layer while preserving other modalities;
+5. initialize and validate a fresh archive-backed state;
+6. finalize the accepted cache.
+
+The all-target replacement is part of the accepted from-scratch contract. It
+prevents a reused published text layer from silently retaining an older cutoff;
+it is not included to reproduce the earlier mistaken result.
+
+Entry points:
 
 ```bash
-bash -n scripts/embeddings/run_contemporary_embedding_generation.sh
-bash -n scripts/embeddings/initialize_contemporary_embedding_state.sh
-bash -n scripts/embeddings/run_contemporary_embedding_retry.sh
-bash -n scripts/embeddings/generate_embeddings_structure.sh
-bash -n hpc_jobs/active/hpc_contemporary_embedding_generation.sh
-bash -n hpc_jobs/active/hpc_contemporary_embedding_state_initialize.sh
-bash -n hpc_jobs/active/hpc_contemporary_embedding_retry.sh
+bash scripts/verification/run_contemporary_embedding_inventory.sh --help
+bash scripts/verification/run_benchmark_reuse_plan.sh --help
+bash scripts/embeddings/run_contemporary_embedding_generation.sh --help
+bash scripts/embeddings/initialize_contemporary_embedding_state.sh --help
+bash scripts/embeddings/run_contemporary_embedding_retry.sh --help
+python scripts/embeddings/compose_contemporary_text_replacement.py --help
+python scripts/embeddings/finalize_embedding_state.py --help
 ```
 
-The HPC wrapper performs the real bounded preflight before the full run.
-Framework Git metadata is recorded when available, but it is not required and
-does not gate execution; the scientific inputs and external PFP revision remain
-validated independently.
+`configs/contemporary_embedding_resume.json` defines acceptance dimensions,
+coverage floors, cutoff, and paper-faithful PPI policy.
 
-## Resumable CAFA3 generation
-
-The full CAFA3 reproduction no longer discards valid arrays when one external
-source has incomplete coverage. `manage_resumable_embedding_state.py` owns one
-persistent, benchmark-bound cache outside PFP. The default HPC location is:
-
-```text
-/SAN/bioinf/bmpfp/embedding_states/cafa3_full_reproduction/
-```
-
-Its contract includes the nine CSV hashes, every protein sequence SHA-256, the
-PFP commit, the author environment report, policy hash, text
-cutoff, GO/STRING inputs, and exact upstream/compatibility script hashes. An
-existing state is rejected if any contract field changes. Persistent arrays are
-accepted only after safe-ID, numeric dtype, finite-value, exact-dimension, and
-SHA-256 checks, then copied atomically under a filesystem lock.
-
-There are only two pair states:
-
-| State | Meaning |
-|---|---|
-| `accepted` | A validated array exists in the one cumulative cache. |
-| `needs_retry` | No accepted array exists; retry regardless of the diagnostic reason. |
-
-`failure_ledger.tsv` retains one cumulative row per currently failed pair with
-attempt count and latest reason. It does not create per-attempt embedding cache
-copies. `needs_retry.tsv`, `coverage.json`, and one of
-`GENERATION_INCOMPLETE.json` or `EMBEDDING_GATE_PASSED.json` are regenerated
-atomically after every merge.
-
-`pair_status.tsv` also records `embedding_sha256` for every accepted pair.
-Baseline hashes are taken while authenticating the published archive; retry
-hashes are taken from the cumulative state cache. Do not rerun initialization
-to upgrade an older state. After every retry job has finished, perform a non-destructive
-evidence-only upgrade with:
+Evidence-only hash upgrades remain directly available without retiring source
+bytes:
 
 ```bash
-python3 scripts/embeddings/manage_resumable_embedding_state.py \
-  upgrade-evidence-hashes \
-  --state-root /path/to/retry_state \
-  --report /path/to/evidence_hash_upgrade.json
+python scripts/embeddings/manage_resumable_embedding_state.py \
+  upgrade-evidence-hashes --help
 ```
 
-This re-authenticates the contracted archive and assembly report while
-preserving the exact accepted-pair membership. The broader
-`finalize_embedding_state.py` command invokes the same upgrade before hydration,
-validation and publication, but it requires all benchmark, ontology, PFP,
-configuration, work, final-output and report paths as well as both
-`--confirm-retries-finished` and `--retire-source-embeddings`. Use that command
-only for final publication because it retires the superseded source embedding
-bytes after the consolidated archive is validated.
+The finalizer is a separate destructive consolidation step. Its full required
+arguments must be supplied, and `--retire-source-embeddings` explicitly permits
+retiring baseline/retry embedding bytes after the final archive is verified.
 
-The historical gate is tied to the published CAFA3 cache counts, not the older
-generic lower bounds:
+## Pair-Resolved NK+LK and Homology
 
-```text
-ProtT5      69,811 / 69,811
-text        69,517 / 69,811
-ESM-IF1     67,948 / 69,811
-PPI         58,294 / 69,811
+The coarse reuse planner proves target ID/sequence eligibility. Resolve actual
+source archives separately:
+
+```bash
+python scripts/embeddings/resolve_embedding_reuse_sources.py \
+  --coarse-plan-dir /path/to/coarse_plan \
+  --output-dir /path/to/new_ledger \
+  --cache-source contemporary=/path/to/source_benchmark=/path/to/cache.tar.gz=SHA256 \
+  --source-text-policy contemporary=same-role \
+  --cache-source cafa3=/path/to/source_benchmark=/path/to/cache.tar.gz=SHA256 \
+  --source-text-policy cafa3=never
 ```
 
-Pairs can remain in `needs_retry` after the gate passes; the marker means the
-historical published coverage floor has been reached, not that every external
-source contains every protein.
+For homology, both authenticated sources use `source-current` text policy.
+Source priority is the order of `--cache-source` arguments: contemporary before
+CAFA3.
 
-### AlphaFold acquisition
+Generate each required modality in a new output directory:
 
-PFP's checked-in `check_alphafold_coverage.py` and its hard-coded 1,000-worker
-main path remain unchanged. The resumable workflow selects the opt-in
-`framework-bounded` mode in `generate_embeddings_structure.sh`. The framework
-imports PFP's CAFA-to-UniProt mapping and AlphaFold interpretation functions,
-calls them with eight workers for only uncached IDs, downloads PDBs atomically,
-records source URLs, versions and SHA-256 values, and copies the requested PDB
-view into job scratch for IF1 inference. Authenticated PDBs live once under the
-state `source_cache`; a killed retry does not force their acquisition again.
+```bash
+bash scripts/embeddings/run_homology_embedding_modality.sh \
+  --pfp-root /path/to/pinned/PFP \
+  --work-dir /path/to/new_work \
+  --output-dir /path/to/new_modality_run \
+  --benchmark-dir /path/to/nine_csvs \
+  --ledger-dir /path/to/ledger \
+  --modality sequence \
+  --policy configs/contemporary_nk_lk_embedding_generation.json
+```
 
-### Retry and resume sequence
+Repeat for `text`, `structure`, and `ppi`; temporal NK+LK text additionally
+uses `--text-cutoff-date 2025-03-08`. Homology uses
+`configs/homology_embedding_generation.json` and current text.
 
-1. Submit the full workflow in `initial` mode. If coverage is insufficient, it
-   publishes a normal `.incomplete` report and exits zero after saving every
-   valid array. It does not train or evaluate.
-2. Submit `hpc_cafa3_embedding_retry.sh` once per modality that still has
-   missing pairs. Each job builds a PFP view containing only that modality's
-   missing IDs plus 20 accepted controls. Scientific input, PFP, policy, and
-   source-file contracts remain strict.
-3. At least five controls must regenerate and match the accepted arrays within
-   `rtol=1e-5`, `atol=1e-6` before retry outputs can be merged. Source-unavailable
-   controls are reported separately; numerical differences fail loudly.
-4. Once `EMBEDDING_GATE_PASSED.json` exists, rerun the full wrapper with
-   `--embedding-mode resume`. It hydrates only validated arrays, then performs
-   the published-cache comparison, training, and evaluation.
+Assemble only authenticated completed modality runs:
 
-Failure reason never decides retry eligibility. A 404, mapping absence, API
-error, invalid array, process failure, or source absence all remain
-`needs_retry`; the reason exists for analysis only.
+```bash
+python scripts/embeddings/assemble_pair_resolved_embedding_cache.py \
+  --ledger-dir /path/to/ledger \
+  --generated-run sequence=/path/to/sequence_run \
+  --generated-run text=/path/to/text_run \
+  --generated-run structure=/path/to/structure_run \
+  --generated-run ppi=/path/to/ppi_run \
+  --policy configs/contemporary_nk_lk_embedding_generation.json \
+  --output-archive /path/to/new_embedding_cache.tar.gz \
+  --report-dir /path/to/new_assembly_report
+```
 
-The persistent staging directory should be removed only after a final embedding
-release has been authenticated and published elsewhere. No cleanup command is
-automated because deleting persistent SAN state is intentionally a manual,
-reviewed operation.
+The assembler verifies every completion marker's modality, ledger hash, policy
+hash, PFP revision, archive location, and archive SHA-256 before reading it.
+Use `bind_embedding_archive_evidence.py` to bind the final cache to its benchmark
+and policy before model execution.
+
+## Runtime Notes
+
+All output paths must be outside the source checkout. `PYTHON_BIN` may select
+the interpreter. ESM-IF1 uses a standard `PYTHONPATH` overlay where required;
+no container-specific environment variable is necessary. AlphaFold downloads
+are bounded and recorded, and model caches may be placed through `HF_HOME` and
+`TORCH_HOME`.

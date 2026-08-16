@@ -98,15 +98,6 @@ resolve_artifact_path() {
   return 1
 }
 
-artifact_catalog_bind_parent() {
-  local artifact_id="$1"
-  local explicit_path="${2:-}"
-  local resolved=""
-  resolved="$(resolve_artifact_path "$artifact_id" "$explicit_path" 2>/dev/null || true)"
-  [[ -n "$resolved" ]] || return 0
-  add_mmfp_singularity_bind "$(dirname "$resolved")"
-}
-
 canonical_cafa3_artifact_id() {
   local name="$1"
   name="${name%.csv}"

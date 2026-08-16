@@ -460,7 +460,7 @@ def main() -> int:
         roundtrip = args.work_dir / "roundtrip_cache"
         extraction_report_path = reports / "archive_extraction.json"
         run_logged(
-            "[6/8] Read the copied SAN archive back into fresh scratch",
+            "[6/8] Read the copied persistent archive back into fresh temporary storage",
             [
                 sys.executable,
                 str(ARCHIVE_MANAGER),
@@ -482,7 +482,7 @@ def main() -> int:
                 raise ValueError(f"Round-trip archive report differs for {key}")
 
         validate_cache(
-            "[7/8] Revalidate every array read back from the copied SAN archive",
+            "[7/8] Revalidate every array read back from the copied persistent archive",
             roundtrip,
             prepared,
             args.config,
@@ -530,7 +530,7 @@ def main() -> int:
         atomic_write_json(args.final_root / "FINAL_CACHE_COMPLETE.json", final_marker)
         atomic_write_json(args.report_dir / "finalization_report.json", final_marker)
         print(f"Final embedding archive: {args.final_root / args.archive_name}")
-        print("The source evidence remains on SAN; duplicate embedding bytes were removed.")
+        print("The source evidence remains in the persistent store; duplicate embedding bytes were removed.")
         return 0
     except (OSError, ValueError, RuntimeError, KeyError, json.JSONDecodeError) as error:
         atomic_write_json(

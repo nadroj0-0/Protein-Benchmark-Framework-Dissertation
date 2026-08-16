@@ -14,12 +14,13 @@ if [ -f "${REPO_ROOT}/configs/paths.local.sh" ]; then
 fi
 
 export CAFA3_RAW_DIR="${CAFA3_RAW_DIR:-external/cafa3_raw}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 if [ ! -d "${CAFA3_RAW_DIR}" ]; then
   echo "Missing CAFA3 raw CSV directory: ${CAFA3_RAW_DIR}" >&2
   echo "Set CAFA3_RAW_DIR in configs/paths.local.sh or the environment." >&2
   exit 1
 fi
 
-python scripts/prepare_cafa3_data.py \
+"$PYTHON_BIN" scripts/prepare_cafa3_data.py \
   --cafa3-dir "${CAFA3_RAW_DIR}" \
   --output-dir data

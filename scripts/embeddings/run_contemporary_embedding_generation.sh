@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 FRAMEWORK_ROOT="$(cd "${HERE}/../.." && pwd)"
 # shellcheck source=../reproduction_common.sh
 source "$FRAMEWORK_ROOT/scripts/reproduction_common.sh"
-PYTHON_BIN="${PYTHON_BIN:-python}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 MMFP_BASE_URL="${MMFP_BASE_URL:-https://zenodo.org/records/19498341/files}"
 PREFLIGHT_PER_SPLIT="${PREFLIGHT_PER_SPLIT:-2}"
 DISK_POLL_SECONDS="${DISK_POLL_SECONDS:-120}"

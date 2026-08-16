@@ -9,7 +9,6 @@ import logging
 import os
 import platform
 from pathlib import Path
-import subprocess
 
 import pandas as pd
 
@@ -559,19 +558,7 @@ def _validate_csv_outputs(
 
 
 def _git_commit() -> str | None:
-    explicit_revision = os.environ.get("CAFA_BUILDER_FRAMEWORK_REVISION", "").strip()
-    if explicit_revision:
-        return explicit_revision
-
-    repo_root = Path(__file__).resolve().parents[4]
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=repo_root, text=True,
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False,
-        )
-    except OSError:
-        return None
-    return result.stdout.strip() or None if result.returncode == 0 else None
+    return os.environ.get("CAFA_BUILDER_FRAMEWORK_REVISION", "").strip() or None
 
 
 def _package_versions() -> dict[str, str]:

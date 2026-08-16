@@ -16,6 +16,8 @@ import numpy as np
 
 
 ASPECT_TO_ONTOLOGY = {"BPO": "bp", "CCO": "cc", "MFO": "mf"}
+GLOBAL_NK_BENCHMARK_ID = "contemporary-2025-01-to-2026-02-supervisor"
+NK_LK_BENCHMARK_ID = "contemporary-2025-01-to-2026-02-supervisor-nk-lk"
 
 
 def _load_helpers(framework_root: Path) -> tuple[Any, Any, Any, Any]:
@@ -73,6 +75,26 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _verify_completed_run_file(path: Path) -> Path:
+    for root in path.parents:
+        marker_path = root / "WORKFLOW_COMPLETE.json"
+        manifest_path = root / "output_manifest.json"
+        if not marker_path.is_file() or not manifest_path.is_file():
+            continue
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+        if marker.get("complete") is not True:
+            raise ValueError(f"Model run is not complete: {root}")
+        if marker.get("manifest_sha256") != _sha256(manifest_path):
+            raise ValueError(f"Model run manifest hash is invalid: {root}")
+        relative = path.resolve().relative_to(root.resolve()).as_posix()
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        matches = [item for item in manifest.get("files", []) if item.get("path") == relative]
+        if len(matches) != 1 or matches[0].get("sha256") != _sha256(path):
+            raise ValueError(f"Global-NK summary is not authenticated by its model run: {path}")
+        return root
+    raise ValueError(f"Global-NK summary is not inside a completed model run: {path}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--framework-root", type=Path, required=True)
@@ -99,10 +121,38 @@ def main() -> int:
     manifest, artifact_root = verify_artifact_manifest(
         args.prediction_manifest.resolve()
     )
-    if manifest.get("benchmark_id") != "contemporary-2025-01-to-2026-02-supervisor-nk-lk":
+    if manifest.get("benchmark_id") != NK_LK_BENCHMARK_ID:
         raise ValueError("Unexpected benchmark ID")
-    membership = _load_membership(args.membership_tsv.resolve())
-    nk_summary = json.loads(args.nk_evaluation_summary.read_text(encoding="utf-8"))
+    if manifest.get("mode") != "full" or manifest.get("evaluation_split") != "test":
+        raise ValueError("NK+LK analysis requires a completed full-model test capture")
+    if manifest.get("selected_aspects") != list(ASPECT_TO_ONTOLOGY):
+        raise ValueError("NK+LK analysis requires exactly BPO, CCO, and MFO")
+
+    membership_path = args.membership_tsv.resolve()
+    build_manifest_path = membership_path.parent / "build_manifest.json"
+    if not build_manifest_path.is_file():
+        raise ValueError("Cohort membership must be accompanied by build_manifest.json")
+    build_manifest = json.loads(build_manifest_path.read_text(encoding="utf-8"))
+    if build_manifest.get("profile") != "supervisor-nk-lk":
+        raise ValueError("Cohort membership is not from the NK+LK builder profile")
+    membership = _load_membership(membership_path)
+
+    nk_summary_path = args.nk_evaluation_summary.resolve()
+    nk_run_root = _verify_completed_run_file(nk_summary_path)
+    nk_run_report_path = nk_run_root / "reports" / "run_report.json"
+    _verify_completed_run_file(nk_run_report_path)
+    nk_run_report = json.loads(nk_run_report_path.read_text(encoding="utf-8"))
+    if (
+        nk_run_report.get("benchmark_id") != GLOBAL_NK_BENCHMARK_ID
+        or nk_run_report.get("execution_mode") != "train-eval"
+        or nk_run_report.get("modality_mode") != "full"
+    ):
+        raise ValueError("Global-NK comparison is not the accepted full training run")
+    nk_summary = json.loads(nk_summary_path.read_text(encoding="utf-8"))
+    if nk_summary.get("mode") != "full" or nk_summary.get("evaluation_split") != "test":
+        raise ValueError("Global-NK comparison must be a completed full-model test evaluation")
+    if set(nk_summary.get("aspects", {})) != set(ASPECT_TO_ONTOLOGY):
+        raise ValueError("Global-NK comparison must contain BPO, CCO, and MFO")
 
     args.output_dir.mkdir(parents=True)
     metric_rows: list[dict[str, Any]] = []
@@ -151,6 +201,8 @@ def main() -> int:
         aspect_metrics: dict[str, Any] = {}
         for cohort_number, (cohort, cohort_mask) in enumerate(masks.items()):
             total = int(cohort_mask.sum())
+            if total == 0:
+                raise ValueError(f"Empty {cohort} cohort for {aspect}")
             informative = int(np.logical_and(cohort_mask, has_nonroot).sum())
             root_only = total - informative
             composition = {
@@ -173,6 +225,10 @@ def main() -> int:
             ):
                 selected_truth = truth[mask]
                 selected_scores = scores[mask]
+                if selected_truth.shape[0] == 0:
+                    raise ValueError(
+                        f"Empty {population} population for {aspect} {cohort}"
+                    )
                 metrics = threshold_metrics(
                     selected_truth, selected_scores, weights, threshold
                 )
@@ -278,9 +334,26 @@ def main() -> int:
             "The thresholds are selected on the full test set and are descriptive, not deployable validation-fixed thresholds.",
         ],
         "inputs": {
-            "prediction_manifest": str(args.prediction_manifest.resolve()),
-            "membership_tsv": str(args.membership_tsv.resolve()),
-            "nk_evaluation_summary": str(args.nk_evaluation_summary.resolve()),
+            "prediction_manifest": {
+                "path": str(args.prediction_manifest.resolve()),
+                "sha256": _sha256(args.prediction_manifest.resolve()),
+            },
+            "membership_tsv": {
+                "path": str(membership_path),
+                "sha256": _sha256(membership_path),
+            },
+            "benchmark_build_manifest": {
+                "path": str(build_manifest_path.resolve()),
+                "sha256": _sha256(build_manifest_path.resolve()),
+            },
+            "nk_evaluation_summary": {
+                "path": str(nk_summary_path),
+                "sha256": _sha256(nk_summary_path),
+            },
+            "nk_run_report": {
+                "path": str(nk_run_report_path),
+                "sha256": _sha256(nk_run_report_path),
+            },
         },
         "aspects": report_aspects,
     }

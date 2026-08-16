@@ -13,7 +13,6 @@ from .frozen_inputs import (
     load_frozen_input_manifest,
 )
 from .inputs import open_text, sha256_file
-from .pipeline import validate_publication
 from .uniref_scaffold import SUPPORTED_UNIREF_LEVELS, uniref_scaffold
 
 
@@ -260,73 +259,6 @@ def write_runtime_contract(
     }
 
 
-def write_runtime_review(
-    run_dir: Path,
-    output_dir: Path,
-    run_kind: str,
-) -> dict[str, object]:
-    if run_kind not in {"pilot", "array"}:
-        raise ValueError("run_kind must be pilot or array")
-    validate_publication(run_dir)
-    publication = json.loads((run_dir / "publication_metadata.json").read_text(encoding="utf-8"))
-    validation = json.loads((run_dir / "validation_report.json").read_text(encoding="utf-8"))
-    attrition = json.loads((run_dir / "attrition_report.json").read_text(encoding="utf-8"))
-    csv_files = sorted(path.name for path in run_dir.glob("*.csv"))
-    pickle_files = sorted(path.name for path in run_dir.glob("*.pkl"))
-    if len(csv_files) != 9:
-        raise ValueError(f"Runtime publication contains {len(csv_files)} CSVs instead of nine")
-    if len(pickle_files) != 5:
-        raise ValueError(f"Runtime publication contains {len(pickle_files)} pickles instead of five")
-    warnings = list(validation.get("warnings", []))
-    payload: dict[str, object] = {
-        "schema_name": "homology-runtime-automatic-review",
-        "schema_version": 1,
-        "status": "pass",
-        "run_kind": run_kind,
-        "pilot_required_for_array": False,
-        "run_dir": str(run_dir.resolve()),
-        "identity_percent": publication["identity_percent"],
-        "uniprot_source_scope": publication["uniprot_source_scope"],
-        "validation_valid": validation.get("valid") is True,
-        "validation_check_count": len(validation.get("checks", [])),
-        "validation_warning_count": len(warnings),
-        "attrition_policy_passed": attrition.get("policy_passed") is True,
-        "attrition_policy_kind": "automatic-nonblocking-runtime-observation",
-        "production_eligible": publication.get("production_eligible"),
-        "csv_files": csv_files,
-        "pickle_files": pickle_files,
-        "warnings": warnings,
-        "interpretation": (
-            "This automatic review proves software and publication contracts. It records, but "
-            "does not biologically optimize, attrition thresholds."
-        ),
-    }
-    output_dir.mkdir(parents=True, exist_ok=True)
-    _json(output_dir / "automatic_review.json", payload)
-    markdown = [
-        "# Homology runtime automatic review",
-        "",
-        "- Status: **pass**",
-        f"- Run kind: **{run_kind}**",
-        f"- Identity: **{publication['identity_percent']}%**",
-        f"- UniProt scope: **{publication['uniprot_source_scope']}**",
-        f"- Validation checks: **{payload['validation_check_count']}**",
-        f"- Validation warnings: **{payload['validation_warning_count']}**",
-        "- Pilot required before the full array: **no**",
-        "- CSV outputs: **9**",
-        "- Pickle outputs: **5**",
-        "",
-        (
-            "The strict publication validator passed. The runtime attrition policy is "
-            "deliberately non-blocking and records observations; it is not a claim that "
-            "pilot-derived biological attrition limits were reviewed."
-        ),
-        "",
-    ]
-    (output_dir / "automatic_review.md").write_text("\n".join(markdown), encoding="utf-8")
-    return payload
-
-
 def _input_argument(parser: argparse.ArgumentParser, name: str) -> None:
     option = name.replace("_", "-")
     parser.add_argument(f"--{option}", type=Path)
@@ -342,7 +274,7 @@ def _input_argument(parser: argparse.ArgumentParser, name: str) -> None:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Prepare and review runtime homology contracts")
+    parser = argparse.ArgumentParser(description="Prepare runtime homology contracts")
     subparsers = parser.add_subparsers(dest="command", required=True)
     prepare = subparsers.add_parser("prepare")
     prepare.add_argument("--manifest-out", type=Path, required=True)
@@ -368,18 +300,11 @@ def _parser() -> argparse.ArgumentParser:
     policy.add_argument(
         "--uniref-level", type=int, choices=SUPPORTED_UNIREF_LEVELS, default=90
     )
-    review = subparsers.add_parser("review")
-    review.add_argument("--run-dir", type=Path, required=True)
-    review.add_argument("--output-dir", type=Path, required=True)
-    review.add_argument("--run-kind", choices=("pilot", "array"), required=True)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    if args.command == "review":
-        write_runtime_review(args.run_dir, args.output_dir, args.run_kind)
-        return 0
     if args.command == "policy":
         digest = write_runtime_policy(
             args.policy_out,

@@ -42,8 +42,8 @@ SPLIT_POLICIES = ("cluster-count-random", "sequence-balanced")
 TRAINING_POPULATIONS = ("annotated-only", "all-cluster-members")
 UNIPROT_SOURCE_SCOPES = ("sprot-only", "trembl-only", "sprot-and-trembl")
 MMSEQS_PROFILE_LEGACY = "legacy-calibrated"
-MMSEQS_PROFILE_DANIEL = "daniel-aligned-defaults"
-MMSEQS_PROFILES = (MMSEQS_PROFILE_LEGACY, MMSEQS_PROFILE_DANIEL)
+MMSEQS_PROFILE_FRAMEWORK = "framework-uniref50-s4-defaults"
+MMSEQS_PROFILES = (MMSEQS_PROFILE_FRAMEWORK, MMSEQS_PROFILE_LEGACY)
 MMSEQS_PROFILE_POLICIES = {
     MMSEQS_PROFILE_LEGACY: {
         "createdb_shuffle": 0,
@@ -52,7 +52,7 @@ MMSEQS_PROFILE_POLICIES = {
         "export_alignment_statistics": False,
         "export_cluster_fasta": False,
     },
-    MMSEQS_PROFILE_DANIEL: {
+    MMSEQS_PROFILE_FRAMEWORK: {
         "createdb_shuffle": None,
         "cluster_reassign": 0,
         "evalue": None,
@@ -91,7 +91,7 @@ class BuildConfig:
     uniprot_trembl_sequences: InputSpec | None
     goa: InputSpec
     go_obo: InputSpec
-    uniref_level: int = 90
+    uniref_level: int = 50
     split_policy: str = "cluster-count-random"
     training_population: str = "annotated-only"
     mmseqs_bin: str = "mmseqs"
@@ -117,11 +117,11 @@ class BuildConfig:
     cov_mode: int = 0
     cluster_mode: int = 0
     alignment_mode: int = 3
-    mmseqs_profile: str = MMSEQS_PROFILE_LEGACY
-    createdb_shuffle: int | None = 0
-    cluster_reassign: int = 1
-    sensitivity: float = 7.5
-    evalue: float | None = 1e-4
+    mmseqs_profile: str = MMSEQS_PROFILE_FRAMEWORK
+    createdb_shuffle: int | None = None
+    cluster_reassign: int = 0
+    sensitivity: float = 4.0
+    evalue: float | None = None
     export_alignment_statistics: bool = False
     export_cluster_fasta: bool = False
     include_relationships: bool = True
@@ -200,7 +200,7 @@ class BuildConfig:
                 f"{profile_policy}; observed {observed_profile_policy}"
             )
         if self.development_fraction != 0.80:
-            raise ValueError("Daniel's development/test policy is locked to exactly 0.80/0.20")
+            raise ValueError("The submitted development/test policy is locked to exactly 0.80/0.20")
         if self.training_fraction_within_development != 0.90:
             raise ValueError(
                 "The established development split is locked to exactly 0.90/0.10 "
@@ -213,12 +213,12 @@ class BuildConfig:
                 "The legacy UniRef90 route remains methodologically locked to sensitivity 7.5"
             )
         if (
-            self.mmseqs_profile == MMSEQS_PROFILE_DANIEL
+            self.mmseqs_profile == MMSEQS_PROFILE_FRAMEWORK
             and self.cluster_cache_root is None
         ):
             raise ValueError(
-                "The Daniel-aligned MMseqs2 profile requires --cluster-cache-root so its "
-                "validated cluster assignments survive scratch cleanup"
+                "The submitted UniRef50 MMseqs2 profile requires --cluster-cache-root so its "
+                "validated cluster assignments remain available for independent reruns"
             )
         if self.threads < 1:
             raise ValueError("threads must be positive")
@@ -241,7 +241,7 @@ class BuildConfig:
         if not self.fixture_mode and self.min_count < 50:
             raise ValueError("Production min_count is locked to at least 50; lower values require fixture mode")
         if self.evidence_codes != SUPERVISOR_EVIDENCE_CODES:
-            raise ValueError("The evidence-code policy is locked to Daniel's exact supplied set")
+            raise ValueError("The evidence-code policy is locked to the submitted set")
         if not self.include_relationships and not self.fixture_mode:
             raise ValueError(
                 "Production GO propagation is locked to the established builder's relationship policy"

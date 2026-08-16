@@ -18,7 +18,8 @@ Usage:
     [--embedding-cache-root DIR] [--checkpoint-root DIR] \
     [--modality-mode full|sequence-only|sequence-text|sequence-structure|sequence-ppi] \
     [--aspect BPO|CCO|MFO] \
-    [--seed N] [--num-workers N] [--ia-file-dir DIR] [--capture-predictions] \
+    [--seed N] [--num-workers N] [--ia-file-dir DIR] \
+    [--evaluation-split valid|test] [--capture-predictions] \
     [--reference-data-dir DIR] [--reference-source-archive FILE] \
     [--expected-metrics FILE] \
     [--benchmark-evidence FILE] \
@@ -50,6 +51,7 @@ SEED=42
 NUM_WORKERS=0
 IA_FILE_DIR=""
 CAPTURE_PREDICTIONS=0
+EVALUATION_SPLIT="test"
 REFERENCE_DATA_DIR=""
 REFERENCE_SOURCE_ARCHIVE=""
 EXPECTED_METRICS=""
@@ -83,6 +85,7 @@ while [[ $# -gt 0 ]]; do
     --num-workers) require_value "$@"; NUM_WORKERS="$2"; shift 2 ;;
     --ia-file-dir) require_value "$@"; IA_FILE_DIR="$2"; shift 2 ;;
     --capture-predictions) CAPTURE_PREDICTIONS=1; shift ;;
+    --evaluation-split) require_value "$@"; EVALUATION_SPLIT="$2"; shift 2 ;;
     --reference-data-dir) require_value "$@"; REFERENCE_DATA_DIR="$2"; shift 2 ;;
     --reference-source-archive) require_value "$@"; REFERENCE_SOURCE_ARCHIVE="$2"; shift 2 ;;
     --expected-metrics) require_value "$@"; EXPECTED_METRICS="$2"; shift 2 ;;
@@ -109,6 +112,7 @@ done
 [[ "$EXECUTION_MODE" =~ ^(prepare-only|eval-only|train-eval)$ ]] || die "Invalid --execution-mode"
 [[ "$MODALITY_MODE" =~ ^(full|sequence-only|sequence-text|sequence-structure|sequence-ppi)$ ]] || \
   die "Invalid --modality-mode"
+[[ "$EVALUATION_SPLIT" =~ ^(valid|test)$ ]] || die "Invalid --evaluation-split"
 if [[ "$CAPTURE_PREDICTIONS" == "1" && "$EXECUTION_MODE" == "prepare-only" ]]; then
   die "--capture-predictions requires eval-only or train-eval"
 fi
@@ -278,6 +282,7 @@ if [[ "$EXECUTION_MODE" != "prepare-only" ]]; then
       --embedding-report "$WORK_DIR/reports/embedding_cache.json"
       --num-workers "$NUM_WORKERS"
       --seed "$SEED"
+      --evaluation-split "$EVALUATION_SPLIT"
       "${ASPECT_ARGS[@]}"
     )
     if [[ -n "$IA_FILE_DIR" ]]; then EVAL_COMMAND+=(--ia-file-dir "$IA_FILE_DIR"); fi
@@ -343,6 +348,7 @@ if [[ "$EXECUTION_MODE" != "prepare-only" ]]; then
       --embedding-report "$WORK_DIR/reports/embedding_cache.json"
       --num-workers "$NUM_WORKERS"
       --seed "$SEED"
+      --evaluation-split "$EVALUATION_SPLIT"
       "${ASPECT_ARGS[@]}"
     )
     if [[ -n "$IA_FILE_DIR" ]]; then EVAL_COMMAND+=(--ia-file-dir "$IA_FILE_DIR"); fi

@@ -1,278 +1,67 @@
-# Validation Scripts
+# CAFA3 Validation
 
-This directory contains validation workflows for checking benchmark-generation
-code against historical reference artefacts.
+The retained validation routes answer different questions and should not be
+collapsed into one claim.
 
-## CAFA3 Historical Validation
-
-There are now three historical validation workflows.
-
-### DeepGOPlus Pickle-Generation Validation
-
-This validates the recovered `cafa3_data.py` layer:
-
-```text
-Official CAFA3/DeepGOPlus files
-    -> train_data.pkl
-    -> test_data.pkl
-    -> terms.pkl
-    -> compare against released DeepGOPlus pickles
-```
-
-Main runner:
+## Released Pickles to Nine CSVs
 
 ```bash
-bash scripts/validation/run_cafa3_deepgoplus_pickle_generation_validation.sh
+bash scripts/validation/run_cafa3_deepgoplus_validation.sh --help
 ```
 
-HPC wrapper:
+This validates the transformation from released DeepGOPlus-shaped pickles to
+the nine CSV files consumed by PFP.
+
+## Official Sources to Pickles
 
 ```bash
-qsub hpc_jobs/active/hpc_cafa3_deepgoplus_pickle_generation_validation.sh
+bash scripts/validation/run_cafa3_deepgoplus_pickle_generation_validation.sh --help
 ```
 
-The runner accepts `--deepgoplus-archive PATH`. Otherwise it checks the
-`deepgoplus_cafa` entry in `--artifact-catalog PATH`, then downloads the public
-CAFA archive candidates:
+This reconstructs and compares the official-source pickle layer before CSV
+conversion. `compare_deepgoplus_pickles.py` imports shared comparison logic
+from `compare_cafa3_outputs.py`.
 
-```text
-https://deepgo.cbrc.kaust.edu.sa/data/data-cafa.tar.gz
-https://deepgo.cbrc.kaust.edu.sa/data/deepgoplus-cafa.tar.gz
-```
-
-It can also use a local extracted copy:
-
-```bash
-export DEEPGOPLUS_CAFA_DIR="/path/to/data-cafa"
-```
-
-On UCL HPC the shared frozen archive can be selected with:
-
-```bash
-qsub hpc_jobs/active/hpc_cafa3_deepgoplus_pickle_generation_validation.sh \
-  --artifact-catalog /SAN/bioinf/bmpfp/manifests/artifact_paths.tsv
-```
-
-The runner copies reports/logs back to:
-
-```text
-~/cafa3_deepgoplus_pickle_generation_reports/<job-or-timestamp>/
-```
-
-Scratch is removed by default.
-
-### DeepGOPlus/TEMPROT Validation
-
-This is the preferred validation for the recovered PFP-facing pipeline:
-
-```text
-DeepGOPlus released pickles
-    -> TEMPROT-style ontology CSV export
-    -> PFP-compatible 9 CSVs
-    -> compare against Zenodo 7409660
-```
-
-Main runner:
-
-```bash
-bash scripts/validation/run_cafa3_deepgoplus_validation.sh
-```
-
-HPC wrapper:
-
-```bash
-qsub hpc_jobs/active/hpc_cafa3_deepgoplus_validation.sh
-```
-
-This path prefers an explicit extracted directory or archive, then the
-`deepgoplus_cafa` catalogue entry. If neither exists, it tries the known CAFA
-archive first and then the older DeepGOPlus-named archive as a fallback:
-
-```text
-https://deepgo.cbrc.kaust.edu.sa/data/data-cafa.tar.gz
-https://deepgo.cbrc.kaust.edu.sa/data/deepgoplus-cafa.tar.gz
-```
-
-It can also use a local extracted copy:
-
-```bash
-export DEEPGOPLUS_PICKLES_DIR="/path/to/data-cafa"
-```
-
-The runner copies reports/logs back to:
-
-```text
-~/cafa3_deepgoplus_validation_reports/<job-or-timestamp>/
-```
-
-Scratch is removed by default.
-
-### Raw Snapshot Audit
-
-This is the heavier audit path that attempts to regenerate the historical
-intermediates from raw 2017 UniProt/GOA/GO snapshots. It is useful for
-methodology forensics, but it is not expected to be bit-for-bit identical unless
-all official CAFA/DeepGOPlus intermediate curation steps are reproduced.
-
-Main runner:
+## Historical Reconstruction
 
 ```bash
 bash scripts/validation/run_cafa3_historical_validation.sh
 ```
 
-HPC wrapper:
-
-```bash
-qsub hpc_jobs/active/hpc_cafa3_historical_validation.sh
-```
-
-The HPC wrapper is intentionally thin. It follows the existing cluster-script
-pattern:
-
-1. create a job-specific scratch directory;
-2. clone the framework into scratch;
-3. call the real implementation under `scripts/validation/`;
-4. copy generated CSV/pickle artefacts, reports and logs back to
-   `$HOME/cafa3_historical_validation_reports/`;
-5. remove the scratch directory.
-
-Raw GOA, UniProt and GO downloads are kept in scratch only. They are not copied
-back to home.
-
-The active HPC wrapper uses the scratch-heavy GOA mode by default:
-
-```bash
-DECOMPRESS_GOA=1
-USE_PIGZ=1
-```
-
-and requests `200G` of scratch. This keeps the decompressed `.gaf` files in
-scratch for faster parsing, then removes them during cleanup.
-
-## Outputs
-
-Each run copies a small report bundle to:
+The primary submitted defaults are:
 
 ```text
-~/cafa3_historical_validation_reports/<job-or-timestamp>/
+training snapshot:       September 2016
+target universe:         official CAFA3 targets
+test source:             official ground truth
+endpoint policy:         assigned-date proxy
+backfill policy:         exclude pre-t0
+benchmark ontology:      packaged DeepGOPlus ontology
 ```
 
-Expected report files:
+The official-ground-truth route preserves released CAFA IDs and target FASTA
+sequences and gates the expected 3,328 proteins plus ontology-specific export
+populations. It validates the artifact path consumed by PFP; it does not claim
+to reconstruct an unavailable private organizer snapshot.
 
-```text
-cafa3_historical_validation_report.md
-cafa3_deepgoplus_pickle_generation_report.md
-csv_comparison.tsv
-pickle_comparison.tsv
-pickle_generation_comparison.tsv
-protein_overlap.tsv
-go_term_overlap.tsv
-run_manifest.md
-logs/
-```
+The optional raw-GOA route compares public GAF snapshots. Its endpoint,
+backfill, and ontology controls are explicit environment variables documented
+by `--help`. Because the later public GAF was generated after the CAFA3
+organizer snapshot, raw-GOA output is a sensitivity analysis rather than exact
+organizer reconstruction.
 
-The regenerated PFP and DeepGOPlus-shaped artefacts are retained under:
+## Performance and Inputs
 
-```text
-~/cafa3_historical_validation_reports/<job-or-timestamp>/generated/
-```
+Plain and gzip inputs are streamed. If `pigz` is available it may be used for
+decompression; Python gzip remains the fallback. Temporary extraction defaults
+to `${TMPDIR:-/tmp}` and can be redirected through the runner's explicit work
+paths.
 
-This contains the nine ontology/split CSVs and five pickle intermediates. Raw
-UniProt, GOA, GO and downloaded reference copies remain scratch-only.
+Optional local source overrides and `ARTIFACT_CATALOG` avoid repeated downloads.
+Every accepted source is hashed and recorded. Validation output includes
+machine-readable comparisons, overlap and population diagnostics, logs,
+checksums, and completion markers.
 
-The scratch run directory contains the heavy raw/generated/reference files while
-the job is running:
-
-```text
-raw/
-generated/
-reference/
-reports/
-logs/
-```
-
-By default scratch is deleted at the end of the run. Set `KEEP_SCRATCH=1` only
-for debugging.
-
-## GOA Parsing Performance
-
-GOA files are kept compressed by default and streamed by the benchmark builder.
-The builder filters GOA rows early against the loaded UniProt accession universe,
-then evidence code, `NOT`, aspect, and taxon. It also logs progress during large
-GAF parses.
-
-Useful knobs:
-
-```bash
-# Default: use pigz for streaming gzip decompression if available.
-export USE_PIGZ=1
-
-# Disable pigz and use Python/gzip fallback.
-export USE_PIGZ=0
-
-# Default for direct/local runner use: keep .gaf.gz compressed on disk and stream it.
-export DECOMPRESS_GOA=0
-
-# HPC wrapper default: decompress GOA to .gaf in scratch before parsing. This
-# uses more scratch but can help when gzip decompression is the limit.
-export DECOMPRESS_GOA=1
-
-# Default progress heartbeat.
-export GOA_PROGRESS_INTERVAL=1000000
-```
-
-These settings affect scratch/runtime only. They do not change the benchmark
-definition.
-
-## Optional Inputs
-
-The workflow always downloads the historical raw CAFA3 snapshots and the nine
-canonical CAFA3 CSV reference files from Zenodo record
-`https://zenodo.org/records/7409660`. These are the CSV benchmark interface that
-PFP ultimately consumes.
-
-Zijian's Zenodo record `https://zenodo.org/records/19498341` contains MMFP/PFP
-artefacts generated from that benchmark, but it is not used as the canonical CSV
-comparison source here.
-
-DeepGOPlus reference pickle artefacts are optional. By default the workflow tries
-the public CAFA archives:
-
-```text
-https://deepgo.cbrc.kaust.edu.sa/data/data-cafa.tar.gz
-https://deepgo.cbrc.kaust.edu.sa/data/deepgoplus-cafa.tar.gz
-```
-
-To override the default, set one of:
-
-```bash
-export DEEPGOPLUS_PICKLES_DIR=/path/to/extracted/deepgoplus/cafa3/files
-export DEEPGOPLUS_PICKLES_URL=https://deepgo.cbrc.kaust.edu.sa/data/data-cafa.tar.gz
-```
-
-If the pickle archive cannot be downloaded or extracted, the workflow continues
-with CSV-only comparison and records the skip in the report.
-
-## Python Environment
-
-The validation runner uses the contemporary benchmark builder directly from:
-
-```text
-benchmark_builders/contemporary_cafa/src
-```
-
-The active Python environment must provide:
-
-```text
-numpy
-pandas
-```
-
-The workflow does not modify PFP and does not install packages automatically.
-
-## Scratch Policy
-
-The cluster wrapper and main runner both clean scratch by default. This is
-deliberate: raw database snapshots and downloaded reference artefacts are large
-and should not be left behind after generated outputs and reports have been
-copied home.
+These checks establish artifact/schema/population equivalence within their
+declared inputs. They do not establish that public historical snapshots are
+biologically identical to unavailable private freezes.

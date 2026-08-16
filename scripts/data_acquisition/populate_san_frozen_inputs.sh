@@ -1,5 +1,5 @@
 #!/bin/bash
-# Populate the dissertation SAN with authenticated, frozen public inputs.
+# Populate a persistent store with authenticated, frozen public inputs.
 #
 # Canonical frozen-input acquisition for the submitted benchmark workflows.
 
@@ -7,13 +7,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRAMEWORK_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-SPEC_FILE="${SAN_INPUT_SPEC:-${SCRIPT_DIR}/san_frozen_inputs.tsv}"
+SPEC_FILE="${PFP_INPUT_SPEC:-${SCRIPT_DIR}/san_frozen_inputs.tsv}"
 FILTER_DAT="$FRAMEWORK_ROOT/scripts/benchmark_generation/filter_uniprot_dat.py"
 EXTRACT_MEMBER="$FRAMEWORK_ROOT/scripts/benchmark_generation/extract_tar_member.py"
 TARGET_TAXA="$FRAMEWORK_ROOT/benchmark_builders/contemporary_cafa/src/cafa_benchmark_builder/resources/cafa3_target_taxa.txt"
 # shellcheck source=../reproduction_common.sh
 source "$FRAMEWORK_ROOT/scripts/reproduction_common.sh"
-DEFAULT_ROOT="/SAN/bioinf/bmpfp"
+DEFAULT_ROOT="${PFP_INPUT_ROOT:-$HOME/pfp_inputs}"
 ROOT="$DEFAULT_ROOT"
 RESERVE_GB=40
 DRY_RUN=0
@@ -50,7 +50,7 @@ Usage:
   bash scripts/data_acquisition/populate_san_frozen_inputs.sh [options]
 
 Options:
-  --root PATH           Persistent store root (default: /SAN/bioinf/bmpfp).
+  --root PATH           Persistent store root (default: $HOME/pfp_inputs).
   --profile NAME        Select a profile; repeat or comma-separate values.
                         Choices: temporal, homology, embedding-inputs,
                         references, tools, all. Default: all.
@@ -73,7 +73,7 @@ Examples:
   bash scripts/data_acquisition/populate_san_frozen_inputs.sh \
     --profile homology --profile tools
 
-  # Offline integrity audit of everything already held in SAN.
+  # Offline integrity audit of an existing persistent store.
   bash scripts/data_acquisition/populate_san_frozen_inputs.sh \
     --profile all --verify-only
 EOF
@@ -555,7 +555,6 @@ build_or_verify_derived_trembl() {
         die "Selected derived artifact is missing or incomplete: $destination"
     fi
 
-    add_mmfp_singularity_bind "$ROOT"
     resolve_python_bin
     command -v gzip >/dev/null 2>&1 || die "gzip is required to derive filtered TrEMBL caches"
     [[ -f "$FILTER_DAT" ]] || die "UniProt DAT filter is missing: $FILTER_DAT"
@@ -634,7 +633,7 @@ process_homology_derived_inputs() {
     profile_selected homology || return 0
     local destination="$ROOT/$HOMOLOGY_CACHE_RELATIVE"
     local marker="$destination/CACHE_COMPLETE.json"
-    local work_root manifest policy revision binding
+    local work_root manifest policy binding
     local verify_args=()
     local build_args=()
     local expected_bindings=()
@@ -642,9 +641,7 @@ process_homology_derived_inputs() {
     echo
     echo "[$HOMOLOGY_CACHE_ROLE] $HOMOLOGY_CACHE_RELATIVE"
     resolve_python_bin
-    add_mmfp_singularity_bind "$ROOT"
     export PYTHONPATH="$FRAMEWORK_ROOT/benchmark_builders/homology_cluster/src${PYTHONPATH:+:$PYTHONPATH}"
-    export MMFP_PYTHONPATH="$PYTHONPATH"
     while IFS= read -r binding; do
         expected_bindings+=("$binding")
         verify_args+=(--expected-input-sha256 "$binding")
@@ -740,7 +737,6 @@ process_homology_cluster_cache_root() {
     echo "[$HOMOLOGY_CLUSTER_CACHE_ROOT_ROLE] $HOMOLOGY_CLUSTER_CACHE_ROOT_RELATIVE"
     resolve_python_bin
     export PYTHONPATH="$FRAMEWORK_ROOT/benchmark_builders/homology_cluster/src${PYTHONPATH:+:$PYTHONPATH}"
-    export MMFP_PYTHONPATH="$PYTHONPATH"
     if [[ -s "$marker" ]] && "$PYTHON_BIN" -m homology_cluster_benchmark.cluster_cache \
         verify-root --cache-root "$destination" >/dev/null; then
         echo "  persistent validated cluster-cache root is ready"
@@ -946,7 +942,7 @@ unknown_allowance_bytes=$((missing_unknown_count * 1024 * 1024 * 1024))
 planned_bytes=$((missing_known_bytes + unknown_allowance_bytes))
 
 echo
-echo "SAN frozen-input acquisition"
+echo "Frozen-input acquisition"
 echo "  root:              $ROOT"
 echo "  profiles:          ${PROFILES[*]}"
 echo "  selected files:    $selected_count"
@@ -960,21 +956,17 @@ if [[ "$LIST_ONLY" == "1" || "$DRY_RUN" == "1" ]]; then
     exit 0
 fi
 
-if [[ "$ROOT" == "$DEFAULT_ROOT" ]]; then
-    [[ -d "$ROOT" ]] || die "SAN root is not mounted or visible: $ROOT"
-else
-    mkdir -p "$ROOT"
-fi
+mkdir -p "$ROOT"
 [[ -w "$ROOT" ]] || die "Store root is not writable: $ROOT"
 mkdir -p "$ROOT/manifests"
 
 if command -v flock >/dev/null 2>&1; then
-    exec 9> "$ROOT/manifests/.populate_san_frozen_inputs.lock"
-    flock -n 9 || die "Another SAN acquisition process is already running"
+    exec 9> "$ROOT/manifests/.populate_frozen_inputs.lock"
+    flock -n 9 || die "Another acquisition process is already running"
 else
-    FALLBACK_LOCK_DIR="$ROOT/manifests/.populate_san_frozen_inputs.lock.d"
+    FALLBACK_LOCK_DIR="$ROOT/manifests/.populate_frozen_inputs.lock.d"
     mkdir "$FALLBACK_LOCK_DIR" 2>/dev/null || \
-        die "Another SAN acquisition process may be running: $FALLBACK_LOCK_DIR"
+        die "Another acquisition process may be running: $FALLBACK_LOCK_DIR"
     trap release_lock EXIT INT TERM
 fi
 
@@ -983,7 +975,7 @@ if [[ "$VERIFY_ONLY" == "0" && "$missing_count" -gt 0 ]]; then
     available_bytes=$((available_kib * 1024))
     required_bytes=$((planned_bytes + RESERVE_GB * 1024 * 1024 * 1024))
     (( available_bytes >= required_bytes )) || die \
-        "Insufficient SAN space: available=$(human_gib "$available_bytes") required_with_reserve=$(human_gib "$required_bytes")"
+        "Insufficient store space: available=$(human_gib "$available_bytes") required_with_reserve=$(human_gib "$required_bytes")"
 fi
 
 UNIPROT_METADATA_BEFORE=""

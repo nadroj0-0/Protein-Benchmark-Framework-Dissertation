@@ -14,7 +14,7 @@ import tarfile
 import tempfile
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import BinaryIO
 
 import numpy as np
@@ -145,18 +145,37 @@ def load_policy(path: Path) -> dict:
     return policy
 
 
-def parse_generated(values: list[str]) -> dict[str, Path]:
+def parse_generated_runs(
+    values: list[str], ledger_dir: Path, policy: Path, expected_pfp_commit: str
+) -> dict[str, Path]:
     result: dict[str, Path] = {}
+    ledger_sha = sha256_file(ledger_dir / "output_manifest.json")
+    policy_sha = sha256_file(policy)
     for value in values:
         modality, separator, raw_path = value.partition("=")
         if not separator or modality not in MODALITIES or modality in result:
-            raise AssemblyError(f"Invalid --generated-archive value: {value}")
-        path = Path(raw_path).expanduser().resolve()
-        if not path.is_file() or path.is_symlink():
-            raise AssemblyError(f"Generated archive is missing or unsafe: {path}")
-        result[modality] = path
+            raise AssemblyError(f"Invalid --generated-run value: {value}")
+        run = Path(raw_path).expanduser().resolve()
+        marker_path = run / "WORKFLOW_COMPLETE.json"
+        if not marker_path.is_file() or marker_path.is_symlink():
+            raise AssemblyError(f"Generated run has no safe completion marker: {run}")
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+        if marker.get("complete") is not True or marker.get("modality") != modality:
+            raise AssemblyError(f"Invalid completion marker for {modality}")
+        if marker.get("ledger_output_manifest_sha256") != ledger_sha:
+            raise AssemblyError(f"Generated {modality} run uses a different ledger")
+        if marker.get("policy_sha256") != policy_sha:
+            raise AssemblyError(f"Generated {modality} run uses a different policy")
+        if marker.get("pfp_commit") != expected_pfp_commit:
+            raise AssemblyError(f"Generated {modality} run uses the wrong PFP revision")
+        archive = (run / str(marker.get("archive", ""))).resolve()
+        if not archive.is_relative_to(run) or not archive.is_file() or archive.is_symlink():
+            raise AssemblyError(f"Generated archive is missing or unsafe: {archive}")
+        if marker.get("archive_sha256") != sha256_file(archive):
+            raise AssemblyError(f"Generated {modality} archive hash does not match its marker")
+        result[modality] = archive
     if set(result) != set(MODALITIES):
-        raise AssemblyError("One generated archive is required for every modality")
+        raise AssemblyError("One completed generated run is required for every modality")
     return result
 
 
@@ -507,10 +526,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ledger-dir", type=Path, required=True)
     parser.add_argument(
-        "--generated-archive",
+        "--generated-run",
         action="append",
         required=True,
-        metavar="MODALITY=PATH",
+        metavar="MODALITY=RUN_DIR",
     )
     parser.add_argument(
         "--source-archive-override",
@@ -519,13 +538,21 @@ def main() -> int:
         metavar="ORIGINAL=STAGED",
     )
     parser.add_argument("--policy", type=Path, required=True)
+    parser.add_argument(
+        "--expected-pfp-commit",
+        default="1e04fd6d6d3c40458fd41ec1a881ed6e24de768e",
+    )
     parser.add_argument("--output-archive", type=Path, required=True)
     parser.add_argument("--report-dir", type=Path, required=True)
     args = parser.parse_args()
+    ledger_dir = args.ledger_dir.resolve()
+    policy = args.policy.resolve()
     result = publish_cache(
-        args.ledger_dir.resolve(),
-        parse_generated(args.generated_archive),
-        args.policy.resolve(),
+        ledger_dir,
+        parse_generated_runs(
+            args.generated_run, ledger_dir, policy, args.expected_pfp_commit
+        ),
+        policy,
         args.output_archive.resolve(),
         args.report_dir.resolve(),
         parse_source_archive_overrides(args.source_archive_override),

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "run_name": "cafa3-published-vs-contemporary",
+  "run_name": "dissertation-benchmark-forensics",
   "top_n": 20,
   "datasets": [
     {
@@ -12,70 +12,89 @@
       "split_overlap_policy": "disallow",
       "source_annotations": {
         "type": "pfp-pickle-directory",
-        "path": "/path/to/cafa3/generated/pre_projection",
-        "projection_policy": "DeepGOPlus-compatible min_count=50 label universe"
+        "path": "/path/to/cafa3/pre_projection_pickles",
+        "projection_policy": "Published DeepGOPlus/PFP min_count=50 label-universe projection"
       },
       "taxonomy_sources": [
-        {
-          "type": "uniprot-dat",
-          "path": "/path/to/cafa3/relevant_uniprot.dat.gz",
-          "name": "current-uniprot-primary",
-          "priority": 200
-        },
-        {
-          "type": "tsv",
-          "path": "/path/to/cafa3/target_mapping.tsv",
-          "name": "historical-target-fallback",
-          "priority": 100,
-          "id_columns": ["protein_id", "target_id"],
-          "taxon_id_column": "taxon_id",
-          "taxon_name_column": "taxon_name"
-        }
+        {"type": "uniprot-dat", "path": "/path/to/2025/trembl.dat.gz", "name": "uniprot-2025-01-trembl", "priority": 100},
+        {"type": "uniprot-dat", "path": "/path/to/2025/swissprot.dat.gz", "name": "uniprot-2025-01-swissprot", "priority": 200},
+        {"type": "uniprot-dat", "path": "/path/to/2026/trembl.dat.gz", "name": "uniprot-2026-02-trembl", "priority": 300},
+        {"type": "uniprot-dat", "path": "/path/to/2026/swissprot.dat.gz", "name": "uniprot-2026-02-swissprot", "priority": 400}
       ],
       "modality_inventory": {
-        "type": "embedding-inventory",
-        "path": "/path/to/cafa3/embedding_inventory.tsv.gz"
+        "type": "long-table",
+        "path": "/path/to/cafa3/embedding_inventory.tsv.gz",
+        "protein_id_column": "protein_id",
+        "modality_column": "modality",
+        "states": {
+          "published_embedding_available": {
+            "column": "scientifically_eligible",
+            "true_values": ["true"]
+          }
+        }
       }
     },
     {
-      "id": "contemporary-2025-2026",
-      "benchmark_dir": "/path/to/contemporary/csvs",
-      "obo_file": "/path/to/contemporary/go-basic.obo",
+      "id": "contemporary-2025-01-to-2026-02-global-nk",
+      "benchmark_dir": "/path/to/contemporary/global_nk/csvs",
+      "obo_file": "/path/to/2026/go-basic.obo",
       "allow_legacy_singular_protein_header": false,
       "allow_all_zero_rows": false,
       "split_overlap_policy": "disallow",
       "source_annotations": {
         "type": "pfp-pickle-directory",
-        "path": "/path/to/contemporary/pre_projection",
-        "projection_policy": "DeepGOPlus-compatible min_count=50 label universe"
+        "path": "/path/to/contemporary/global_nk/pre_projection_pickles",
+        "projection_policy": "Supervisor-profile min_count=50 label-universe projection"
       },
       "taxonomy_sources": [
-        {
-          "type": "uniprot-dat",
-          "path": "/path/to/contemporary/training_uniprot.dat.gz",
-          "name": "uniprot-t0-fallback",
-          "priority": 100
-        },
-        {
-          "type": "uniprot-dat",
-          "path": "/path/to/contemporary/target_uniprot.dat.gz",
-          "name": "uniprot-t1-primary",
-          "priority": 200
-        }
+        {"type": "uniprot-dat", "path": "/path/to/2025/trembl.dat.gz", "name": "uniprot-2025-01-trembl", "priority": 100},
+        {"type": "uniprot-dat", "path": "/path/to/2025/swissprot.dat.gz", "name": "uniprot-2025-01-swissprot", "priority": 200},
+        {"type": "uniprot-dat", "path": "/path/to/2026/trembl.dat.gz", "name": "uniprot-2026-02-trembl", "priority": 300},
+        {"type": "uniprot-dat", "path": "/path/to/2026/swissprot.dat.gz", "name": "uniprot-2026-02-swissprot", "priority": 400}
       ],
       "modality_inventory": {
-        "type": "embedding-inventory",
-        "path": "/path/to/contemporary/embedding_inventory.tsv.gz"
-      },
-      "category_sources": [
-        {
-          "name": "interpro_family",
-          "path": "/optional/path/to/protein_families.tsv",
-          "protein_id_column": "protein_id",
-          "category_id_column": "family_id",
-          "category_name_column": "family_name"
+        "type": "long-table",
+        "path": "/path/to/contemporary/global_nk/pair_status.tsv",
+        "protein_id_column": "protein_id",
+        "modality_column": "modality",
+        "states": {
+          "hydrated_model_input_available": {
+            "column": "state",
+            "true_values": ["accepted"]
+          }
         }
-      ]
+      }
+    },
+    {
+      "id": "contemporary-2025-01-to-2026-02-nk-lk",
+      "benchmark_dir": "/path/to/contemporary/nk_lk/csvs",
+      "obo_file": "/path/to/2026/go-basic.obo",
+      "allow_legacy_singular_protein_header": false,
+      "allow_all_zero_rows": false,
+      "split_overlap_policy": "per-ontology-disjoint",
+      "source_annotations": {
+        "type": "pfp-pickle-directory",
+        "path": "/path/to/contemporary/nk_lk/pre_projection_pickles",
+        "projection_policy": "Contemporary NK+LK min_count=50 label-universe projection"
+      },
+      "taxonomy_sources": [
+        {"type": "uniprot-dat", "path": "/path/to/2025/trembl.dat.gz", "name": "uniprot-2025-01-trembl", "priority": 100},
+        {"type": "uniprot-dat", "path": "/path/to/2025/swissprot.dat.gz", "name": "uniprot-2025-01-swissprot", "priority": 200},
+        {"type": "uniprot-dat", "path": "/path/to/2026/trembl.dat.gz", "name": "uniprot-2026-02-trembl", "priority": 300},
+        {"type": "uniprot-dat", "path": "/path/to/2026/swissprot.dat.gz", "name": "uniprot-2026-02-swissprot", "priority": 400}
+      ],
+      "modality_inventory": {
+        "type": "long-table",
+        "path": "/path/to/contemporary/nk_lk/pair_status.tsv",
+        "protein_id_column": "protein_id",
+        "modality_column": "modality",
+        "states": {
+          "hydrated_model_input_available": {
+            "column": "state",
+            "true_values": ["accepted"]
+          }
+        }
+      }
     }
   ]
 }

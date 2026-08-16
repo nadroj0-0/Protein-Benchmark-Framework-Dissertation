@@ -20,7 +20,7 @@ export STRING_ALIAS_FILE="${STRING_ALIAS_FILE:-external/string/protein.aliases.v
 export CAFA_ASSESSMENT_DIR="${CAFA_ASSESSMENT_DIR:-external/CAFA_assessment_tool}"
 PPI_EXTRACT_SCRIPT="${PPI_EXTRACT_SCRIPT:-scripts/extract_ppi_embeddings.py}"
 CAFA3_ID_MAPPING="${CAFA3_ID_MAPPING:-}"
-PYTHON_BIN="${PYTHON_BIN:-python}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 if [ ! -f "${STRING_H5_FILE}" ]; then
   echo "Missing STRING network embeddings file: ${STRING_H5_FILE}" >&2
   echo "Set STRING_H5_FILE in configs/paths.local.sh or the environment." >&2

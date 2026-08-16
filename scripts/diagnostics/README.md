@@ -19,14 +19,11 @@ table, checks sequence bytes for every protein shared between adjacent
 thresholds, reports train/validation/test moves by ontology, and calculates
 label-independent agreement for the retained annotated-protein partitions.
 
-This is the fast, model-input-facing audit. It does not replace the exact
-comparison of the complete UniRef50 assignment files. On Grid Engine,
-`hpc_homology_threshold_progression_audit.sh` runs the fast audit once and also
-hashes all six complete UniRef50 assignment files.
-`hpc_compare_homology_adjacent_partitions.sh` runs the four non-identical
-complete adjacent comparisons as an array. The 10% and 5% complete files are
-byte-identical, so their hashes already prove exact equality without a redundant
-external-sort comparison.
+This is the fast, model-input-facing audit. It does not replace exact comparison
+of the complete UniRef50 assignment files. Run
+`compare_homology_cluster_assignments.py` directly for every adjacent pair:
+30-to-25, 25-to-20, 20-to-15, 15-to-10, and 10-to-5. Equality in a prior run is
+not assumed for a fresh publication.
 
 ## Benchmark-agnostic label-space audit
 
@@ -42,7 +39,7 @@ plain string.
 
 ```bash
 python scripts/diagnostics/audit_pfp_label_space.py \
-  --benchmark-id contemporary-2025-2026 \
+  --benchmark-id contemporary-2025-01-to-2026-02-supervisor \
   --benchmark-dir /absolute/path/to/nine-csvs \
   --obo-file /absolute/path/to/go.obo \
   --config configs/pfp_benchmark_run.temporal.json \
@@ -75,7 +72,7 @@ evidence. Input files are hashed before parsing and checked again afterward.
 
 Prediction sensitivity is deliberately separate from canonical PFP results.
 First opt in while evaluating a checkpoint by adding `--capture-predictions`
-to `run_pfp_benchmark.sh` or `hpc_pfp_benchmark.sh`. This observes the arrays
+to `run_pfp_benchmark.sh`. This observes the arrays
 already produced by PFP's normal CAFA evaluation; it does not rerun inference.
 The completed run publishes compressed prediction/truth arrays, protein and GO
 term order, checkpoint hashes, the exact IA files, both code revisions, and
@@ -127,8 +124,8 @@ comparable model rankings.
 
 ## IA and Xu-specificity evaluation
 
-Daniel Buchan's proposed information-content analysis can be run directly from
-the same immutable prediction artifacts. The analyzer reads the exact
+Information-content analysis runs directly from the same immutable prediction
+artifacts. The analyzer reads the exact
 information-accretion file used by the canonical evaluation. It can also
 calculate Xu et al.'s topology-only semantic totipotency from the exact frozen
 `is_a + part_of` OBO graph. IA and Xu are always separate panels: IA remains
@@ -139,10 +136,9 @@ python scripts/diagnostics/evaluate_pfp_information_content.py \
   --prediction-manifest /path/to/prediction_artifacts/prediction_artifact_manifest.json \
   --obo /path/to/frozen-go.obo \
   --specificity-measure all_separate \
-  --specificity-measure xu_neglog_totipotency \
   --positive-bins 4 \
-  --bootstrap-replicates 10000 \
-  --bootstrap-seed 0 \
+  --bootstrap-replicates 2000 \
+  --bootstrap-seed 42 \
   --output-dir /absolute/path/to/new/specificity-analysis
 ```
 
@@ -225,7 +221,7 @@ python scripts/diagnostics/build_temporal_annotation_ledger.py \
   --graph-policy-id cafa_narrow_is_a_part_of \
   --relationship is_a \
   --relationship part_of \
-  --benchmark-id contemporary-2025-2026 \
+  --benchmark-id contemporary-2025-01-to-2026-02-supervisor \
   --output-dir /absolute/path/to/new/temporal-ledger
 ```
 

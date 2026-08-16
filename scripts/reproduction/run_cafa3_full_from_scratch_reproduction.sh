@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rebuild the canonical CAFA3 embeddings, train fresh PFP models, and evaluate.
+# Rebuild and compare the canonical CAFA3 embedding cache.
 
 set -euo pipefail
 
@@ -8,7 +8,7 @@ FRAMEWORK_ROOT="$(cd "${HERE}/../.." && pwd)"
 # shellcheck source=../reproduction_common.sh
 source "$FRAMEWORK_ROOT/scripts/reproduction_common.sh"
 
-PYTHON_BIN="${PYTHON_BIN:-python}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 MMFP_BASE_URL="${MMFP_BASE_URL:-https://zenodo.org/records/19498341/files}"
 PREFLIGHT_PER_SPLIT="${PREFLIGHT_PER_SPLIT:-2}"
 DISK_POLL_SECONDS="${DISK_POLL_SECONDS:-120}"
@@ -37,14 +37,15 @@ Usage: run_cafa3_full_from_scratch_reproduction.sh \
   [--published-embedding-archive-dir PATH] [--artifact-catalog PATH]
 
 The PFP root must be a disposable pinned clone. Published embeddings are
-staged or downloaded only after all four modalities have been regenerated, compared,
-then deleted before training. They are never used as training inputs.
+staged or downloaded only after all four modalities have been regenerated,
+compared, and then deleted. They are never used as model inputs.
 
 The persistent embedding state must be outside job-owned scratch. In initial
-mode, validated arrays are consolidated into one archive-backed baseline. If the historical coverage
-gate is not met, the workflow exits successfully with GENERATION_INCOMPLETE.json
-and does not train. Resume mode hydrates a passing state and continues at the
-published-cache comparison stage.
+mode, validated arrays are consolidated into one archive-backed baseline. If
+the historical coverage gate is not met, the workflow exits successfully with
+GENERATION_INCOMPLETE.json. Resume mode hydrates a passing state and continues
+at the published-cache comparison stage. Training and evaluation are performed
+separately by scripts/model_execution/run_pfp_benchmark.sh.
 EOF
 }
 
@@ -362,10 +363,10 @@ publish_incomplete_generation() {
   echo "==> Training and evaluation were intentionally not started."
 }
 
-echo "==> [1/13] Validate and record the author-supplied environment"
+echo "==> [1/10] Validate and record the author-supplied environment"
 validate_mmfp_env "$PYTHON_BIN" > "$OUTPUT_DIR/reports/environment_validation.txt"
 
-echo "==> [2/13] Download canonical CAFA3 and embedding-generation dependencies"
+echo "==> [2/10] Download canonical CAFA3 and embedding-generation dependencies"
 cd "$PFP_ROOT"
 PFP_ROOT="$PFP_ROOT" \
 CAFA_ASSESSMENT_COMMIT="$CAFA_ASSESSMENT_COMMIT" \
@@ -405,7 +406,7 @@ for specification in "string-alias:$STRING_ALIAS_FILE" "string-h5:$STRING_H5_FIL
     "$(sha256_file "$path")" >> "$ACQUISITION_LOG"
 done
 
-echo "==> [3/13] Prepare and validate the exact PFP split contract"
+echo "==> [3/10] Prepare and validate the exact PFP split contract"
 bash "$FRAMEWORK_ROOT/scripts/embeddings/generate_embeddings_prepare_data.sh" \
   > "$OUTPUT_DIR/logs/prepare_data.log" 2>&1
 "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/verification/verify_splits.py" \
@@ -419,7 +420,7 @@ printf 'prepared-fasta\tproteins.fasta\tgenerated-from-nine-csvs\t%s\t%s\n' \
   "$PFP_ROOT/data/proteins.fasta" "$(sha256_file "$PFP_ROOT/data/proteins.fasta")" \
   >> "$ACQUISITION_LOG"
 
-echo "==> [4/13] Prepare IF1/PPI runtime compatibility without editing PFP"
+echo "==> [4/10] Prepare IF1/PPI runtime compatibility without editing PFP"
 IF1_NUMPY_OVERLAY="$WORK_DIR/if1_numpy_1_26_4"
 install_mmfp_if1_numpy_overlay "$PYTHON_BIN" "$IF1_NUMPY_OVERLAY"
 validate_mmfp_if1_env "$PYTHON_BIN" "$IF1_NUMPY_OVERLAY" \
@@ -476,7 +477,7 @@ else
     die "Initial mode requires an empty embedding state root; use retry/resume for existing state"
   fi
 
-  echo "==> [5/13] Create a reversible bounded preflight view"
+  echo "==> [5/10] Create a reversible bounded preflight view"
   "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/prepare_cafa3_embedding_preflight.py" \
     create --data-dir "$PFP_ROOT/data" --backup-dir "$PREFLIGHT_BACKUP" \
     --limit-per-split "$PREFLIGHT_PER_SPLIT" \
@@ -484,7 +485,7 @@ else
   "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/verification/verify_splits.py" \
     --data-dir data --strict > "$OUTPUT_DIR/reports/preflight_split_validation.txt"
 
-  echo "==> [6/13] Run all four modalities on the bounded preflight"
+  echo "==> [6/10] Run all four modalities on the bounded preflight"
   run_parallel_modalities preflight || die "A preflight modality failed"
   fasta_count="$(grep -c '^>' data/proteins.fasta)"
   [[ "$(file_count data/embedding_cache/prott5)" == "$fasta_count" ]] || \
@@ -503,7 +504,7 @@ else
     data/embedding_cache/exp_text_embeddings_temporal \
     data/embedding_cache/uniprot_text
 
-  echo "==> [7/13] Restore and authenticate the complete prepared dataset"
+  echo "==> [7/10] Restore and authenticate the complete prepared dataset"
   "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/prepare_cafa3_embedding_preflight.py" \
     restore --data-dir "$PFP_ROOT/data" --backup-dir "$PREFLIGHT_BACKUP" \
     > "$OUTPUT_DIR/reports/full_workspace_restored.json"
@@ -512,7 +513,7 @@ else
   [[ "$(grep -c '^>' data/proteins.fasta)" == "69811" ]] || \
     die "Full FASTA was not restored to all 69,811 proteins"
 
-  echo "==> [8/13] Regenerate all four complete embedding modalities in parallel"
+  echo "==> [8/10] Regenerate all four complete embedding modalities in parallel"
   generation_status=0
   run_parallel_modalities full || generation_status=$?
   baseline_work="$WORK_DIR/initial_embedding_baseline"
@@ -567,13 +568,13 @@ else
   fi
 fi
 
-echo "==> Validate the hydrated cache before published comparison and training"
+echo "==> Validate the hydrated cache before published comparison"
 "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/verification/verify_embeddings.py" \
   --data-dir data --config "$FRAMEWORK_ROOT/configs/cafa3.json" \
   --strict --all-arrays --require-min-coverage \
   > "$OUTPUT_DIR/reports/generated_embedding_validation.txt"
 
-echo "==> [9/13] Download and authenticate Zijian's published embedding cache"
+echo "==> [9/10] Download and authenticate Zijian's published embedding cache"
 for name in \
   mmfp_embeddings_prott5.tar.gz \
   mmfp_embeddings_struct_ppi.tar.gz \
@@ -604,7 +605,7 @@ PUBLISHED_CACHE="$PUBLISHED_ROOT/data/embedding_cache"
 [[ "$(file_count "$PUBLISHED_CACHE/IF1")" == "67948" ]] || die "Published IF1 count mismatch"
 [[ "$(file_count "$PUBLISHED_CACHE/ppi")" == "58294" ]] || die "Published PPI count mismatch"
 
-echo "==> [10/13] Compare regenerated and published arrays without enforcing equality"
+echo "==> [10/10] Compare regenerated and published arrays without enforcing equality"
 "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/diagnostics/compare_embeddings.py" \
   --generated-cache-root "$PFP_ROOT/data/embedding_cache" \
   --published-cache-root "$PUBLISHED_CACHE" \
@@ -618,66 +619,6 @@ rm -rf "$PUBLISHED_ROOT" "$ARCHIVE_STAGE"
   die "Published embedding cache was not discarded"
 printf '{"discarded":true,"reason":"comparison complete; never used for training"}\n' \
   > "$OUTPUT_DIR/reports/published_cache_discarded.json"
-
-echo "==> [11/13] Train fresh gated-bilinear late-fusion models"
-rm -rf results/full_model results/full_model_eval
-"$PYTHON_BIN" train.py \
-  --seq-model prott5 \
-  --fusion-types gated_bilinear \
-  --aspects BPO CCO MFO \
-  --use-late-fusion \
-  --text-embedding-dir data/embedding_cache/exp_text_embeddings_temporal \
-  --output-base results/full_model \
-  --num-workers 0 \
-  --seed 42 > "$OUTPUT_DIR/logs/training.log" 2>&1
-
-mkdir -p "$OUTPUT_DIR/reports/training"
-for aspect in BPO CCO MFO; do
-  result="results/full_model/fusion_comparison/prott5/$aspect/gated_bilinear/results.json"
-  checkpoint="results/full_model/fusion_comparison/prott5/$aspect/gated_bilinear/best_model.pt"
-  [[ -s "$result" ]] || die "Training did not produce $aspect results"
-  [[ -s "$checkpoint" ]] || die "Training did not produce $aspect checkpoint"
-  cp -p "$result" "$OUTPUT_DIR/reports/training/${aspect}_results.json"
-done
-
-echo "==> [12/13] Evaluate fresh checkpoints against published paper metrics"
-evaluation_status=0
-set +e
-"$PYTHON_BIN" scripts/reproduce_full_model.py \
-  > "$OUTPUT_DIR/logs/evaluation.log" 2>&1
-evaluation_status=$?
-set -e
-[[ "$evaluation_status" == "0" || "$evaluation_status" == "1" ]] || \
-  die "Evaluation failed as infrastructure (status $evaluation_status)"
-EVAL_DIR="results/full_model_eval"
-[[ -s "$EVAL_DIR/reproduction_summary.json" ]] || \
-  die "Evaluation did not produce its JSON summary"
-[[ -s "$EVAL_DIR/reproduction_summary.csv" ]] || \
-  die "Evaluation did not produce its CSV summary"
-mkdir -p "$OUTPUT_DIR/reports/evaluation"
-cp -p "$EVAL_DIR/reproduction_summary.json" "$OUTPUT_DIR/reports/evaluation/"
-cp -p "$EVAL_DIR/reproduction_summary.csv" "$OUTPUT_DIR/reports/evaluation/"
-printf '%s\n' "$evaluation_status" > "$OUTPUT_DIR/reports/evaluation/exit_status.txt"
-for aspect in BPO CCO MFO; do
-  result="$EVAL_DIR/eval_only/fusion_comparison/prott5/$aspect/gated_bilinear/results.json"
-  [[ -s "$result" ]] || die "Evaluation did not produce $aspect results"
-  cp -p "$result" "$OUTPUT_DIR/reports/evaluation/${aspect}_results.json"
-done
-
-echo "==> [13/13] Build the complete compact reproduction report"
-"$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/diagnostics/build_cafa3_full_reproduction_report.py" \
-  --pfp-root "$PFP_ROOT" \
-  --framework-root "$FRAMEWORK_ROOT" \
-  --embedding-summary "$OUTPUT_DIR/reports/embedding_comparison_summary.json" \
-  --evaluation-summary "$OUTPUT_DIR/reports/evaluation/reproduction_summary.json" \
-  --modality-status "$MODALITY_STATUS" \
-  --input-acquisition "$ACQUISITION_LOG" \
-  --evaluation-exit-status "$evaluation_status" \
-  --text-cutoff-date "$TEXT_CUTOFF_DATE" \
-  --published-cache-discarded \
-  --output-json "$OUTPUT_DIR/cafa3_full_reproduction_report.json" \
-  --output-md "$OUTPUT_DIR/cafa3_full_reproduction_report.md" \
-  > "$OUTPUT_DIR/logs/report.log" 2>&1
 
 if [[ -d "$PFP_ROOT/results/embedding_reports" ]]; then
   cp -a "$PFP_ROOT/results/embedding_reports" "$OUTPUT_DIR/reports/"
@@ -705,13 +646,17 @@ output, pfp = map(Path, sys.argv[1:3])
 payload = {
     "complete": True,
     "schema_version": 1,
+    "analysis_kind": "cafa3_regenerated_embedding_cache",
     "completed_at": datetime.now(timezone.utc).isoformat(),
     "text_cutoff_date": sys.argv[3],
     "embedding_mode": sys.argv[4],
     "embedding_state_root": sys.argv[5],
     "pfp_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=pfp, text=True).strip(),
-    "report_markdown": "cafa3_full_reproduction_report.md",
-    "report_json": "cafa3_full_reproduction_report.json",
+    "embedding_comparison_summary": "reports/embedding_comparison_summary.json",
+    "model_execution_entrypoint": "scripts/model_execution/run_pfp_benchmark.sh",
+    "model_modes": [
+        "sequence-only", "sequence-text", "sequence-structure", "sequence-ppi", "full"
+    ],
     "generated_embeddings_persisted": True,
     "published_embeddings_persisted": False,
 }
@@ -719,4 +664,5 @@ payload = {
 PY
 
 stop_disk_monitor
-echo "==> Full CAFA3 from-scratch reproduction complete: $OUTPUT_DIR"
+echo "==> CAFA3 embedding regeneration complete: $OUTPUT_DIR"
+echo "==> Train/evaluate each reported mode with scripts/model_execution/run_pfp_benchmark.sh"

@@ -1,405 +1,166 @@
 # Protein Benchmark Framework
 
-A reproducibility and benchmarking wrapper around the PFP/MMFP
-protein-function-prediction pipeline. The repository is intended to make
-the original CAFA3-style workflow easier to rerun, audit, and eventually
-swap onto cleaner or decontaminated benchmarks.
+Scheduler-neutral source code used to build, validate, train, and analyse the
+benchmarks reported in the dissertation. Generated databases, embeddings,
+checkpoints, results, figures, and dissertation prose are intentionally not
+tracked.
 
-The framework currently supports three levels of reproduction:
+The submitted workflows are:
 
-1.  **Evaluation only** using downloaded author artefacts.
-2.  **Retrain and evaluate** using downloaded data/embeddings.
-3.  **Regenerate embeddings, retrain, and evaluate** from the prepared
-    benchmark pipeline.
+1. CAFA3 historical validation and regenerated-embedding reproduction.
+2. Contemporary global no-knowledge (global-NK) benchmarking.
+3. Contemporary ontology-specific no-knowledge plus limited-knowledge
+   (NK+LK) benchmarking.
+4. Framework-generated UniRef50 homology benchmarks at 30, 25, 20, 15, 10,
+   and 5 percent identity.
 
-It also provides a benchmark-agnostic PFP execution layer under
-`scripts/model_execution/`. This keeps upstream PFP immutable while accepting
-completed CAFA3, contemporary temporal, or homology-cluster nine-CSV bundles,
-strictly validating their GO/overlap/cache contracts, and running either
-evaluation-only or fresh one-aspect-at-a-time training. See
-[`scripts/model_execution/README.md`](scripts/model_execution/README.md).
+Exact policies, external revisions, workflow order, and analysis parameters
+are indexed in `configs/dissertation_submission_workflows.json`.
 
-The long-term design goal is to separate benchmark-specific values from
-reusable logic. Verification scripts enforce data and embedding
-contracts before expensive training is launched.
+## Layout
 
-## Repository layout
-
-``` text
-.
-├── benchmark_builders/
-│   └── contemporary_cafa/                 # 2025→2026 CAFA-style benchmark builder
-├── benchmark_reuse_planner/                # Exact CSV-to-CSV reuse/regenerate partition
-├── embedding_inventory/                    # CSV-native embedding inventory/reuse planner
-├── scripts/
-│   ├── artifact_catalog.sh                # Portable existing-artifact resolver
-│   ├── reproduction/                      # Main PFP reproduction entrypoints
-│   ├── embeddings/                        # Embedding wrappers and FASTA builder
-│   ├── verification/                      # Shell and Python verification gates
-│   ├── data_acquisition/                  # Frozen database acquisition and validation
-│   ├── diagnostics/                       # Benchmark and model diagnostics
-│   ├── benchmark_generation/              # Reusable contemporary benchmark runner
-│   ├── validation/                        # Historical benchmark validation workflows
-│   └── model_execution/                   # Generic validated PFP prepare/train/eval layer
-├── hpc_jobs/
-│   ├── active/                            # qsub wrappers for current cluster workflows
-│   ├── examples/                          # Scheduler examples/templates
-│   └── archive/                           # Historical reproduction attempts
-├── configs/
-│   ├── cafa3.json                         # Default CAFA3 verification config
-│   ├── dissertation_submission_workflows.json # Scheduler-neutral reported workflow contract
-│   ├── embedding_inventory.cafa3_published.json
-│   ├── embedding_inventory.contemporary.json
-│   ├── artifact_paths.example.tsv         # Example machine-local artifact map
-│   └── paths.example.sh                   # Example local/HPC path configuration
+```text
+benchmark_builders/       benchmark construction packages
+benchmark_forensics/      benchmark overlap and coverage checks
+benchmark_reuse_planner/  exact reuse/regenerate planning
+embedding_inventory/      provenance-aware cache inventory
+configs/                  submitted workflow and validation policies
+scripts/data_acquisition/ frozen input acquisition
+scripts/embeddings/       embedding generation and cache assembly
+scripts/model_execution/  validated PFP preparation, training, evaluation
+scripts/diagnostics/      reported analyses
+scripts/validation/       CAFA3 validation routes
 ```
 
-Generated data, model checkpoints, cloned upstream repositories, and
-embedding caches are intentionally not committed. See `.gitignore` for
-the excluded paths.
+## Environment
 
-## Persistent frozen inputs
+The external PFP model and embedding stack uses Python 3.9.23 and the accepted
+package versions recorded in `requirements.txt`. Install it into an isolated
+environment appropriate for the host's CPU/CUDA platform. PyTorch Geometric
+binary wheels must match the installed PyTorch and CUDA build. The standalone
+homology builder uses Python 3.10 or newer and pins its smaller dependency set
+inside its own package.
 
-Frozen inputs are populated by the idempotent acquisition workflow:
+PFP is an external dependency and is strictly pinned to:
+
+```text
+1e04fd6d6d3c40458fd41ec1a881ed6e24de768e
+```
+
+The CAFA Assessment Tool is pinned to:
+
+```text
+d72f0a5abb66d3224bd808e2015b55f1c9d18340
+```
+
+The submitted homology workflow validates MMseqs2 release `18-8cc5c` and full
+commit `8cc5ce367b5638c4306c2d7cfc652dd099a4643f`.
+
+Framework Git metadata is optional report-only provenance. It is never an
+execution gate or part of scientific identity, so a clean clone, edited clone,
+or source archive can run the framework.
+
+## Inputs
+
+Create a persistent input store and catalogue:
 
 ```bash
-bash scripts/data_acquisition/populate_san_frozen_inputs.sh --dry-run
-bash scripts/data_acquisition/populate_san_frozen_inputs.sh --profile all
+bash scripts/data_acquisition/populate_san_frozen_inputs.sh \
+  --root /absolute/path/to/pfp_inputs \
+  --profile all
 ```
 
-It freezes the temporal and homology database inputs, STRING v12.0, MMseqs2,
-canonical CAFA3/DeepGOPlus references, and Zijian's published MMFP artefacts
-under `/SAN/bioinf/bmpfp`. Downloads are resumable, release-guarded,
-checksum-checked where a trusted checksum is known, structurally validated,
-and accompanied by SHA-256/provenance sidecars. See
-[`scripts/data_acquisition/README.md`](scripts/data_acquisition/README.md) for
-profiles, storage estimates, and verification modes.
+The historical filename is retained for compatibility; the script has no SAN
+dependency. Input identities, release guards, and known checksums are declared
+in `scripts/data_acquisition/san_frozen_inputs.tsv`. Workflows resolve explicit
+paths first and then `ARTIFACT_CATALOG`. Use
+`configs/artifact_paths.example.tsv` as the machine-local catalogue template.
 
-## Portable artifact catalogue
+## Benchmark Construction
 
-Large frozen inputs are not hard-coded to SAN. Catalogue-aware workflows use
-this resolution order for each artifact they need:
-
-1. a valid explicit file/directory supplied to that workflow;
-2. the matching artifact ID in `ARTIFACT_CATALOG`;
-3. the workflow's original authenticated download fallback.
-
-`populate_san_frozen_inputs.sh` writes the runtime map to
-`/SAN/bioinf/bmpfp/manifests/artifact_paths.tsv`. Supply it explicitly to a
-current HPC wrapper, for example:
+The contemporary global-NK route defaults to the submitted `supervisor`
+profile:
 
 ```bash
-qsub hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh \
-  --artifact-catalog /SAN/bioinf/bmpfp/manifests/artifact_paths.tsv
-```
-
-For local use, copy `configs/artifact_paths.example.tsv` to the ignored file
-`configs/artifact_paths.local.tsv` and replace its paths. Alternatively export
-`ARTIFACT_CATALOG=/absolute/path/to/artifact_paths.tsv`. The catalogue is parsed
-as tab-separated data, never executed as shell code. It may contain every known
-artifact; a workflow reads only the IDs it needs. Moving the store therefore
-requires updating one machine-local catalogue rather than editing scripts.
-
-The catalogue covers static database snapshots, reference datasets, STRING
-inputs, published MMFP bundles and the pinned MMseqs2 archive. Repository
-clones, package/model installation, and dynamic UniProt/AlphaFold requests are
-runtime dependencies and retain their existing network paths.
-
-## Embedding inventory and reuse planning
-
-`embedding_inventory/` provides a benchmark-agnostic planner that reads the
-nine PFP-compatible CSVs directly, validates existing arrays, applies
-modality-specific scientific reuse rules, and emits an operational two-bucket
-plan (`reuse` or `regenerate`) without copying or generating
-embeddings.
-
-It supports `paper-faithful` and `maximize-coverage`, separate strict target
-and permissive source contracts, exact-sequence-only cross-ID ProtT5 reuse, and
-explicit diagnostic aliases. Exact canonical text/structure/PPI reuse additionally
-requires deterministic benchmark, cache, archive, and PFP-reference proof;
-cross-benchmark uncertainty is retained as a detailed reason and receives
-action `regenerate`.
-
-Run it from the repository root:
-
-```bash
-python scripts/verification/inventory_embeddings.py \
-  --benchmark-dir /path/to/nine-csv-benchmark \
-  --source-benchmark-dir /path/to/cache-source-benchmark \
-  --embedding-cache /path/to/embedding_cache \
-  --config configs/embedding_inventory.contemporary.json \
-  --policy maximize-coverage \
-  --report-level compact \
-  --output-dir /path/to/non-repository-results/my_benchmark
-```
-
-See [`embedding_inventory/README.md`](embedding_inventory/README.md) for the
-decision model, canonical CAFA3 configuration, output contract, alias format,
-and scientific limitations.
-
-To exercise the planner against a completed contemporary benchmark and
-Zijian's real published cache on UCL Grid Engine:
-
-```bash
-qsub -v BENCHMARK_DIR=/path/to/contemporary/run/outputs \
-  hpc_jobs/active/hpc_contemporary_embedding_inventory.sh
-```
-
-This stages the published embedding archives from explicit/catalogue paths, or
-downloads them only into scratch as a fallback, and returns
-the two binary manifests, per-modality ID lists, and the ProtT5 generation
-FASTA. It does not generate embeddings. The scheduler-neutral implementation is
-`scripts/verification/run_contemporary_embedding_inventory.sh`; both a single
-benchmark directory and per-CSV path overrides are supported.
-
-The overnight generation-and-assembly workflow consumes the stricter CSV-only
-reuse plan, regenerates only its `regenerate` partition, extracts only its
-`reuse` partition from authenticated published caches, and packages the merged
-cache for PFP:
-
-```bash
-qsub hpc_jobs/active/hpc_contemporary_embedding_generation.sh \
-  --target-benchmark-dir /absolute/path/to/contemporary/outputs \
-  --reuse-plan-dir /absolute/path/to/reuse/plan
-```
-
-The four modalities run concurrently using the existing three-GPU plus CPU
-layout. Large dependencies, models, PDBs, and unpacked arrays remain in
-job-owned scratch. Only compressed generated-cache archives, the final merged
-cache archive, logs, provenance, coverage reports, and assembly reports are
-published home. See [`scripts/embeddings/README.md`](scripts/embeddings/README.md)
-and [`hpc_jobs/README.md`](hpc_jobs/README.md) for the contract and overrides.
-
-## Local path configuration
-
-Machine-specific paths should live outside committed scripts. Use
-`configs/paths.example.sh` as a template:
-
-``` bash
-cp configs/paths.example.sh configs/paths.local.sh
-```
-
-Then edit `configs/paths.local.sh` for the current machine. Typical
-variables include `PFP_DIR`, `CAFA_ASSESSMENT_DIR`, `CAFA3_RAW_DIR`,
-`PROTEIN_DATABASES_DIR`, `STRING_H5_FILE`, `STRING_ALIAS_FILE`,
-`CONDA_EXE`, `MMFP_ENV`, `MMFP_ENV_DIR`, `MMFP_PYTHON`,
-`MMFP_TORCH_INDEX_URL`, `MMFP_PYG_WHEEL_BASE`,
-`MMFP_SINGULARITY_DIR`, `MMFP_SINGULARITY_IMAGE`,
-`MMFP_SINGULARITY_VENV`, `MMFP_SINGULARITY_IMAGE_URI`,
-`PFP_GIT_URL`, `PFP_CLONE_DIR`, `PFP_EXTERNAL_DIR`, `PFP_DATA_DIR`, and
-`DEPENDENCY_ENV`.
-
-## Contemporary benchmark builder
-
-The 2025→2026 CAFA-style temporal benchmark builder lives in:
-
-``` text
-benchmark_builders/contemporary_cafa/
-```
-
-It is kept as a self-contained subproject so that the immutable PFP
-reproduction wrappers and the new benchmark-generation code remain
-separate.
-
-The production runner and UCL/SGE entrypoint are:
-
-```bash
+DB_ROOT=/absolute/path/to/pfp_inputs \
+ARTIFACT_CATALOG=/absolute/path/to/artifact_paths.tsv \
 bash scripts/benchmark_generation/run_contemporary_temporal_benchmark.sh
-qsub hpc_jobs/active/hpc_contemporary_temporal_benchmark.sh
 ```
 
-See `benchmark_builders/contemporary_cafa/README.md` for the temporal contract,
-named profiles, required frozen inputs, reports and QC gates.
+For NK+LK, set `PROFILE=supervisor-nk-lk`. See
+`benchmark_builders/contemporary_cafa/README.md` for the temporal contract.
 
-## Quick start
+The homology launcher defaults to the submitted UniRef50, sensitivity-4,
+Swiss-Prot-plus-TrEMBL profile and builds all six thresholds:
 
-Run the validated model execution layer in evaluation-only or fresh-training
-mode as described in `scripts/model_execution/README.md`:
+```bash
+ARTIFACT_CATALOG=/absolute/path/to/artifact_paths.tsv \
+OUTPUT_ROOT=/absolute/path/to/benchmark_outputs \
+TEMP_DIR=/absolute/path/to/work \
+bash scripts/benchmark_generation/run_homology_cluster_benchmark.sh
+```
 
-``` bash
+It requires authenticated common-preprocessing and cluster-cache roots from
+the input catalogue. See `benchmark_builders/homology_cluster/README.md`.
+
+## Embeddings
+
+CAFA3 generation is embedding-only and finishes by comparing regenerated and
+published arrays:
+
+```bash
+bash scripts/reproduction/run_cafa3_full_from_scratch_reproduction.sh --help
+```
+
+Contemporary global-NK uses the paper-faithful inventory/reuse plan and the
+explicit temporal-text route. The accepted cache applies the `2025-03-08`
+cutoff to every target through the retained full-text replacement and archive
+finalization path.
+
+NK+LK and homology use pair-resolved source ledgers. Generate sequence, text,
+structure, and PPI runs separately, then assemble them with authenticated
+completion markers. NK+LK uses
+`configs/contemporary_nk_lk_embedding_generation.json`; homology uses
+`configs/homology_embedding_generation.json`.
+
+See `scripts/embeddings/README.md` for the exact direct commands.
+
+## Model Execution
+
+All submitted training and evaluation uses the generic runner:
+
+```bash
 bash scripts/model_execution/run_pfp_benchmark.sh --help
 ```
 
-Run the hardened full CAFA3 audit on the UCL cluster:
+It validates benchmark, ontology, embedding, and external PFP contracts;
+trains BPO, CCO, and MFO separately with upstream `train.py --single`; and
+strictly evaluates with `norm=cafa`, `prop=max`, and `no_orphans=false`.
+Prediction capture supports `--evaluation-split valid` and
+`--evaluation-split test`.
+
+The fresh CAFA3 embedding driver does not train or evaluate models. Hand its
+validated cache to this runner with `configs/pfp_benchmark_run.cafa3.json`.
+Global-NK, NK+LK, and homology use their corresponding
+`configs/pfp_benchmark_run.*.json` files.
+
+## Validation
+
+Before expensive execution:
 
 ```bash
-qsub hpc_jobs/active/hpc_cafa3_full_from_scratch_reproduction.sh
-```
-
-This newer route regenerates all modalities in parallel, compares them against
-authenticated published embeddings without training on those published arrays,
-trains fresh checkpoints, evaluates them against the paper values, and copies
-back a compact provenance-rich report. See `hpc_jobs/README.md` for the exact
-contract and output layout.
-
-The CAFA3 embedding-generation entrypoint is
-`scripts/reproduction/run_cafa3_full_from_scratch_reproduction.sh`.
-
-New `mmfp` environments use Python `3.9.23` and the package versions supplied
-by Zijian for the MMFP/PFP paper environment. Those versions are pinned
-directly in `scripts/reproduction_common.sh`. Dependencies for which no version
-was supplied, including `fair-esm` and the PyTorch-Geometric stack, remain
-unpinned. PyTorch defaults to the official CUDA 12.6 wheel index, and the
-compiled PyTorch-Geometric extensions are selected from the wheel index that
-matches the installed PyTorch/CUDA build. An existing `mmfp` environment is
-reused without modification, but every active workflow validates the exact
-Python and supplied package versions, required imports, PyG binary compatibility,
-and `pip check` before proceeding.
-
-## HPC jobs
-
-Cluster submission wrappers live in `hpc_jobs/active/` and are intended
-to be submitted with `qsub`. They contain Sun Grid Engine resource
-directives, scratch-space setup, result-copy logic, and then invoke the
-normal framework entrypoints under `scripts/reproduction/`.
-
-Reusable implementation scripts stay under `scripts/`; the HPC job
-wrappers should remain thin scheduler-facing launchers.
-
-## Embedding-generation workflow
-
-The current embedding entrypoints call the retained modality wrappers and
-require:
-
--   an existing upstream `PFP` checkout;
--   an active Python environment with the required dependencies;
--   an output path outside this framework checkout.
-
-Pipeline stages:
-
-``` text
-[0/8] External dependencies
-[1/8] Data preparation
-[2/8] Verify split contract
-[3/8] Build proteins.fasta
-[4/8] Sequence embeddings
-[5/8] Text embeddings
-[6/8] Structure embeddings
-[7/8] PPI embeddings
-[8/8] Verify generated embeddings
-```
-
-Both verification scripts are executed in **strict mode** as part of the
-embedding-generation pipeline. Any contract violation stops the pipeline
-before expensive downstream computation is launched.
-
-The embedding verifier is called with an explicit configuration path:
-
-``` bash
-python "${REPO_ROOT}/scripts/verification/verify_embeddings.py" \
-  --data-dir data \
-  --config "${REPO_ROOT}/configs/cafa3.json" \
-  --strict
-```
-
-Passing the configuration explicitly avoids relying on the current
-working directory.
-
-## Verification gates
-
-### Split verification
-
-`verify_splits.py` validates the internal data contract produced by the
-data-preparation stage.
-
-For each configured aspect/split it checks:
-
--   `{aspect}_{split}_names.npy` exists and is non-empty;
--   protein IDs are unique within each split;
--   `{aspect}_{split}_labels.npz` has one row per protein;
--   the label matrix column count matches `{aspect}_go_terms.json`;
--   every protein has a non-empty sequence;
--   `sequences.json` has no missing entries relative to `names.npy`;
--   train/valid/test protein IDs are disjoint within each aspect.
-
-Usage:
-
-``` bash
-python scripts/verification/verify_splits.py --data-dir data --strict
-```
-
-For alternative aspect or split names:
-
-``` bash
-python scripts/verification/verify_splits.py \
-  --data-dir data \
-  --aspects BPO CCO MFO \
-  --splits train valid test \
-  --strict
-```
-
-### Embedding verification
-
-`verify_embeddings.py` checks that generated embeddings are complete and
-numerically valid before training.
-
-For every protein ID in the configured dataset it verifies:
-
--   embedding presence;
--   coverage against the configured threshold;
--   sampled embedding dimension;
--   sampled numerical finiteness (`NaN`/`Inf` detection).
-
-Usage:
-
-``` bash
+python scripts/verification/verify_splits.py --data-dir /path/to/data --strict
 python scripts/verification/verify_embeddings.py \
-  --data-dir data \
+  --data-dir /path/to/data \
   --config configs/cafa3.json \
   --strict
 ```
 
-The verifier is benchmark-agnostic. Benchmark-specific values live
-entirely in JSON configuration files.
+CAFA3's released-pickle, official-artifact, and historical reconstruction
+checks remain separate under `scripts/validation/`. Reported root exclusion,
+specificity, knowledge-cohort, modality, relationship-policy, confidence, and
+homology progression analyses are under `scripts/diagnostics/`.
 
-### Configuration
-
-`configs/cafa3.json` fully specifies a benchmark configuration for
-embedding verification. The verification logic is benchmark-agnostic;
-adapting to a new benchmark requires creating a new configuration file
-rather than modifying the Python source.
-
-The configuration defines:
-
--   aspects;
--   splits;
--   cache directory;
--   catastrophic coverage threshold;
--   sample size;
--   modality cache directories;
--   expected embedding dimensions;
--   minimum coverage thresholds.
-
-## Device selection
-
-GPU embedding scripts default to CUDA:
-
-``` bash
-DEVICE=cuda
-```
-
-For local CPU testing:
-
-``` bash
-DEVICE=cpu bash scripts/embeddings/generate_embeddings_sequence.sh
-DEVICE=cpu bash scripts/embeddings/generate_embeddings_structure.sh
-```
-
-CPU execution may be very slow for model-heavy stages such as ESM-IF1.
-
-## Suggested development order
-
-Before launching expensive cluster runs:
-
-1.  Run the data-preparation stage.
-2.  Run `scripts/verification/verify_splits.py` in strict mode.
-3.  Build `data/proteins.fasta` with `scripts/embeddings/generate_embeddings_fasta.py`.
-4.  Generate embeddings.
-5.  Run `scripts/verification/verify_embeddings.py` in strict mode with an explicit
-    configuration path.
-6.  Start retraining and evaluation.
-
-This verification layer is designed to catch malformed datasets,
-incomplete embedding caches, incorrect embedding dimensions and
-non-finite values before GPU-intensive training begins, reducing wasted
-compute and improving reproducibility.
+Outputs should always be written outside the source checkout. Publication
+steps use staged writes, hashes, manifests, and completion markers; existing
+completed outputs are not silently overwritten.

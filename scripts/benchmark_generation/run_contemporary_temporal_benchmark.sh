@@ -14,14 +14,14 @@ TARGET_TAXA="$BUILDER_ROOT/src/cafa_benchmark_builder/resources/cafa3_target_tax
 source "$FRAMEWORK_ROOT/scripts/reproduction_common.sh"
 artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 
-PROFILE="${PROFILE:-contemporary-cafa3-style}"
-DB_ROOT="${DB_ROOT:-$HOME/protein_databases}"
+PROFILE="${PROFILE:-supervisor}"
+DB_ROOT="${DB_ROOT:-${PFP_INPUT_ROOT:-$HOME/pfp_inputs}}"
 RUN_ROOT="${RUN_ROOT:-$PWD/contemporary_cafa_${PROFILE}_$(date +%Y%m%d_%H%M%S)}"
 WORK_DIR="${WORK_DIR:-$RUN_ROOT/work}"
 OUTPUT_DIR="$RUN_ROOT/outputs"
 REPORT_DIR="$RUN_ROOT/reports"
 LOG_DIR="$RUN_ROOT/logs"
-PYTHON_BIN="${PYTHON_BIN:-python}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 ALLOW_SPROT_ONLY="${ALLOW_SPROT_ONLY:-0}"
 REMOVE_ARCHIVES_AFTER_EXTRACT="${REMOVE_ARCHIVES_AFTER_EXTRACT:-0}"
 PIGZ_THREADS="${PIGZ_THREADS:-1}"
@@ -64,7 +64,6 @@ prefer_existing_artifact() {
     resolved="$(resolve_artifact_path "$artifact_id" "$explicit_path" || true)"
     if [[ -n "$resolved" ]]; then
         printf -v "$variable_name" '%s' "$resolved"
-        add_mmfp_singularity_bind "$(dirname "$resolved")"
     fi
 }
 

@@ -9,27 +9,36 @@ BUILDER_ROOT="$FRAMEWORK_ROOT/benchmark_builders/homology_cluster"
 # shellcheck source=../reproduction_common.sh
 source "$FRAMEWORK_ROOT/scripts/reproduction_common.sh"
 artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
+export PYTHONPATH="$BUILDER_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 
 PYTHON_BIN="${PYTHON_BIN:-python3}"
-IDENTITY="${IDENTITY:-30}"
+FROZEN_INPUT_SPEC="${FROZEN_INPUT_SPEC:-$FRAMEWORK_ROOT/scripts/data_acquisition/san_frozen_inputs.tsv}"
+frozen_sha256() {
+    local role="$1"
+    awk -F '\t' -v wanted="$role" '
+        $2 == wanted && $7 == "sha256" { print $8; found=1; exit }
+        END { exit !found }
+    ' "$FROZEN_INPUT_SPEC"
+}
+IDENTITY="${IDENTITY:-all}"
 SPLIT_POLICY="${SPLIT_POLICY:-cluster-count-random}"
 TRAINING_POPULATION="${TRAINING_POPULATION:-annotated-only}"
-UNIPROT_SOURCE_SCOPE="${UNIPROT_SOURCE_SCOPE:-}"
+UNIPROT_SOURCE_SCOPE="${UNIPROT_SOURCE_SCOPE:-sprot-and-trembl}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-$FRAMEWORK_ROOT/results/homology_cluster_benchmark}"
 TEMP_DIR="${TEMP_DIR:-${TMPDIR:-/tmp}/homology-cluster-benchmark}"
 THREADS="${THREADS:-1}"
 SEED="${SEED:-0}"
 MIN_COUNT="${MIN_COUNT:-50}"
 MMSEQS_BIN="${MMSEQS_BIN:-mmseqs}"
-MMSEQS_PROFILE="${MMSEQS_PROFILE:-legacy-calibrated}"
-UNIREF_LEVEL="${UNIREF_LEVEL:-90}"
+MMSEQS_PROFILE="${MMSEQS_PROFILE:-framework-uniref50-s4-defaults}"
+UNIREF_LEVEL="${UNIREF_LEVEL:-50}"
 case "$UNIREF_LEVEL" in
     90) DEFAULT_MMSEQS_SENSITIVITY=7.5 ;;
     50) DEFAULT_MMSEQS_SENSITIVITY=4 ;;
     *) echo "UNIREF_LEVEL must be 90 or 50" >&2; exit 2 ;;
 esac
 MMSEQS_SENSITIVITY="${MMSEQS_SENSITIVITY:-$DEFAULT_MMSEQS_SENSITIVITY}"
-EXPECTED_MMSEQS_VERSION="${EXPECTED_MMSEQS_VERSION:-}"
+EXPECTED_MMSEQS_VERSION="${EXPECTED_MMSEQS_VERSION:-8cc5ce367b5638c4306c2d7cfc652dd099a4643f}"
 FROZEN_INPUT_MANIFEST="${FROZEN_INPUT_MANIFEST:-}"
 ATTRITION_POLICY="${ATTRITION_POLICY:-}"
 ATTRITION_OVERRIDE="${ATTRITION_OVERRIDE:-}"
@@ -66,7 +75,7 @@ if [[ "$UNIREF_LEVEL" == "90" ]]; then
 else
     UNIREF_FASTA="$(resolve_artifact_path uniref50_t1 "${UNIREF50_FASTA:-}" || true)"
     UNIREF_FASTA_URL="${UNIREF50_FASTA_URL:-}"
-    UNIREF_FASTA_SHA256="${UNIREF50_FASTA_SHA256:-}"
+    UNIREF_FASTA_SHA256="${UNIREF50_FASTA_SHA256:-$(frozen_sha256 uniref50_t1)}"
 fi
 UNIREF_INPUT_OPTION="uniref${UNIREF_LEVEL}-fasta"
 GO_OBO="$(resolve_artifact_path go_basic_t1 "${GO_OBO:-}" || true)"
@@ -85,8 +94,12 @@ resolve_common_preprocessing_cache() {
         artifact_catalog_warn \
             "explicit homology common cache is incomplete; trying catalogue/raw fallback: $explicit"
     fi
-    if [[ "$UNIREF_LEVEL" == "90" ]]; then
+    if [[ "$UNIREF_LEVEL" == "50" ]]; then
+        candidate="$(artifact_catalog_lookup homology_uniref50_common_preprocessing_2026_02 2>/dev/null || true)"
+    else
         candidate="$(artifact_catalog_lookup homology_common_preprocessing_2026_02 2>/dev/null || true)"
+    fi
+    if [[ -n "$candidate" ]]; then
         if [[ -s "$candidate" && "$(basename "$candidate")" == "CACHE_COMPLETE.json" ]]; then
             (cd "$(dirname "$candidate")" && pwd -P)
             return 0
@@ -112,8 +125,12 @@ resolve_cluster_cache_root() {
         artifact_catalog_warn \
             "explicit homology cluster-cache root is invalid; trying catalogue fallback: $explicit"
     fi
-    if [[ "$UNIREF_LEVEL" == "90" ]]; then
+    if [[ "$UNIREF_LEVEL" == "50" ]]; then
+        candidate="$(artifact_catalog_lookup homology_uniref50_mmseqs_cluster_cache_root_2026_02_sensitivity_4 2>/dev/null || true)"
+    else
         candidate="$(artifact_catalog_lookup homology_mmseqs_cluster_cache_root_2026_02 2>/dev/null || true)"
+    fi
+    if [[ -n "$candidate" ]]; then
         if [[ -s "$candidate" && "$(basename "$candidate")" == "CLUSTER_CACHE_ROOT.json" ]]; then
             (cd "$(dirname "$candidate")" && pwd -P)
             return 0
@@ -124,27 +141,31 @@ resolve_cluster_cache_root() {
 HOMOLOGY_CLUSTER_CACHE_ROOT="$(
     resolve_cluster_cache_root "$HOMOLOGY_CLUSTER_CACHE_ROOT" || true
 )"
-if [[ -n "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then
-    IDMAPPING="${IDMAPPING:-}"
-    UNIPROT_SPROT_SEQUENCES="${UNIPROT_SPROT_SEQUENCES:-}"
-    UNIPROT_TREMBL_SEQUENCES="${UNIPROT_TREMBL_SEQUENCES:-}"
-    GOA="${GOA:-}"
-else
-    IDMAPPING="$(resolve_artifact_path idmapping_t1 "${IDMAPPING:-}" || true)"
-    UNIPROT_SPROT_SEQUENCES="$(resolve_artifact_path uniprot_sprot_t1 "${UNIPROT_SPROT_SEQUENCES:-}" || true)"
-    UNIPROT_TREMBL_SEQUENCES="$(resolve_artifact_path uniprot_trembl_t1 "${UNIPROT_TREMBL_SEQUENCES:-}" || true)"
-    GOA="$(resolve_artifact_path goa_t1 "${GOA:-}" || true)"
+if [[ -z "$FROZEN_INPUT_MANIFEST" && -n "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then
+    FROZEN_INPUT_MANIFEST="$HOMOLOGY_COMMON_PREPROCESSING_CACHE/frozen_input_manifest.json"
 fi
-for catalog_input in "$UNIREF_FASTA" "$IDMAPPING" "$UNIPROT_SPROT_SEQUENCES" \
-    "$UNIPROT_TREMBL_SEQUENCES" "$GOA" "$GO_OBO" \
-    "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" "$HOMOLOGY_CLUSTER_CACHE_ROOT"; do
-    [[ -z "$catalog_input" ]] || add_mmfp_singularity_bind "$(dirname "$catalog_input")"
-done
+if [[ "$DRY_RUN" != "1" && -z "$ATTRITION_POLICY" && -n "$FROZEN_INPUT_MANIFEST" ]]; then
+    ATTRITION_POLICY="$TEMP_DIR/contracts/runtime_attrition_policy.json"
+    "$PYTHON_BIN" -m homology_cluster_benchmark.runtime_contract policy \
+        --manifest "$FROZEN_INPUT_MANIFEST" \
+        --policy-out "$ATTRITION_POLICY" \
+        --source-scope "$UNIPROT_SOURCE_SCOPE" \
+        --uniref-level "$UNIREF_LEVEL" >/dev/null
+fi
+IDMAPPING="$(resolve_artifact_path idmapping_t1 "${IDMAPPING:-}" || true)"
+UNIPROT_SPROT_SEQUENCES="$(resolve_artifact_path uniprot_sprot_t1 "${UNIPROT_SPROT_SEQUENCES:-}" || true)"
+UNIPROT_TREMBL_SEQUENCES="$(resolve_artifact_path uniprot_trembl_t1 "${UNIPROT_TREMBL_SEQUENCES:-}" || true)"
+GOA="$(resolve_artifact_path goa_t1 "${GOA:-}" || true)"
+IDMAPPING_SHA256="${IDMAPPING_SHA256:-$(frozen_sha256 idmapping_t1)}"
+UNIPROT_SPROT_SEQUENCES_SHA256="${UNIPROT_SPROT_SEQUENCES_SHA256:-$(frozen_sha256 uniprot_sprot_t1)}"
+UNIPROT_TREMBL_SEQUENCES_SHA256="${UNIPROT_TREMBL_SEQUENCES_SHA256:-$(frozen_sha256 uniprot_trembl_t1)}"
+GOA_SHA256="${GOA_SHA256:-$(frozen_sha256 goa_t1)}"
+GO_OBO_SHA256="${GO_OBO_SHA256:-$(frozen_sha256 go_basic_t1)}"
 case "$REQUIRE_HOMOLOGY_CLUSTER_CACHE" in
     0|1) ;;
     *) echo "REQUIRE_HOMOLOGY_CLUSTER_CACHE must be 0 or 1" >&2; exit 2 ;;
 esac
-if [[ "$REQUIRE_HOMOLOGY_CLUSTER_CACHE" == "1" && -z "$HOMOLOGY_CLUSTER_CACHE_ROOT" ]]; then
+if [[ "$DRY_RUN" != "1" && "$REQUIRE_HOMOLOGY_CLUSTER_CACHE" == "1" && -z "$HOMOLOGY_CLUSTER_CACHE_ROOT" ]]; then
     echo "A validated HOMOLOGY_CLUSTER_CACHE_ROOT is required but unavailable" >&2
     exit 2
 fi
@@ -315,7 +336,7 @@ fi
 if [[ -n "$HOMOLOGY_CLUSTER_CACHE_ROOT" ]]; then
     COMMAND+=(--cluster-cache-root "$HOMOLOGY_CLUSTER_CACHE_ROOT")
 fi
-if [[ "$REQUIRE_HOMOLOGY_CLUSTER_CACHE" == "1" ]]; then
+if [[ "$REQUIRE_HOMOLOGY_CLUSTER_CACHE" == "1" && -n "$HOMOLOGY_CLUSTER_CACHE_ROOT" ]]; then
     COMMAND+=(--require-cluster-cache)
 fi
 if [[ -n "$ATTRITION_POLICY" ]]; then
@@ -366,7 +387,6 @@ printf 'Command        : '
 printf '%q ' "${COMMAND[@]}"
 printf '\n'
 
-export PYTHONPATH="$BUILDER_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 set +e
 if [[ -n "$LOG_FILE" ]]; then
     mkdir -p "$(dirname "$LOG_FILE")"

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "name": "temporal-cafa-style-nk-lk",
+  "name": "contemporary-2025-01-to-2026-02-supervisor-nk-lk",
   "benchmark_contract": {
     "id_overlap": "per-ontology-disjoint",
     "sequence_overlap": "per-ontology-disjoint",
@@ -9,7 +9,11 @@
     "allow_all_zero_rows": false,
     "allow_duplicate_rows": false,
     "allow_legacy_singular_protein_header": false,
-    "require_benchmark_evidence": false
+    "require_benchmark_evidence": true,
+    "required_benchmark_evidence_names": [
+      "build_manifest.json",
+      "output_checksums.sha256"
+    ]
   },
   "modalities": {
     "sequence": {"directory": "prott5", "dimension": 1024},
