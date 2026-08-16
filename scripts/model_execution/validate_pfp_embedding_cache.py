@@ -359,7 +359,11 @@ def main() -> int:
                 raise ValueError("contract.json records an unexpected PFP commit")
             if evidence_contract:
                 runtime = contract_payload.get("runtime", {})
-                if runtime.get("cache_role") != evidence_contract["cache_role"]:
+                required_role = evidence_contract.get("cache_role")
+                if (
+                    required_role is not None
+                    and runtime.get("cache_role") != required_role
+                ):
                     raise ValueError("Embedding contract has the wrong cache role")
                 required_cutoff = evidence_contract.get("text_cutoff_date")
                 if (

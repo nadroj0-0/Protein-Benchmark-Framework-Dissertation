@@ -45,7 +45,7 @@ the total CSV/DAT bytes and input hashing rather than model computation.
 ## Taxonomy source resolution
 
 Each taxonomy source may declare a unique `name` and integer `priority`.
-Higher priority wins, independently of configuration order. The supplied HPC
+Higher priority wins, independently of configuration order. The supplied
 configuration ranks release recency first and reviewed Swiss-Prot over
 unreviewed TrEMBL within a release. This retains older releases as coverage
 fallbacks without allowing them to overwrite newer mappings.

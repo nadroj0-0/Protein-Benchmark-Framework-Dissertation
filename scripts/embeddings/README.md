@@ -152,3 +152,11 @@ the interpreter. ESM-IF1 uses a standard `PYTHONPATH` overlay where required;
 no container-specific environment variable is necessary. AlphaFold downloads
 are bounded and recorded, and model caches may be placed through `HF_HOME` and
 `TORCH_HOME`.
+
+The accepted model names and `fair-esm==2.0.0` runtime are fixed, and generated
+arrays plus downloaded AlphaFold PDB files are authenticated by hashes. The
+accepted run did not preserve immutable weight revisions for ProtT5,
+PubMedBERT, or ESM-IF1. Fresh model downloads and current AlphaFold API
+responses are therefore a functional reproduction route, not a claim of
+bitwise-identical inputs. Bitwise comparison is available when the
+authenticated accepted inputs or embedding arrays are supplied.

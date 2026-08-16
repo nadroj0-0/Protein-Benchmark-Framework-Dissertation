@@ -92,6 +92,10 @@ FULL_TEXT_SELECTION=$((REFRESH_ALL_TEXT || GENERATE_ALL_TEXT_ONLY))
 [[ ! -e "$OUTPUT_DIR" ]] || die "Output directory exists: $OUTPUT_DIR"
 
 PFP_ROOT="$(cd "$PFP_ROOT" && pwd)"
+pfp_commit="$(git_in_dir "$PFP_ROOT" rev-parse HEAD)"
+[[ "$pfp_commit" == "$MMFP_PFP_COMMIT" ]] || \
+  die "PFP commit mismatch: expected $MMFP_PFP_COMMIT, found $pfp_commit"
+export PFP_COMMIT="$pfp_commit"
 BENCHMARK_DIR="$(cd "$BENCHMARK_DIR" && pwd)"
 PLAN_DIR="$(cd "$PLAN_DIR" && pwd)"
 STATE_ROOT="$(cd "$STATE_ROOT" && pwd)"
@@ -108,11 +112,6 @@ MODALITY_STATUS="$OUTPUT_DIR/reports/modality_status.tsv"
 mkdir -p "$RUNTIME_COMPAT" "$REFERENCE_CONTROLS"
 printf 'phase\tmodality\texit_status\n' > "$MODALITY_STATUS"
 
-pfp_commit="$(git_in_dir "$PFP_ROOT" rev-parse HEAD)"
-expected_pfp_commit="${EXPECTED_PFP_COMMIT:-1e04fd6d6d3c40458fd41ec1a881ed6e24de768e}"
-[[ "$pfp_commit" == "$expected_pfp_commit" ]] || \
-  die "PFP commit mismatch: expected $expected_pfp_commit, found $pfp_commit"
-export PFP_COMMIT="$pfp_commit"
 "$PYTHON_BIN" - "$STATE_ROOT/contract.json" "$pfp_commit" "$TEXT_CUTOFF_DATE" \
   "pfp-prott5=$PFP_ROOT/scripts/extract_prott5_embeddings.py" \
   "pfp-text-extract=$PFP_ROOT/scripts/extract_uniprot_text.py" \

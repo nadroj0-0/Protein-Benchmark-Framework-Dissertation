@@ -35,5 +35,8 @@
   },
   "evaluation": {
     "require_precomputed_ia": false
+  },
+  "embedding_evidence_contract": {
+    "required": true
   }
 }

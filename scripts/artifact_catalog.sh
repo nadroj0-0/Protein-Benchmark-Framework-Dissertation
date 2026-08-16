@@ -17,6 +17,9 @@ artifact_catalog_configure() {
   local requested="${2:-${ARTIFACT_CATALOG:-}}"
   local local_catalog="${framework_root}/configs/artifact_paths.local.tsv"
 
+  ARTIFACT_FRAMEWORK_ROOT="$(cd "$framework_root" && pwd -P)"
+  export ARTIFACT_FRAMEWORK_ROOT
+
   if [[ -z "$requested" && -f "$local_catalog" ]]; then
     requested="$local_catalog"
   fi
@@ -35,6 +38,44 @@ artifact_catalog_configure() {
   ARTIFACT_CATALOG="$(cd "$(dirname "$requested")" && pwd -P)/$(basename "$requested")"
   artifact_catalog_validate "$ARTIFACT_CATALOG" || return 1
   export ARTIFACT_CATALOG
+}
+
+artifact_catalog_sha256() {
+  local path="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$path" | awk '{print $1}'
+  else
+    shasum -a 256 "$path" | awk '{print $1}'
+  fi
+}
+
+verify_frozen_artifact_sha256() {
+  local artifact_id="$1"
+  local path="$2"
+  local manifest="${ARTIFACT_FRAMEWORK_ROOT:?artifact_catalog_configure must run first}/scripts/data_acquisition/san_frozen_inputs.tsv"
+  local expected=""
+  local observed=""
+
+  [[ -f "$path" && ! -L "$path" ]] || {
+    echo "Frozen artifact is not a regular file: $path" >&2
+    return 1
+  }
+  expected="$(awk -F '\t' -v wanted="$artifact_id" '
+    $2 == wanted && $7 == "sha256" { print $8; found=1; exit }
+    END { exit !found }
+  ' "$manifest")" || {
+    echo "No SHA-256 contract for frozen artifact: $artifact_id" >&2
+    return 1
+  }
+  [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || {
+    echo "Invalid SHA-256 contract for frozen artifact: $artifact_id" >&2
+    return 1
+  }
+  observed="$(artifact_catalog_sha256 "$path")"
+  [[ "$observed" == "$expected" ]] || {
+    echo "Frozen artifact SHA-256 mismatch for $artifact_id: expected $expected, observed $observed" >&2
+    return 1
+  }
 }
 
 artifact_catalog_validate() {

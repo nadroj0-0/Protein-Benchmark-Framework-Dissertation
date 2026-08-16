@@ -33,6 +33,7 @@ MODALITY_DIRECTORIES = {
     "structure": "IF1",
     "ppi": "ppi",
 }
+PFP_COMMIT = "1e04fd6d6d3c40458fd41ec1a881ed6e24de768e"
 PAIR_KEY = tuple[str, str]
 
 
@@ -555,10 +556,6 @@ def main() -> int:
         metavar="ORIGINAL=STAGED",
     )
     parser.add_argument("--policy", type=Path, required=True)
-    parser.add_argument(
-        "--expected-pfp-commit",
-        default="1e04fd6d6d3c40458fd41ec1a881ed6e24de768e",
-    )
     parser.add_argument("--output-archive", type=Path, required=True)
     parser.add_argument("--report-dir", type=Path, required=True)
     args = parser.parse_args()
@@ -567,7 +564,7 @@ def main() -> int:
     result = publish_cache(
         ledger_dir,
         parse_generated_runs(
-            args.generated_run, ledger_dir, policy, args.expected_pfp_commit
+            args.generated_run, ledger_dir, policy, PFP_COMMIT
         ),
         policy,
         args.output_archive.resolve(),

@@ -195,6 +195,25 @@ receive root-state counts but no invented CAFA knowledge-state label.
 
 The accepted contemporary `supervisor` benchmark is global qualifying
 no-knowledge, so its existing test predictions have no known-protein comparator.
+The submitted knowledge-state census is reconstructed directly from the frozen
+timepoint sources:
+
+```bash
+python scripts/diagnostics/build_contemporary_knowledge_cohort_census.py \
+  --accepted-benchmark-dir /path/to/contemporary_supervisor \
+  --t0-sprot /path/to/extracted/2025_01/uniprot_sprot.dat.gz \
+  --t0-trembl /path/to/pfp_inputs/derived_inputs/uniprot/cafa3_target_taxa/2025_01/uniprot_trembl_cafa3_targets.dat.gz \
+  --t1-sprot /path/to/pfp_inputs/frozen_inputs/uniprot/2026_02/uniprot_sprot.dat.gz \
+  --t1-trembl /path/to/pfp_inputs/derived_inputs/uniprot/cafa3_target_taxa/2026_02/uniprot_trembl_cafa3_targets.dat.gz \
+  --goa-t0 /path/to/pfp_inputs/frozen_inputs/goa/225/goa_uniprot_all.gaf.225.gz \
+  --goa-t1 /path/to/pfp_inputs/frozen_inputs/goa/234/goa_uniprot_all.gaf.234.gz \
+  --benchmark-obo /path/to/pfp_inputs/frozen_inputs/ontology/2025-02-06/go-basic.obo \
+  --t0-source-obo /path/to/pfp_inputs/frozen_inputs/ontology/2025-03-16/go-basic.obo \
+  --t1-source-obo /path/to/pfp_inputs/frozen_inputs/ontology/2026-06-19/go-basic.obo \
+  --benchmark-id contemporary-2025-01-to-2026-02-supervisor \
+  --output-dir /path/to/contemporary_knowledge_census
+```
+
 `build_temporal_annotation_ledger.py` therefore builds a new Layer-B state
 artifact from independently prepared historical inputs. It requires direct
 terms and propagated closures for both timepoints plus explicit protein

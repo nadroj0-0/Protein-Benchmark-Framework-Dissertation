@@ -16,6 +16,13 @@
       "reported_commit": "8cc5ce367b5638c4306c2d7cfc652dd099a4643f"
     }
   },
+  "external_model_inputs": {
+    "sequence_model": "Rostlab/prot_t5_xl_half_uniref50-enc",
+    "text_model": "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext",
+    "structure_model": "esm_if1_gvp4_t16_142M_UR50 via fair-esm 2.0.0",
+    "structure_source": "AlphaFold API responses authenticated per downloaded PDB",
+    "reproducibility_boundary": "The accepted evidence records model names, runtime versions, generated-array hashes, and downloaded structure hashes, but not immutable ProtT5, PubMedBERT, or ESM-IF1 weight revisions. Fresh model-weight downloads and fresh AlphaFold API responses are therefore not claimed to be bitwise-identical to the accepted embedding run unless the authenticated accepted inputs or arrays are supplied."
+  },
   "shared_model_execution": {
     "entrypoint": "scripts/model_execution/run_pfp_benchmark.sh",
     "aspects": [
@@ -120,7 +127,8 @@
         "scripts/embeddings/compose_contemporary_text_replacement.py",
         "scripts/embeddings/initialize_contemporary_embedding_state.sh",
         "scripts/embeddings/finalize_embedding_state.py",
-        "scripts/model_execution/run_pfp_benchmark.sh"
+        "scripts/model_execution/run_pfp_benchmark.sh",
+        "scripts/diagnostics/build_contemporary_knowledge_cohort_census.py"
       ]
     },
     "contemporary_nk_lk": {
@@ -273,6 +281,7 @@
       "scripts/diagnostics/compare_pfp_modality_runs.py",
       "scripts/diagnostics/evaluate_pfp_label_sensitivity.py",
       "scripts/diagnostics/evaluate_pfp_information_content.py",
+      "scripts/diagnostics/build_contemporary_knowledge_cohort_census.py",
       "scripts/diagnostics/evaluate_pfp_knowledge_cohorts.py",
       "scripts/diagnostics/compare_go_relationship_policy.py",
       "scripts/diagnostics/audit_homology_evidence_policy.py",

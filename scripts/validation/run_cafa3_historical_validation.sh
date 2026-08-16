@@ -594,6 +594,7 @@ fi
 
 echo "==> [3a/8] Extract official CAFA3/DeepGOPlus archive"
 mkdir -p "${REFERENCE}/deepgoplus_pickles"
+verify_frozen_artifact_sha256 deepgoplus_cafa "$OFFICIAL_CAFA3_ARCHIVE"
 extract_archive "$OFFICIAL_CAFA3_ARCHIVE" "${REFERENCE}/deepgoplus_pickles"
 OFFICIAL_TARGET_FASTA="$(find "${REFERENCE}/deepgoplus_pickles" -type f -path '*/CAFA3_targets/targets_all.fasta' | sort | head -1 || true)"
 OFFICIAL_TARGET_MAPPING_DIR="$(find "${REFERENCE}/deepgoplus_pickles" -type d -path '*/CAFA3_targets/Mapping files' | sort | head -1 || true)"
@@ -732,16 +733,8 @@ echo "  Reference CSV directory: ${REFERENCE_CSV_DIR}"
 
 echo "==> [6/8] Locate or download DeepGOPlus reference pickles"
 PICKLE_STATUS="not found; pickle comparison skipped"
-REFERENCE_PICKLE_DIR=""
-if [ -n "${DEEPGOPLUS_PICKLES_DIR:-}" ] && [ -d "${DEEPGOPLUS_PICKLES_DIR}" ]; then
-  mkdir -p "${REFERENCE}/deepgoplus_pickles"
-  cp -R "${DEEPGOPLUS_PICKLES_DIR}/." "${REFERENCE}/deepgoplus_pickles"/
-  REFERENCE_PICKLE_DIR="$(locate_complete_set "${REFERENCE}/deepgoplus_pickles" "${PICKLE_FILES[@]}" || true)"
-  PICKLE_STATUS="copied from DEEPGOPLUS_PICKLES_DIR=${DEEPGOPLUS_PICKLES_DIR}"
-else
-  REFERENCE_PICKLE_DIR="$(locate_complete_set "${REFERENCE}/deepgoplus_pickles" "${PICKLE_FILES[@]}" || true)"
-  PICKLE_STATUS="downloaded/staged from ${DEEPGOPLUS_PICKLES_URL}"
-fi
+REFERENCE_PICKLE_DIR="$(locate_complete_set "${REFERENCE}/deepgoplus_pickles" "${PICKLE_FILES[@]}" || true)"
+PICKLE_STATUS="downloaded/staged from authenticated ${DEEPGOPLUS_PICKLES_URL}"
 if [ -z "$REFERENCE_PICKLE_DIR" ]; then
   echo "  DeepGOPlus reference pickles not found; comparison will continue CSV-only."
 else

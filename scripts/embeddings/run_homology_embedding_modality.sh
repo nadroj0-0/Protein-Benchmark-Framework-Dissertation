@@ -82,15 +82,14 @@ if [[ "$MODALITY" == "text" && -n "$required_text_cutoff" ]]; then
 fi
 [[ "$PREFLIGHT_PER_SPLIT" =~ ^[1-9][0-9]*$ ]] || die "PREFLIGHT_PER_SPLIT must be positive"
 
+PFP_ROOT="$(cd "$PFP_ROOT" && pwd)"
+observed_pfp_commit="$(git -C "$PFP_ROOT" rev-parse HEAD)"
+[[ "$observed_pfp_commit" == "$MMFP_PFP_COMMIT" ]] || \
+  die "PFP commit mismatch: expected $MMFP_PFP_COMMIT, found $observed_pfp_commit"
 artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 mkdir -p "$WORK_DIR" "$OUTPUT_DIR/logs" "$OUTPUT_DIR/reports" "$OUTPUT_DIR/artifacts"
 WORK_DIR="$(cd "$WORK_DIR" && pwd)"
 OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
-PFP_ROOT="$(cd "$PFP_ROOT" && pwd)"
-observed_pfp_commit="$(git -C "$PFP_ROOT" rev-parse HEAD)"
-expected_pfp_commit="${EXPECTED_PFP_COMMIT:-1e04fd6d6d3c40458fd41ec1a881ed6e24de768e}"
-[[ "$observed_pfp_commit" == "$expected_pfp_commit" ]] || \
-  die "PFP commit mismatch: expected $expected_pfp_commit, found $observed_pfp_commit"
 BENCHMARK_DIR="$(cd "$BENCHMARK_DIR" && pwd)"
 LEDGER_DIR="$(cd "$LEDGER_DIR" && pwd)"
 RUNTIME_COMPAT="$WORK_DIR/runtime_compat"

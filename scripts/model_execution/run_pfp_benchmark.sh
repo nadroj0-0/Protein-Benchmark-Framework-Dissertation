@@ -24,8 +24,7 @@ Usage:
     [--expected-metrics FILE] \
     [--benchmark-evidence FILE] \
     [--embedding-evidence FILE] [--require-embedding-evidence] \
-    [--reference-tolerance FLOAT] [--require-reference-match] \
-    [--expected-pfp-commit SHA] [--allow-unversioned-pfp]
+    [--reference-tolerance FLOAT] [--require-reference-match]
 
 This entrypoint never downloads inputs and never modifies the PFP checkout.
 Every path is explicit so the same workflow can run locally or under an HPC
@@ -59,7 +58,6 @@ REFERENCE_TOLERANCE=""
 REQUIRE_REFERENCE_MATCH=0
 REQUIRE_EMBEDDING_EVIDENCE=0
 EXPECTED_PFP_COMMIT="1e04fd6d6d3c40458fd41ec1a881ed6e24de768e"
-ALLOW_UNVERSIONED_PFP=0
 ASPECTS=()
 BENCHMARK_EVIDENCE=()
 EMBEDDING_EVIDENCE=()
@@ -94,8 +92,6 @@ while [[ $# -gt 0 ]]; do
     --require-embedding-evidence) REQUIRE_EMBEDDING_EVIDENCE=1; shift ;;
     --reference-tolerance) require_value "$@"; REFERENCE_TOLERANCE="$2"; shift 2 ;;
     --require-reference-match) REQUIRE_REFERENCE_MATCH=1; shift ;;
-    --expected-pfp-commit) require_value "$@"; EXPECTED_PFP_COMMIT="$2"; shift 2 ;;
-    --allow-unversioned-pfp) ALLOW_UNVERSIONED_PFP=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
   esac
@@ -122,39 +118,19 @@ fi
 [[ -f "$OBO_FILE" ]] || die "GO OBO file does not exist: $OBO_FILE"
 [[ -f "$PFP_ROOT/train.py" && -f "$PFP_ROOT/scripts/prepare_cafa3_data.py" ]] || \
   die "PFP root is not a compatible checkout: $PFP_ROOT"
-OBSERVED_PFP_COMMIT=""
-if [[ -n "${PFP_HOST_GIT_VERIFIED_COMMIT+x}${PFP_HOST_GIT_VERIFIED_CLEAN+x}${PFP_HOST_GIT_VERIFIED_REPOSITORY+x}" ]]; then
-  [[ -n "${PFP_HOST_GIT_VERIFIED_COMMIT:-}" && \
-     -n "${PFP_HOST_GIT_VERIFIED_CLEAN:-}" && \
-     -n "${PFP_HOST_GIT_VERIFIED_REPOSITORY:-}" ]] || \
-    die "Host PFP Git verification is incomplete"
-  [[ "$PFP_HOST_GIT_VERIFIED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || \
-    die "Host-verified PFP commit must be 40 lowercase hexadecimal characters"
-  [[ "$PFP_HOST_GIT_VERIFIED_CLEAN" == "1" ]] || \
-    die "Host-verified PFP checkout must be explicitly clean"
-  [[ -d "$PFP_HOST_GIT_VERIFIED_REPOSITORY" ]] || \
-    die "Host-verified PFP repository does not exist"
-  [[ "$(cd "$PFP_HOST_GIT_VERIFIED_REPOSITORY" && pwd -P)" == \
-     "$(cd "$PFP_ROOT" && pwd -P)" ]] || \
-    die "Host-verified PFP repository does not match --pfp-root"
-  OBSERVED_PFP_COMMIT="$PFP_HOST_GIT_VERIFIED_COMMIT"
-  [[ "$OBSERVED_PFP_COMMIT" == "$EXPECTED_PFP_COMMIT" ]] || \
-    die "PFP commit mismatch: expected $EXPECTED_PFP_COMMIT, found $OBSERVED_PFP_COMMIT"
-elif git -C "$PFP_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  OBSERVED_PFP_COMMIT="$(git -C "$PFP_ROOT" rev-parse HEAD)"
-  [[ "$OBSERVED_PFP_COMMIT" == "$EXPECTED_PFP_COMMIT" ]] || \
-    die "PFP commit mismatch: expected $EXPECTED_PFP_COMMIT, found $OBSERVED_PFP_COMMIT"
-  [[ -z "$(git -C "$PFP_ROOT" status --porcelain --untracked-files=no)" ]] || \
-    die "PFP has tracked modifications; use an immutable checkout"
-  while IFS= read -r untracked; do
-    case "$untracked" in
-      *.py|*.pyc|*.pyo|*.so|*.pth|*.egg-info/*)
-        die "PFP contains an untracked executable/importable file: $untracked" ;;
-    esac
-  done < <(git -C "$PFP_ROOT" ls-files --others --exclude-standard)
-elif [[ "$ALLOW_UNVERSIONED_PFP" != "1" ]]; then
-  die "PFP root is not a Git checkout; use --allow-unversioned-pfp only for fixtures"
-fi
+git -C "$PFP_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || \
+  die "PFP root must be the pinned Git checkout"
+OBSERVED_PFP_COMMIT="$(git -C "$PFP_ROOT" rev-parse HEAD)"
+[[ "$OBSERVED_PFP_COMMIT" == "$EXPECTED_PFP_COMMIT" ]] || \
+  die "PFP commit mismatch: expected $EXPECTED_PFP_COMMIT, found $OBSERVED_PFP_COMMIT"
+[[ -z "$(git -C "$PFP_ROOT" status --porcelain --untracked-files=no)" ]] || \
+  die "PFP has tracked modifications; use an immutable checkout"
+while IFS= read -r untracked; do
+  case "$untracked" in
+    *.py|*.pyc|*.pyo|*.so|*.pth|*.egg-info/*)
+      die "PFP contains an untracked executable/importable file: $untracked" ;;
+  esac
+done < <(git -C "$PFP_ROOT" ls-files --others --exclude-standard)
 [[ -f "$CONFIG" ]] || die "Run config does not exist: $CONFIG"
 if [[ -n "$IA_FILE_DIR" ]]; then
   [[ -d "$IA_FILE_DIR" ]] || die "IA file directory does not exist: $IA_FILE_DIR"
@@ -183,7 +159,7 @@ if [[ "$REQUIRE_REFERENCE_MATCH" == "1" ]]; then
 fi
 
 FRAMEWORK_COMMIT="${FRAMEWORK_COMMIT:-unknown}"
-PFP_COMMIT="${OBSERVED_PFP_COMMIT:-unversioned-fixture}"
+PFP_COMMIT="$OBSERVED_PFP_COMMIT"
 
 mkdir -p "$WORK_DIR" "$WORK_DIR/logs" "$WORK_DIR/reports"
 DATA_DIR="$WORK_DIR/data"

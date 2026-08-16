@@ -841,6 +841,8 @@ def refresh_reports(state_root: Path) -> dict:
 
 
 def command_initialize(args: argparse.Namespace) -> dict:
+    if args.pfp_commit != "1e04fd6d6d3c40458fd41ec1a881ed6e24de768e":
+        raise ValueError("Embedding state requires the submitted PFP revision")
     state_root = Path(args.state_root)
     policy = load_policy(Path(args.policy))
     if args.data_dir:

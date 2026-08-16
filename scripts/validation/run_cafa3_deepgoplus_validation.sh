@@ -218,21 +218,17 @@ echo
 echo "==> [1/5] Locate or download DeepGOPlus reference pickles"
 PICKLE_STATUS="not found"
 REFERENCE_PICKLE_DIR=""
-if [ -n "${DEEPGOPLUS_PICKLES_DIR:-}" ] && [ -d "${DEEPGOPLUS_PICKLES_DIR}" ]; then
-  mkdir -p "${REFERENCE}/deepgoplus_pickles"
-  cp -R "${DEEPGOPLUS_PICKLES_DIR}/." "${REFERENCE}/deepgoplus_pickles"/
-  REFERENCE_PICKLE_DIR="$(locate_complete_set "${REFERENCE}/deepgoplus_pickles" "${PICKLE_FILES[@]}")"
-  PICKLE_STATUS="copied from DEEPGOPLUS_PICKLES_DIR=${DEEPGOPLUS_PICKLES_DIR}"
+ARCHIVE_SOURCE="$(resolve_artifact_path deepgoplus_cafa "$DEEPGOPLUS_ARCHIVE" || true)"
+if [[ -n "$ARCHIVE_SOURCE" ]]; then
+  mkdir -p "${REFERENCE}/deepgoplus_pickles/extracted"
+  PICKLE_ARCHIVE="${REFERENCE}/$(basename "$ARCHIVE_SOURCE")"
+  cp -p "$ARCHIVE_SOURCE" "$PICKLE_ARCHIVE"
+  verify_frozen_artifact_sha256 deepgoplus_cafa "$PICKLE_ARCHIVE"
+  extract_archive "$PICKLE_ARCHIVE" "${REFERENCE}/deepgoplus_pickles/extracted"
+  REFERENCE_PICKLE_DIR="$(locate_complete_set "${REFERENCE}/deepgoplus_pickles/extracted" "${PICKLE_FILES[@]}" || true)"
+  PICKLE_STATUS="staged from ${ARCHIVE_SOURCE}"
 else
-  ARCHIVE_SOURCE="$(resolve_artifact_path deepgoplus_cafa "$DEEPGOPLUS_ARCHIVE" || true)"
-  if [[ -n "$ARCHIVE_SOURCE" ]]; then
-    mkdir -p "${REFERENCE}/deepgoplus_pickles/extracted"
-    PICKLE_ARCHIVE="${REFERENCE}/$(basename "$ARCHIVE_SOURCE")"
-    cp -p "$ARCHIVE_SOURCE" "$PICKLE_ARCHIVE"
-    extract_archive "$PICKLE_ARCHIVE" "${REFERENCE}/deepgoplus_pickles/extracted"
-    REFERENCE_PICKLE_DIR="$(locate_complete_set "${REFERENCE}/deepgoplus_pickles/extracted" "${PICKLE_FILES[@]}" || true)"
-    PICKLE_STATUS="staged from ${ARCHIVE_SOURCE}"
-  elif [ -n "${DEEPGOPLUS_PICKLES_URL:-}" ]; then
+  if [ -n "${DEEPGOPLUS_PICKLES_URL:-}" ]; then
     CANDIDATE_URLS=("$DEEPGOPLUS_PICKLES_URL")
   else
     CANDIDATE_URLS=("${DEFAULT_DEEPGOPLUS_PICKLES_URLS[@]}")
@@ -244,6 +240,7 @@ else
     if download "$DEEPGOPLUS_PICKLES_URL" "$PICKLE_ARCHIVE"; then
       rm -rf "${REFERENCE}/deepgoplus_pickles/extracted"
       mkdir -p "${REFERENCE}/deepgoplus_pickles/extracted"
+      verify_frozen_artifact_sha256 deepgoplus_cafa "$PICKLE_ARCHIVE"
       extract_archive "$PICKLE_ARCHIVE" "${REFERENCE}/deepgoplus_pickles/extracted"
       REFERENCE_PICKLE_DIR="$(locate_complete_set "${REFERENCE}/deepgoplus_pickles/extracted" "${PICKLE_FILES[@]}" || true)"
       if [ -n "$REFERENCE_PICKLE_DIR" ]; then

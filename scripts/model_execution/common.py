@@ -87,11 +87,17 @@ def load_run_config(path: Path) -> Dict[str, Any]:
         cache_role = embedding_contract.get("cache_role")
         text_cutoff = embedding_contract.get("text_cutoff_date")
         source_labels = embedding_contract.get("required_source_labels")
-        if required is not True or not isinstance(cache_role, str) or not cache_role:
+        if required is not True:
             raise ValueError(f"Config has an invalid embedding evidence requirement: {path}")
-        if not isinstance(text_cutoff, str) or not text_cutoff:
+        if cache_role is not None and (
+            not isinstance(cache_role, str) or not cache_role
+        ):
+            raise ValueError(f"Config has an invalid embedding cache role: {path}")
+        if text_cutoff is not None and (
+            not isinstance(text_cutoff, str) or not text_cutoff
+        ):
             raise ValueError(f"Config has an invalid embedding text cutoff: {path}")
-        if (
+        if source_labels is not None and (
             not isinstance(source_labels, list)
             or not source_labels
             or any(not isinstance(label, str) or not label for label in source_labels)

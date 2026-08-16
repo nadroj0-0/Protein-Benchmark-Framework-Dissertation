@@ -220,21 +220,17 @@ echo
 echo "==> [1/4] Locate or download DeepGOPlus CAFA source archive"
 CAFA_STATUS="not found"
 CAFA_ROOT=""
-if [ -n "${DEEPGOPLUS_CAFA_DIR:-}" ] && [ -d "${DEEPGOPLUS_CAFA_DIR}" ]; then
-  mkdir -p "${REFERENCE}/deepgoplus_cafa"
-  cp -R "${DEEPGOPLUS_CAFA_DIR}/." "${REFERENCE}/deepgoplus_cafa"/
-  CAFA_ROOT="$(locate_cafa_root "${REFERENCE}/deepgoplus_cafa" || true)"
-  CAFA_STATUS="copied from DEEPGOPLUS_CAFA_DIR=${DEEPGOPLUS_CAFA_DIR}"
+ARCHIVE_SOURCE="$(resolve_artifact_path deepgoplus_cafa "$DEEPGOPLUS_ARCHIVE" || true)"
+if [[ -n "$ARCHIVE_SOURCE" ]]; then
+  mkdir -p "${REFERENCE}/deepgoplus_cafa/extracted"
+  ARCHIVE="${REFERENCE}/$(basename "$ARCHIVE_SOURCE")"
+  cp -p "$ARCHIVE_SOURCE" "$ARCHIVE"
+  verify_frozen_artifact_sha256 deepgoplus_cafa "$ARCHIVE"
+  extract_archive "$ARCHIVE" "${REFERENCE}/deepgoplus_cafa/extracted"
+  CAFA_ROOT="$(locate_cafa_root "${REFERENCE}/deepgoplus_cafa/extracted" || true)"
+  CAFA_STATUS="staged from ${ARCHIVE_SOURCE}"
 else
-  ARCHIVE_SOURCE="$(resolve_artifact_path deepgoplus_cafa "$DEEPGOPLUS_ARCHIVE" || true)"
-  if [[ -n "$ARCHIVE_SOURCE" ]]; then
-    mkdir -p "${REFERENCE}/deepgoplus_cafa/extracted"
-    ARCHIVE="${REFERENCE}/$(basename "$ARCHIVE_SOURCE")"
-    cp -p "$ARCHIVE_SOURCE" "$ARCHIVE"
-    extract_archive "$ARCHIVE" "${REFERENCE}/deepgoplus_cafa/extracted"
-    CAFA_ROOT="$(locate_cafa_root "${REFERENCE}/deepgoplus_cafa/extracted" || true)"
-    CAFA_STATUS="staged from ${ARCHIVE_SOURCE}"
-  elif [ -n "${DEEPGOPLUS_CAFA_URL:-}" ]; then
+  if [ -n "${DEEPGOPLUS_CAFA_URL:-}" ]; then
     CANDIDATE_URLS=("$DEEPGOPLUS_CAFA_URL")
   else
     CANDIDATE_URLS=("${DEFAULT_DEEPGOPLUS_CAFA_URLS[@]}")
@@ -246,6 +242,7 @@ else
     if download "$url" "$ARCHIVE"; then
       rm -rf "${REFERENCE}/deepgoplus_cafa/extracted"
       mkdir -p "${REFERENCE}/deepgoplus_cafa/extracted"
+      verify_frozen_artifact_sha256 deepgoplus_cafa "$ARCHIVE"
       extract_archive "$ARCHIVE" "${REFERENCE}/deepgoplus_cafa/extracted"
       CAFA_ROOT="$(locate_cafa_root "${REFERENCE}/deepgoplus_cafa/extracted" || true)"
       if [ -n "$CAFA_ROOT" ]; then

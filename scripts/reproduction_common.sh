@@ -4,6 +4,9 @@
 # shellcheck disable=SC1091
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/artifact_catalog.sh"
 
+readonly MMFP_PFP_COMMIT="1e04fd6d6d3c40458fd41ec1a881ed6e24de768e"
+readonly MMFP_CAFA_ASSESSMENT_COMMIT="d72f0a5abb66d3224bd808e2015b55f1c9d18340"
+
 load_framework_paths() {
   local framework_root="$1"
   if [ -f "${framework_root}/configs/paths.local.sh" ]; then

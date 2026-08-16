@@ -99,7 +99,7 @@ def main() -> int:
     parser.add_argument("--ia-file-dir", type=Path)
     parser.add_argument("--benchmark-id")
     parser.add_argument("--framework-commit")
-    parser.add_argument("--pfp-commit")
+    parser.add_argument("--pfp-commit", required=True)
     parser.add_argument("--preparation-report", type=Path)
     parser.add_argument("--embedding-report", type=Path)
     parser.add_argument(
@@ -111,6 +111,8 @@ def main() -> int:
         ),
     )
     args = parser.parse_args()
+    if args.pfp_commit != "1e04fd6d6d3c40458fd41ec1a881ed6e24de768e":
+        raise ValueError("Evaluation requires the submitted PFP revision")
 
     pfp_root = args.pfp_root.resolve()
     if not (pfp_root / "mmfp" / "dataset.py").is_file():

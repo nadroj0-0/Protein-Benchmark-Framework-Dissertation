@@ -58,7 +58,8 @@ The run requires:
 - GOA GAF 2.2;
 - GO OBO;
 - authenticated common-preprocessing cache;
-- authenticated per-threshold MMseqs cluster cache.
+- authenticated per-threshold MMseqs cluster cache, built when absent unless
+  reuse-only operation is explicitly requested.
 
 The common cache binds source bytes and preprocessing implementation. The
 cluster cache binds UniRef level/release/hash, exact MMseqs identity and

@@ -69,6 +69,10 @@ done
 [[ ! -e "$WORK_DIR" ]] || die "Work directory already exists: $WORK_DIR"
 [[ ! -e "$OUTPUT_DIR" ]] || die "Output directory already exists: $OUTPUT_DIR"
 command -v "$PYTHON_BIN" >/dev/null 2>&1 || die "Python not found: $PYTHON_BIN"
+PFP_ROOT="$(cd "$PFP_ROOT" && pwd)"
+observed_pfp_commit="$(git -C "$PFP_ROOT" rev-parse HEAD)"
+[[ "$observed_pfp_commit" == "$MMFP_PFP_COMMIT" ]] || \
+  die "PFP commit mismatch: expected $MMFP_PFP_COMMIT, found $observed_pfp_commit"
 artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 
 mkdir -p \
@@ -76,11 +80,6 @@ mkdir -p \
   "$OUTPUT_DIR/archive" "$OUTPUT_DIR/archives"
 WORK_DIR="$(cd "$WORK_DIR" && pwd)"
 OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
-PFP_ROOT="$(cd "$PFP_ROOT" && pwd)"
-observed_pfp_commit="$(git -C "$PFP_ROOT" rev-parse HEAD)"
-expected_pfp_commit="${EXPECTED_PFP_COMMIT:-1e04fd6d6d3c40458fd41ec1a881ed6e24de768e}"
-[[ "$observed_pfp_commit" == "$expected_pfp_commit" ]] || \
-  die "PFP commit mismatch: expected $expected_pfp_commit, found $observed_pfp_commit"
 
 TARGET_STAGE="$WORK_DIR/target_benchmark"
 PLAN_STAGE="$WORK_DIR/reuse_plan"
