@@ -28,6 +28,19 @@ done
 source "$REPO_ROOT/scripts/artifact_catalog.sh"
 artifact_catalog_configure "$REPO_ROOT" "${ARTIFACT_CATALOG:-}"
 
+report_only_repository_commit() {
+  local top_level
+  top_level="$(git -C "$REPO_ROOT" rev-parse --show-toplevel 2>/dev/null)" || {
+    echo unknown
+    return
+  }
+  [[ "$(cd "$top_level" && pwd -P)" == "$(cd "$REPO_ROOT" && pwd -P)" ]] || {
+    echo unknown
+    return
+  }
+  git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo unknown
+}
+
 DEFAULT_DEEPGOPLUS_CAFA_URLS=(
   "https://deepgo.cbrc.kaust.edu.sa/data/data-cafa.tar.gz"
   "https://deepgo.cbrc.kaust.edu.sa/data/deepgoplus-cafa.tar.gz"
@@ -155,7 +168,7 @@ write_manifest() {
     echo "- Hostname: $(hostname)"
     echo "- User: ${USER:-unknown}"
     echo "- Repository root: ${REPO_ROOT}"
-    echo "- Repository commit: $(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
+    echo "- Repository commit: $(report_only_repository_commit)"
     echo "- Scratch run directory: ${RUN_DIR}"
     echo "- Report copy directory: ${REPORT_COPY_DIR}"
     echo "- Source mode: cafa3-files"

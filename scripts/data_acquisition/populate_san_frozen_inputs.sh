@@ -43,6 +43,12 @@ CACHE_MARKER="CACHE_COMPLETE.json"
 HOMOLOGY_CLUSTER_CACHE_ROOT_ROLE="homology_uniref50_mmseqs_cluster_cache_root_2026_02_sensitivity_4"
 HOMOLOGY_CLUSTER_CACHE_ROOT_RELATIVE="derived_inputs/homology/2026_02/mmseqs_cluster_assignments/uniref50_sensitivity_4"
 HOMOLOGY_CLUSTER_CACHE_ROOT_MARKER="CLUSTER_CACHE_ROOT.json"
+MMSEQS_ARCHIVE_ROLE="mmseqs2"
+MMSEQS_TOOL_ROLE="mmseqs2_executable"
+MMSEQS_TOOL_RELEASE="18-8cc5c"
+MMSEQS_TOOL_VERSION="8cc5ce367b5638c4306c2d7cfc652dd099a4643f"
+MMSEQS_TOOL_ROOT_RELATIVE="tools/mmseqs2/18-8cc5c/runtime"
+MMSEQS_TOOL_RELATIVE="$MMSEQS_TOOL_ROOT_RELATIVE/mmseqs/bin/mmseqs"
 
 usage() {
     cat <<'EOF'
@@ -601,6 +607,79 @@ process_temporal_derived_inputs() {
         "$DERIVED_T1_RELATIVE" uniprot_trembl_t1 -
 }
 
+process_mmseqs_tool() {
+    profile_selected tools || return 0
+    local source_relative source_path source_sha destination tool_root staging candidate
+    local observed_version output_sha derivation derivation_tmp
+    source_relative="$(spec_value_for_role "$MMSEQS_ARCHIVE_ROLE" 4)" || \
+        die "MMseqs2 extraction requires specification role: $MMSEQS_ARCHIVE_ROLE"
+    source_path="$ROOT/$source_relative"
+    destination="$ROOT/$MMSEQS_TOOL_RELATIVE"
+    tool_root="$ROOT/$MMSEQS_TOOL_ROOT_RELATIVE"
+    derivation="${destination}.derivation.tsv"
+    [[ -s "$source_path" && -s "${source_path}.sha256" && \
+       -s "${source_path}.provenance.tsv" ]] || \
+        die "Authenticated MMseqs2 archive is unavailable: $source_path"
+    source_sha="$(recorded_sha256_value "$source_path")"
+
+    echo
+    echo "[$MMSEQS_TOOL_ROLE] $MMSEQS_TOOL_RELATIVE"
+    if [[ -x "$destination" && -s "${destination}.sha256" && \
+          -s "${destination}.provenance.tsv" && -s "$derivation" ]]; then
+        require_derivation_value "$derivation" source_sha256 "$source_sha"
+        require_derivation_value "$derivation" binary_version "$MMSEQS_TOOL_VERSION"
+        verify_recorded_sha256 "$destination"
+        observed_version="$("$destination" version | tr -d '[:space:]')" || \
+            die "Extracted MMseqs2 binary cannot run on this host: $destination"
+        [[ "$observed_version" == "$MMSEQS_TOOL_VERSION" ]] || \
+            die "MMseqs2 binary mismatch: expected=$MMSEQS_TOOL_VERSION observed=$observed_version"
+        echo "  present with matching archive, binary identity, and executable hash"
+        DERIVED_SKIPPED=$((DERIVED_SKIPPED + 1))
+        VERIFIED=$((VERIFIED + 1))
+        return 0
+    fi
+    [[ "$VERIFY_ONLY" == "0" ]] || \
+        die "Extracted MMseqs2 executable is missing or incomplete: $destination"
+    [[ ! -e "$tool_root" ]] || \
+        die "Incomplete MMseqs2 tool directory already exists: $tool_root"
+
+    staging="${tool_root}.partial.$$"
+    rm -rf "$staging"
+    mkdir -p "$staging"
+    if ! tar -xzf "$source_path" -C "$staging"; then
+        rm -rf "$staging"
+        die "Failed to extract authenticated MMseqs2 archive"
+    fi
+    candidate="$staging/mmseqs/bin/mmseqs"
+    [[ -x "$candidate" ]] || {
+        rm -rf "$staging"
+        die "Extracted MMseqs2 executable is missing"
+    }
+    observed_version="$("$candidate" version | tr -d '[:space:]')" || {
+        rm -rf "$staging"
+        die "Extracted MMseqs2 binary cannot run on this host"
+    }
+    [[ "$observed_version" == "$MMSEQS_TOOL_VERSION" ]] || {
+        rm -rf "$staging"
+        die "MMseqs2 binary mismatch: expected=$MMSEQS_TOOL_VERSION observed=$observed_version"
+    }
+    output_sha="$(sha256_file "$candidate")"
+    write_artifact_metadata "$MMSEQS_TOOL_ROLE" "$MMSEQS_TOOL_RELEASE" \
+        "$MMSEQS_TOOL_RELATIVE" "derived://${MMSEQS_ARCHIVE_ROLE}#mmseqs/bin/mmseqs" \
+        "-" "-" "-" "$candidate" "extracted-authenticated-tool" "$output_sha"
+    derivation_tmp="${candidate}.derivation.tsv"
+    printf 'schema_version\t1\n' > "$derivation_tmp"
+    printf 'source_artifact_id\t%s\n' "$MMSEQS_ARCHIVE_ROLE" >> "$derivation_tmp"
+    printf 'source_sha256\t%s\n' "$source_sha" >> "$derivation_tmp"
+    printf 'binary_version\t%s\n' "$observed_version" >> "$derivation_tmp"
+    printf 'output_sha256\t%s\n' "$output_sha" >> "$derivation_tmp"
+    mkdir -p "$(dirname "$tool_root")"
+    mv "$staging" "$tool_root"
+    echo "  extracted, authenticated, and catalogued: $destination"
+    DERIVED_CREATED=$((DERIVED_CREATED + 1))
+    VERIFIED=$((VERIFIED + 1))
+}
+
 homology_input_path() {
     local role="$1"
     local relative
@@ -842,6 +921,11 @@ write_artifact_path_catalog() {
     if [[ -s "$destination" ]]; then
         printf '%s\t%s\n' "$HOMOLOGY_CLUSTER_CACHE_ROOT_ROLE" "$destination" >> "$temporary"
     fi
+    destination="$ROOT/$MMSEQS_TOOL_RELATIVE"
+    if [[ -x "$destination" && -s "${destination}.sha256" && \
+          -s "${destination}.provenance.tsv" && -s "${destination}.derivation.tsv" ]]; then
+        printf '%s\t%s\n' "$MMSEQS_TOOL_ROLE" "$destination" >> "$temporary"
+    fi
     if [[ -f "$catalog" ]] && cmp -s "$temporary" "$catalog"; then
         rm -f "$temporary"
     else
@@ -912,6 +996,20 @@ if [[ "$SKIP_DERIVED" == "0" ]] && profile_selected temporal; then
             printf '%-18s %-32s %-16s %s\n' temporal "$role" derived "$destination"
         fi
     done
+fi
+
+if [[ "$SKIP_DERIVED" == "0" ]] && profile_selected tools; then
+    selected_count=$((selected_count + 1))
+    destination="$ROOT/$MMSEQS_TOOL_RELATIVE"
+    if [[ ! -x "$destination" || ! -s "${destination}.sha256" || \
+          ! -s "${destination}.provenance.tsv" || ! -s "${destination}.derivation.tsv" ]]; then
+        missing_count=$((missing_count + 1))
+        missing_unknown_count=$((missing_unknown_count + 1))
+    fi
+    if [[ "$LIST_ONLY" == "1" || "$DRY_RUN" == "1" ]]; then
+        printf '%-18s %-32s %-16s %s\n' \
+            tools "$MMSEQS_TOOL_ROLE" derived "$destination"
+    fi
 fi
 
 if [[ "$SKIP_DERIVED" == "0" ]] && profile_selected homology; then
@@ -1068,6 +1166,7 @@ fi
 
 if [[ "$SKIP_DERIVED" == "0" ]]; then
     process_temporal_derived_inputs
+    process_mmseqs_tool
     process_homology_derived_inputs
     process_homology_cluster_cache_root
 else

@@ -29,8 +29,8 @@ METRIC_DEFINITIONS: dict[str, MetricDefinition] = {
         "all qualifying GOA accessions after evidence, NOT, object, and ontology filtering",
         "minimum",
     ),
-    "selected_uniprot_to_uniref90_mapping_ratio": MetricDefinition(
-        "selected-UniProt accessions mapped uniquely to a UniRef90 FASTA member",
+    "selected_uniprot_to_uniref_mapping_ratio": MetricDefinition(
+        "selected-UniProt accessions mapped uniquely to the selected UniRef FASTA member",
         "qualifying GOA accessions resolving to one selected-UniProt sequence",
         "minimum",
     ),
@@ -40,8 +40,8 @@ METRIC_DEFINITIONS: dict[str, MetricDefinition] = {
         "minimum",
     ),
     "retained_cluster_member_ratio": MetricDefinition(
-        "UniRef90 members in clusters retained by a qualifying selected-UniProt annotation",
-        "all frozen UniRef90 FASTA members clustered by MMseqs2",
+        "selected UniRef members in clusters retained by a qualifying selected-UniProt annotation",
+        "all frozen selected-UniRef FASTA members clustered by MMseqs2",
         "minimum",
     ),
     "evaluable_protein_ratio": MetricDefinition(

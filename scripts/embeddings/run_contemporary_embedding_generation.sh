@@ -71,7 +71,9 @@ done
 command -v "$PYTHON_BIN" >/dev/null 2>&1 || die "Python not found: $PYTHON_BIN"
 artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 
-mkdir -p "$WORK_DIR" "$OUTPUT_DIR/logs" "$OUTPUT_DIR/reports" "$OUTPUT_DIR/archives"
+mkdir -p \
+  "$WORK_DIR" "$OUTPUT_DIR/logs" "$OUTPUT_DIR/reports" \
+  "$OUTPUT_DIR/archive" "$OUTPUT_DIR/archives"
 WORK_DIR="$(cd "$WORK_DIR" && pwd)"
 OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
 PFP_ROOT="$(cd "$PFP_ROOT" && pwd)"
@@ -371,12 +373,13 @@ if [[ -d "$PFP_ROOT/results/embedding_reports" ]]; then
   cp -a "$PFP_ROOT/results/embedding_reports" "$OUTPUT_DIR/reports/"
 fi
 
-tar -czf "$OUTPUT_DIR/archives/contemporary_embedding_cache.tar.gz" \
+tar -czf "$OUTPUT_DIR/archive/contemporary_embedding_cache.tar.gz" \
   -C "$FINAL_PACKAGE" data/embedding_cache
 
 {
   printf 'sha256\tsize_bytes\tpath\n'
-  for archive in "$OUTPUT_DIR"/archives/*.tar.gz; do
+  for archive in "$OUTPUT_DIR"/archive/*.tar.gz "$OUTPUT_DIR"/archives/*.tar.gz; do
+    [[ -f "$archive" ]] || continue
     printf '%s\t%s\t%s\n' \
       "$(sha256_file "$archive")" \
       "$(stat -c '%s' "$archive" 2>/dev/null || stat -f '%z' "$archive")" \
@@ -399,7 +402,7 @@ payload = {
     "text_cutoff_date": sys.argv[2],
     "pfp_commit": os.environ.get("PFP_COMMIT", "unknown"),
     "framework_commit": os.environ.get("FRAMEWORK_COMMIT", "unknown"),
-    "final_cache_archive": "archives/contemporary_embedding_cache.tar.gz",
+    "final_cache_archive": "archive/contemporary_embedding_cache.tar.gz",
     "assembly_summary": "reports/assembly/assembly_summary.json",
 }
 (output / "WORKFLOW_COMPLETE.json").write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")

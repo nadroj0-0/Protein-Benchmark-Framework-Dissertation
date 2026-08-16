@@ -36,3 +36,4 @@ zijian_text_embeddings	/absolute/path/to/zijian/mmfp_embeddings_text_temporal.ta
 zijian_checkpoints	/absolute/path/to/zijian/mmfp_checkpoints.tar.gz
 zijian_data_splits	/absolute/path/to/zijian/mmfp_data_splits.tar.gz
 mmseqs2	/absolute/path/to/mmseqs-linux-avx2.tar.gz
+mmseqs2_executable	/absolute/path/to/mmseqs/bin/mmseqs

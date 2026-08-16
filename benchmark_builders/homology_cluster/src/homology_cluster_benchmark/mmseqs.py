@@ -419,7 +419,7 @@ class ClusterIndex:
         try:
             connection.executemany("INSERT INTO assignments VALUES (?, ?)", rows)
         except sqlite3.IntegrityError as exc:
-            raise ValueError("A UniRef90 member appears more than once in MMseqs2 output") from exc
+            raise ValueError("A selected UniRef member appears more than once in MMseqs2 output") from exc
 
     def member_count(self) -> int:
         with sqlite3.connect(self.database) as connection:

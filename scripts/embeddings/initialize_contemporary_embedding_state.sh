@@ -95,7 +95,7 @@ expected_pfp_commit="${EXPECTED_PFP_COMMIT:-1e04fd6d6d3c40458fd41ec1a881ed6e24de
 command=(
   "$PYTHON_BIN" "$HERE/manage_resumable_embedding_state.py" initialize
   --state-root "$STATE_ROOT"
-  --benchmark-id contemporary-2025_01-to-2026_02-supervisor
+  --benchmark-id contemporary-2025-01-to-2026-02-supervisor
   --benchmark-dir "$BENCHMARK_DIR"
   --target-table "$REUSE_TABLE"
   --target-table "$REGENERATE_TABLE"

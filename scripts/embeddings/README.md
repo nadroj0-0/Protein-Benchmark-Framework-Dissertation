@@ -30,11 +30,17 @@ The full driver stops after embedding comparison; model training belongs to
 The submitted route is:
 
 1. build a paper-faithful inventory and exact reuse plan;
-2. generate the coarse-plan regeneration population;
-3. generate temporal text with cutoff `2025-03-08` for every target;
-4. replace the complete text layer while preserving other modalities;
-5. initialize and validate a fresh archive-backed state;
-6. finalize the accepted cache.
+2. generate the coarse-plan cache, published at
+   `archive/contemporary_embedding_cache.tar.gz`;
+3. initialize its archive-backed state and run any required missing-pair retries;
+4. finalize that coarse base after its embedding gate passes;
+5. run `run_contemporary_embedding_retry.sh --modality text
+   --generate-all-text-only --text-cutoff-date 2025-03-08` against the retained
+   state contract;
+6. compose the finalized base and complete corrected text layer with
+   `compose_contemporary_text_replacement.py`;
+7. initialize a new state from the composed root; and
+8. finalize that new state as the accepted corrected cache.
 
 The all-target replacement is part of the accepted from-scratch contract. It
 prevents a reused published text layer from silently retaining an older cutoff;
@@ -51,6 +57,11 @@ bash scripts/embeddings/run_contemporary_embedding_retry.sh --help
 python scripts/embeddings/compose_contemporary_text_replacement.py --help
 python scripts/embeddings/finalize_embedding_state.py --help
 ```
+
+The finalizer is therefore invoked twice with different roots: first to
+authenticate the coarse non-text base used by composition, then to authenticate
+the composed corrected cache. The earlier text layer is never a reported model
+input.
 
 `configs/contemporary_embedding_resume.json` defines acceptance dimensions,
 coverage floors, cutoff, and paper-faithful PPI policy.
@@ -76,9 +87,9 @@ source archives separately:
 python scripts/embeddings/resolve_embedding_reuse_sources.py \
   --coarse-plan-dir /path/to/coarse_plan \
   --output-dir /path/to/new_ledger \
-  --cache-source contemporary=/path/to/source_benchmark=/path/to/cache.tar.gz=SHA256 \
+  --cache-source contemporary=contemporary-global-nk=/path/to/cache.tar.gz=SHA256 \
   --source-text-policy contemporary=same-role \
-  --cache-source cafa3=/path/to/source_benchmark=/path/to/cache.tar.gz=SHA256 \
+  --cache-source cafa3=cafa3-regenerated=/path/to/cache.tar.gz=SHA256 \
   --source-text-policy cafa3=never
 ```
 
@@ -98,6 +109,9 @@ bash scripts/embeddings/run_homology_embedding_modality.sh \
   --modality sequence \
   --policy configs/contemporary_nk_lk_embedding_generation.json
 ```
+
+For NK+LK text, that policy requires cutoff `2025-03-08`; both the modality
+runner and final pair assembler reject a missing or different cutoff.
 
 Repeat for `text`, `structure`, and `ppi`; temporal NK+LK text additionally
 uses `--text-cutoff-date 2025-03-08`. Homology uses

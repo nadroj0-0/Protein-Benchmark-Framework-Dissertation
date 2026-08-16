@@ -862,7 +862,10 @@ def _write_reports(
         reports["input_checksums"] = input_checksums
 
     output_checksums = report_dir / "output_checksums.sha256"
-    _write_checksum_file(output_checksums, list(written.values()))
+    _write_checksum_file(
+        output_checksums,
+        list(written.values()) + [cohort_path, cohort_summary_path],
+    )
     reports["output_checksums"] = output_checksums
 
     report_path = report_dir / "benchmark_build_report.md"
@@ -894,6 +897,26 @@ def _write_reports(
         + _official_target_markdown(official_target_rows or [])
     )
     reports["build_report"] = report_path
+    completion_path = report_dir / "BENCHMARK_BUILD_COMPLETE.json"
+    completion_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "complete": True,
+                "profile": config.profile_name,
+                "build_manifest_sha256": _sha256(manifest_path),
+                "output_checksums_sha256": _sha256(output_checksums),
+                "cohort_membership": {
+                    "path": cohort_path.name,
+                    "sha256": _sha256(cohort_path),
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+    reports["completion"] = completion_path
     return reports
 
 

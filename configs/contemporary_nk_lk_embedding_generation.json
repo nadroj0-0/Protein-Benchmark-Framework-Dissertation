@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "description": "Pair-resolved contemporary NK+LK embedding cache",
+  "required_text_cutoff": "2025-03-08",
   "modalities": {
     "sequence": {
       "cache_directory": "prott5",

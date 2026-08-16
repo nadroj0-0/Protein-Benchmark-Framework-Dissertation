@@ -135,6 +135,26 @@ def main() -> int:
     build_manifest = json.loads(build_manifest_path.read_text(encoding="utf-8"))
     if build_manifest.get("profile") != "supervisor-nk-lk":
         raise ValueError("Cohort membership is not from the NK+LK builder profile")
+    completion_path = membership_path.parent / "BENCHMARK_BUILD_COMPLETE.json"
+    if not completion_path.is_file() or completion_path.is_symlink():
+        raise ValueError("Cohort membership lacks its builder completion marker")
+    completion = json.loads(completion_path.read_text(encoding="utf-8"))
+    if completion.get("complete") is not True or completion.get("profile") != "supervisor-nk-lk":
+        raise ValueError("Cohort membership has the wrong builder completion contract")
+    if completion.get("build_manifest_sha256") != _sha256(build_manifest_path):
+        raise ValueError("Builder completion marker does not authenticate build_manifest.json")
+    membership_binding = completion.get("cohort_membership", {})
+    if (
+        membership_binding.get("path") != membership_path.name
+        or membership_binding.get("sha256") != _sha256(membership_path)
+    ):
+        raise ValueError("Builder completion marker does not authenticate cohort membership")
+    output_checksums_path = membership_path.parent / "output_checksums.sha256"
+    if (
+        not output_checksums_path.is_file()
+        or completion.get("output_checksums_sha256") != _sha256(output_checksums_path)
+    ):
+        raise ValueError("Builder completion marker does not authenticate output checksums")
     membership = _load_membership(membership_path)
 
     nk_summary_path = args.nk_evaluation_summary.resolve()
@@ -345,6 +365,14 @@ def main() -> int:
             "benchmark_build_manifest": {
                 "path": str(build_manifest_path.resolve()),
                 "sha256": _sha256(build_manifest_path.resolve()),
+            },
+            "benchmark_build_completion": {
+                "path": str(completion_path.resolve()),
+                "sha256": _sha256(completion_path.resolve()),
+            },
+            "benchmark_output_checksums": {
+                "path": str(output_checksums_path.resolve()),
+                "sha256": _sha256(output_checksums_path.resolve()),
             },
             "nk_evaluation_summary": {
                 "path": str(nk_summary_path),

@@ -86,6 +86,10 @@ TEMP_DIR=/absolute/path/to/work \
 bash scripts/benchmark_generation/run_homology_cluster_benchmark.sh
 ```
 
+The launcher resolves `mmseqs2_executable` from `ARTIFACT_CATALOG` before
+falling back to `mmseqs` on `PATH`; either binary must report the exact full
+commit in the submitted contract.
+
 Preview resolved commands without running the build:
 
 ```bash

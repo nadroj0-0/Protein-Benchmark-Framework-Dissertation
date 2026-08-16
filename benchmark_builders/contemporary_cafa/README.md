@@ -100,8 +100,9 @@ mf-training.csv      mf-validation.csv      mf-test.csv
 The build also publishes DeepGOPlus-shaped pickles, checksums, a
 `build_manifest.json`, protein-flow and exclusion tables, annotation-gain and
 knowledge-cohort reports, source-resolution diagnostics, and validation
-reports. Diagnostic files are written before strict QC raises so a failed run
-retains its exact exclusion evidence.
+reports. `BENCHMARK_BUILD_COMPLETE.json` authenticates the build manifest,
+output checksums, and cohort-membership table. Diagnostic files are written
+before strict QC raises so a failed run retains its exact exclusion evidence.
 
 Production fails on missing or malformed inputs, unresolved source ontology
 IDs, invalid dates, forbidden train/test overlap, duplicate IDs, non-binary

@@ -276,9 +276,10 @@ python scripts/diagnostics/evaluate_nk_lk_completed_run.py \
 ```
 
 This is the analysis used for the reported completed NK+LK cohort result. It
-requires exact population agreement between predictions and membership rows,
-keeps no-knowledge and limited-knowledge distinct, and reports the root-only
-composition and fixed-threshold non-root metrics for each cohort.
+requires the builder completion marker to authenticate the membership bytes,
+then requires exact population agreement between predictions and membership
+rows. It keeps no-knowledge and limited-knowledge distinct and reports the
+root-only composition and fixed-threshold non-root metrics for each cohort.
 
 ## Validation prediction capture foundation
 

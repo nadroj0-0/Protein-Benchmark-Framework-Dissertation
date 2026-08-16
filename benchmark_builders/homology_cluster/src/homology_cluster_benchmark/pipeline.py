@@ -829,8 +829,8 @@ def _attrition_observations(
         "goa_to_selected_uniprot_mapping_ratio": observation(
             "goa_to_selected_uniprot_mapping_ratio", selected, len(decisions)
         ),
-        "selected_uniprot_to_uniref90_mapping_ratio": observation(
-            "selected_uniprot_to_uniref90_mapping_ratio", mapped, selected
+        "selected_uniprot_to_uniref_mapping_ratio": observation(
+            "selected_uniprot_to_uniref_mapping_ratio", mapped, selected
         ),
         "qualifying_annotation_retention_ratio": observation(
             "qualifying_annotation_retention_ratio",

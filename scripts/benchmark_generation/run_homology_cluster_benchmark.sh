@@ -29,6 +29,10 @@ TEMP_DIR="${TEMP_DIR:-${TMPDIR:-/tmp}/homology-cluster-benchmark}"
 THREADS="${THREADS:-1}"
 SEED="${SEED:-0}"
 MIN_COUNT="${MIN_COUNT:-50}"
+MMSEQS_BIN="${MMSEQS_BIN:-}"
+if [[ -z "$MMSEQS_BIN" ]]; then
+    MMSEQS_BIN="$(resolve_artifact_path mmseqs2_executable "" || true)"
+fi
 MMSEQS_BIN="${MMSEQS_BIN:-mmseqs}"
 MMSEQS_PROFILE="${MMSEQS_PROFILE:-framework-uniref50-s4-defaults}"
 UNIREF_LEVEL="${UNIREF_LEVEL:-50}"
@@ -291,7 +295,7 @@ if [[ "$DRY_RUN" != "1" ]]; then
             [[ -x "$MMSEQS_BIN" ]] || { echo "MMseqs2 is not executable: $MMSEQS_BIN" >&2; exit 1; }
         else
             command -v "$MMSEQS_BIN" >/dev/null 2>&1 || {
-                echo "MMseqs2 is unavailable; set MMSEQS_BIN to the compute-node executable" >&2
+                echo "MMseqs2 is unavailable; acquire the tools profile or set MMSEQS_BIN" >&2
                 exit 1
             }
         fi

@@ -13,7 +13,7 @@ import os
 import tarfile
 import tempfile
 from collections import Counter, defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
 
@@ -142,6 +142,16 @@ def load_policy(path: Path) -> dict:
             raise AssemblyError(f"Wrong cache directory in policy for {modality}")
         if int(specification.get("dimension", 0)) != EXPECTED_DIMENSIONS[modality]:
             raise AssemblyError(f"Wrong dimension in policy for {modality}")
+    required_text_cutoff = policy.get("required_text_cutoff")
+    if required_text_cutoff is not None:
+        if not isinstance(required_text_cutoff, str):
+            raise AssemblyError("Embedding policy has an invalid required_text_cutoff")
+        try:
+            date.fromisoformat(required_text_cutoff)
+        except ValueError as error:
+            raise AssemblyError(
+                "Embedding policy has an invalid required_text_cutoff"
+            ) from error
     return policy
 
 
@@ -151,6 +161,7 @@ def parse_generated_runs(
     result: dict[str, Path] = {}
     ledger_sha = sha256_file(ledger_dir / "output_manifest.json")
     policy_sha = sha256_file(policy)
+    required_text_cutoff = load_policy(policy).get("required_text_cutoff")
     for value in values:
         modality, separator, raw_path = value.partition("=")
         if not separator or modality not in MODALITIES or modality in result:
@@ -168,6 +179,12 @@ def parse_generated_runs(
             raise AssemblyError(f"Generated {modality} run uses a different policy")
         if marker.get("pfp_commit") != expected_pfp_commit:
             raise AssemblyError(f"Generated {modality} run uses the wrong PFP revision")
+        if modality == "text" and required_text_cutoff is not None:
+            if marker.get("text_cutoff_date") != required_text_cutoff:
+                raise AssemblyError(
+                    "Generated text run uses the wrong cutoff: "
+                    f"{marker.get('text_cutoff_date')!r} != {required_text_cutoff!r}"
+                )
         archive = (run / str(marker.get("archive", ""))).resolve()
         if not archive.is_relative_to(run) or not archive.is_file() or archive.is_symlink():
             raise AssemblyError(f"Generated archive is missing or unsafe: {archive}")

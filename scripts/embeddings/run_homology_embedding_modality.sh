@@ -51,16 +51,36 @@ done
 [[ -d "$BENCHMARK_DIR" ]] || die "Missing benchmark: $BENCHMARK_DIR"
 [[ -d "$LEDGER_DIR" ]] || die "Missing source-resolved ledger: $LEDGER_DIR"
 [[ -f "$POLICY" ]] || die "Missing embedding policy: $POLICY"
+command -v "$PYTHON_BIN" >/dev/null 2>&1 || die "Python not found: $PYTHON_BIN"
 [[ -n "$WORK_DIR" && ! -e "$WORK_DIR" ]] || die "Work directory is missing or exists"
 [[ -n "$OUTPUT_DIR" && ! -e "$OUTPUT_DIR" ]] || die "Output directory is missing or exists"
 case "$MODALITY" in sequence|text|structure|ppi) ;; *) die "Invalid modality: $MODALITY" ;; esac
+required_text_cutoff="$("$PYTHON_BIN" - "$POLICY" <<'PY'
+import json
+import sys
+from datetime import date
+
+value = json.load(open(sys.argv[1], encoding="utf-8")).get("required_text_cutoff")
+if value is not None:
+    if not isinstance(value, str):
+        raise SystemExit("Embedding policy has an invalid required_text_cutoff")
+    try:
+        date.fromisoformat(value)
+    except ValueError as error:
+        raise SystemExit("Embedding policy has an invalid required_text_cutoff") from error
+print(value or "")
+PY
+)"
 if [[ -n "$TEXT_CUTOFF_DATE" ]]; then
   [[ "$MODALITY" == "text" ]] || die "--text-cutoff-date is valid only for text"
   [[ "$TEXT_CUTOFF_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || \
     die "--text-cutoff-date must be YYYY-MM-DD"
 fi
+if [[ "$MODALITY" == "text" && -n "$required_text_cutoff" ]]; then
+  [[ "$TEXT_CUTOFF_DATE" == "$required_text_cutoff" ]] || \
+    die "Text cutoff mismatch: policy requires $required_text_cutoff"
+fi
 [[ "$PREFLIGHT_PER_SPLIT" =~ ^[1-9][0-9]*$ ]] || die "PREFLIGHT_PER_SPLIT must be positive"
-command -v "$PYTHON_BIN" >/dev/null 2>&1 || die "Python not found: $PYTHON_BIN"
 
 artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 mkdir -p "$WORK_DIR" "$OUTPUT_DIR/logs" "$OUTPUT_DIR/reports" "$OUTPUT_DIR/artifacts"

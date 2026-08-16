@@ -174,7 +174,7 @@ def verify_artifact_scope(
             "expected_sha256": archive.sha256,
         }
 
-    commit = _git_value(root, ("rev-parse", "HEAD"))
+    commit, _ = _exact_git_commit(root)
     checks["reference_commit"] = commit == spec.expected_reference_commit
     reference_observed: Dict[str, Any] = {}
     for reference in spec.reference_files:
@@ -239,8 +239,12 @@ def build_run_provenance(
 ) -> Dict[str, Any]:
     hashes = hash_cache or HashCache()
     repo = repository.resolve()
-    git_commit, git_commit_error = _git_probe(repo, ("rev-parse", "HEAD"))
-    dirty_worktree, git_status_error = _git_dirty_probe(repo)
+    git_commit, git_commit_error = _exact_git_commit(repo)
+    if git_commit_error:
+        dirty_worktree = False
+        git_status_error = git_commit_error
+    else:
+        dirty_worktree, git_status_error = _git_dirty_probe(repo)
     return {
         "schema_version": 1,
         "timestamp_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -323,8 +327,14 @@ def _file_identity(path: Path, hashes: HashCache) -> Dict[str, Any]:
     }
 
 
-def _git_value(root: Path, args: Tuple[str, ...], strip: bool = True) -> str:
-    return _git_probe(root, args, strip=strip)[0]
+def _exact_git_commit(root: Path) -> Tuple[str, str]:
+    resolved = root.resolve()
+    git_root, error = _git_probe(resolved, ("rev-parse", "--show-toplevel"))
+    if error:
+        return "", error
+    if Path(git_root).resolve() != resolved:
+        return "", "enclosing Git repository does not match source root"
+    return _git_probe(resolved, ("rev-parse", "HEAD"))
 
 
 def _git_probe(

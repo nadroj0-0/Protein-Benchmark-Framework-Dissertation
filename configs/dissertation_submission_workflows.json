@@ -77,7 +77,15 @@
       "benchmark_config": "configs/pfp_benchmark_run.temporal.json",
       "embedding_acceptance_config": "configs/contemporary_embedding_resume.json",
       "forensics_config": "configs/benchmark_forensics.example.json",
-      "corrected_text_construction": "Generate temporal text for every target at the 2025-03-08 cutoff, compose that complete layer with the other paper-faithful modalities, then finalize the cache.",
+      "corrected_text_construction": "Finalize the coarse paper-faithful base, generate temporal text for every target at the 2025-03-08 cutoff, compose that complete layer with the non-text modalities, initialize a fresh state, and finalize the accepted corrected cache.",
+      "corrected_cache_sequence": [
+        "Generate the coarse-plan baseline package.",
+        "Initialize its resumable state and complete any missing-pair retries.",
+        "Finalize the coarse state as the authenticated base for composition.",
+        "Generate an all-target text-only archive at cutoff 2025-03-08.",
+        "Compose the finalized base and corrected text into a new baseline package.",
+        "Initialize a fresh state from the composition and finalize the accepted corrected cache."
+      ],
       "prediction_capture_order": [
         "valid",
         "test"
@@ -105,7 +113,10 @@
         "scripts/embeddings/run_contemporary_embedding_generation.sh",
         "scripts/embeddings/initialize_contemporary_embedding_state.sh",
         "scripts/embeddings/run_contemporary_embedding_retry.sh",
+        "scripts/embeddings/finalize_embedding_state.py",
+        "scripts/embeddings/run_contemporary_embedding_retry.sh",
         "scripts/embeddings/compose_contemporary_text_replacement.py",
+        "scripts/embeddings/initialize_contemporary_embedding_state.sh",
         "scripts/embeddings/finalize_embedding_state.py",
         "scripts/model_execution/run_pfp_benchmark.sh"
       ]

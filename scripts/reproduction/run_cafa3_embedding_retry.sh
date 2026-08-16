@@ -93,6 +93,9 @@ EMBEDDING_POLICY="$(cd "$(dirname "$EMBEDDING_POLICY")" && pwd)/$(basename "$EMB
 [[ ! -e "$OUTPUT_DIR" ]] || die "Output directory already exists: $OUTPUT_DIR"
 
 PFP_ROOT="$(cd "$PFP_ROOT" && pwd)"
+pfp_commit="$(git_in_dir "$PFP_ROOT" rev-parse HEAD)"
+[[ "$pfp_commit" == "$EXPECTED_PFP_COMMIT" ]] || \
+  die "PFP commit mismatch: expected $EXPECTED_PFP_COMMIT, found $pfp_commit"
 EMBEDDING_STATE_ROOT="$(cd "$EMBEDDING_STATE_ROOT" && pwd)"
 if [[ -n "$CAFA3_ID_MAPPING" ]]; then
   CAFA3_ID_MAPPING="$(cd "$(dirname "$CAFA3_ID_MAPPING")" && pwd)/$(basename "$CAFA3_ID_MAPPING")"
@@ -190,9 +193,6 @@ validate_mmfp_if1_env "$PYTHON_BIN" "$IF1_NUMPY_OVERLAY" \
   --output "$RUNTIME_COMPAT/extract_esm_if1_embeddings.py" \
   --report "$OUTPUT_DIR/reports/pfp_if1_compatibility.json"
 
-pfp_commit="$(git_in_dir "$PFP_ROOT" rev-parse HEAD)"
-[[ "$pfp_commit" == "$EXPECTED_PFP_COMMIT" ]] || \
-  die "PFP commit mismatch: expected $EXPECTED_PFP_COMMIT, found $pfp_commit"
 mapfile -t state_contract_values < <(
   "$PYTHON_BIN" - "$EMBEDDING_STATE_ROOT/contract.json" <<'PY'
 import json
