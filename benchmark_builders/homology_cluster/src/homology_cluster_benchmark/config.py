@@ -381,6 +381,7 @@ class BuildConfig:
             root /= profile
         if self.mmseqs_profile != MMSEQS_PROFILE_LEGACY:
             root /= f"mmseqs_{self.mmseqs_profile}"
+        root /= f"scope_{self.benchmark_scope}"
         return (
             root / self.identity_directory
             / self.split_policy

@@ -113,6 +113,9 @@ artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 PFP_ROOT="$(cd "$PFP_ROOT" && pwd)"
 [[ -z "$(git_in_dir "$PFP_ROOT" status --porcelain --untracked-files=no)" ]] || \
   die "PFP checkout has tracked changes; use a clean disposable clone"
+observed_pfp_commit="$(git_in_dir "$PFP_ROOT" rev-parse HEAD)"
+[[ "$observed_pfp_commit" == "$EXPECTED_PFP_COMMIT" ]] || \
+  die "PFP commit mismatch: expected $EXPECTED_PFP_COMMIT, found $observed_pfp_commit"
 [[ ! -e "$PFP_ROOT/data/embedding_cache" ]] || \
   die "PFP clone already has an embedding cache"
 [[ ! -e "$PFP_ROOT/results/full_model" ]] || \

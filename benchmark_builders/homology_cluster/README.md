@@ -324,7 +324,7 @@ are counted and omitted from that ontology view, never emitted as all-zero negat
 Each Python publication is isolated beneath:
 
 ```text
-OUTPUT_ROOT/source_SCOPE/framework_SHA12/identity_XX/SPLIT/annotated-only/seed_N/min_count_N/
+OUTPUT_ROOT/source_SCOPE/[UNIREF_PROFILE/][MMSEQS_PROFILE/]scope_BENCHMARK_SCOPE/identity_XX/SPLIT/annotated-only/seed_N/min_count_N/
 ```
 
 It also contains source-aware frozen/input manifests, `parameters.json`,
@@ -334,9 +334,11 @@ reports, hashes, and `RUN_COMPLETE.json`. The marker is written only after stage
 atomic rename, and final-path hash verification. Existing outputs are never overwritten.
 
 `summarize` requires exactly one valid publication for each identity and rejects missing,
-duplicate, mixed-scope, mixed-commit, mixed-manifest, or mixed-method runs. It writes threshold,
-split, and attrition metrics plus term-universe overlaps/changes and identical-cluster warnings; it
-does not copy the large child payloads.
+duplicate, mixed-scope, mixed-manifest, mixed-policy, or mixed-method runs. Legacy framework and
+scheduler fields are excluded from scientific comparison, while their original hashes remain
+available in child provenance. The command writes threshold, split, and attrition metrics plus
+term-universe overlaps/changes and identical-cluster warnings; it does not copy the large child
+payloads.
 
 ## Grid Engine contract
 
@@ -371,8 +373,8 @@ marker-mismatched deletion targets are refused. Persistent paths are atomically 
 colliding task cannot alter a prior final or another task's partial output.
 
 The full launcher re-hashes pilot evidence when called; the queued worker checks the exported
-hashes and re-runs authorization from its detached framework checkout before input staging. This
-closes the queue-time mutation window.
+scientific hashes and re-runs authorization before input staging. Framework Git metadata is
+recorded when available but is not an authorization requirement.
 
 ## Final scratch-first HPC workflow
 

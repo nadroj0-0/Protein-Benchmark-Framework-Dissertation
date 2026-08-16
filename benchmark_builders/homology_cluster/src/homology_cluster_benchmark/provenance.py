@@ -49,31 +49,62 @@ def _package_version(name: str) -> str:
 
 
 def git_state(repository: Path) -> dict[str, object]:
+    repository = repository.resolve()
     verified_commit = os.environ.get(HOST_GIT_COMMIT_ENV)
     verified_clean = os.environ.get(HOST_GIT_CLEAN_ENV)
     verified_repository = os.environ.get(HOST_GIT_REPOSITORY_ENV)
     external_values = (verified_commit, verified_clean, verified_repository)
     if all(value is not None for value in external_values):
-        return {
-            "commit": verified_commit,
-            "dirty": verified_clean != "1",
-            "status_porcelain": [],
-            "repository": verified_repository,
-            "verification": "host-reported-git",
-        }
+        assert verified_commit is not None
+        assert verified_clean is not None
+        assert verified_repository is not None
+        reported_repository = Path(verified_repository).expanduser().resolve()
+        if (
+            reported_repository == repository
+            and len(verified_commit) == 40
+            and all(character in "0123456789abcdef" for character in verified_commit)
+            and verified_clean in {"0", "1"}
+        ):
+            return {
+                "commit": verified_commit,
+                "dirty": verified_clean != "1",
+                "status_porcelain": [],
+                "repository": str(reported_repository),
+                "verification": "host-reported-git",
+            }
 
-    commit = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=repository, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False,
-    )
-    status = subprocess.run(
-        ["git", "status", "--porcelain"], cwd=repository, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False,
-    )
+    try:
+        top_level = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"], cwd=repository, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False,
+        )
+        if top_level.returncode != 0 or Path(top_level.stdout.strip()).resolve() != repository:
+            return {
+                "commit": None,
+                "dirty": None,
+                "status_porcelain": [],
+                "verification": "framework-git-unavailable",
+            }
+        commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=repository, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False,
+        )
+        status = subprocess.run(
+            ["git", "status", "--porcelain"], cwd=repository, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False,
+        )
+    except OSError:
+        return {
+            "commit": None,
+            "dirty": None,
+            "status_porcelain": [],
+            "verification": "git-executable-unavailable",
+        }
     return {
         "commit": commit.stdout.strip() if commit.returncode == 0 else None,
         "dirty": bool(status.stdout.strip()) if status.returncode == 0 else None,
         "status_porcelain": status.stdout.splitlines() if status.returncode == 0 else [],
+        "repository": str(repository),
         "verification": "git-executable",
     }
 

@@ -159,7 +159,6 @@ echo "Modality          : $MODALITY"
 echo "Persistent state  : $EMBEDDING_STATE_ROOT"
 echo "Scratch           : $WORK"
 echo "Final report      : $FINAL_RUN_ROOT"
-echo "Framework policy  : $([[ "$STRICT_FRAMEWORK_COMMIT" == "1" ]] && echo strict || echo permissive)"
 if [[ "$MODALITY" == "ppi" ]]; then
   echo "CAFA3 ID mapping  : $CAFA3_ID_MAPPING"
   echo "Mapping SHA-256   : ${CAFA3_ID_MAPPING_SHA256,,}"

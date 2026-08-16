@@ -146,12 +146,9 @@ The headerless idmapping table is parsed as exactly 22 tab-separated columns wit
 collapse into one identifier. Absent idmapping rows remain lifecycle-unknown unless a separately
 frozen deleted-accession source is approved.
 
-Supervisor-generated cluster assignments are treated as a separate evidence lineage. They may
-continue into annotation retention, splitting and CSV generation only when a machine-readable
-provenance record binds the raw artifact to the same frozen UniRef input and declared clustering
-policy. Full member-universe validation is still mandatory. Such artifacts never seed the
-framework-generated cache, and agreement with an independently generated assignment remains a
-separate adjudication step.
+Submitted production benchmarks use only framework-generated MMseqs assignments. Independently
+supplied assignments were used during development as a separate sanity comparison and are not an
+input accepted by the submission workflow.
 
 ### GOA, GAF, and GO
 
@@ -237,11 +234,10 @@ The array mapping is `1→30`, `2→25`, `3→20`, `4→15`, `5→10`, `6→5`. 
 `-pe smp 2`; `NSLOTS` is authoritative and must equal MMseqs threads. Array concurrency and
 within-task threads are different: all six runnable tasks can request up to 12 slots.
 
-Production uses one shared local, checksum-verified input collection with `NO_DOWNLOADS=1`. It
-requires an exact 40-character lowercase framework SHA, detached checkout, exact HEAD equality,
-and a clean tree before input staging or MMseqs2. The full launcher validates approval and policy;
-the queued worker rechecks their launcher-time hashes and reruns authorization from the detached
-revision before expensive work.
+Production uses one shared local, checksum-verified input collection with `NO_DOWNLOADS=1`. The
+full launcher validates approval and policy, and the queued worker rechecks their launcher-time
+hashes before expensive work. Framework Git metadata is optional report-only provenance: it does
+not authorize, identify, or block a scientific run.
 
 Each task's scratch path includes job ID, array task, identity, scope, and collision-resistant run
 ID. A task atomically creates its scratch and persistent claim; it never overwrites an existing
@@ -257,7 +253,9 @@ Non-MMseq transformations use sorted IDs, isolated seeded RNG state, determinist
 serialization, deterministic gzip, and disk-backed joins. MMseq byte identity across versions or
 environments is not claimed; exact runtime provenance is recorded instead. Publications are staged,
 strictly validated, hashed, atomically renamed, rehashed at the final path, and marked complete
-last. Aggregation validates exactly six common-scope/common-commit/common-manifest publications.
+last. Aggregation validates exactly six publications with one benchmark scope, frozen manifest,
+normalized attrition policy, and scientific fingerprint. Historical framework and scheduler
+fields are removed before this cross-threshold comparison.
 
 Internal QC validates declared inputs and methodology, mappings, schemas, leakage, term-universe
 construction, attrition authorization, and publication integrity. It does not prove biological

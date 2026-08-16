@@ -296,7 +296,6 @@ def publish(args: argparse.Namespace) -> dict[str, Any]:
                 "manifest_sha256": sha256_text(target_text),
             },
             "pfp_commit": args.pfp_commit,
-            "framework_commit": args.framework_commit or "unknown",
             "policy": policy,
             "policy_sha256": canonical_sha256(policy),
             "environment": None,
@@ -316,10 +315,19 @@ def publish(args: argparse.Namespace) -> dict[str, Any]:
                     "size_bytes": config_path.stat().st_size,
                 },
             ],
-            "runtime": {"bound_at_utc": utc_now()},
         }
         contract["contract_sha256"] = canonical_sha256(contract)
         atomic_json(stage / "contract.json", contract)
+        atomic_json(
+            stage / "framework_provenance.json",
+            {
+                "schema_version": 1,
+                "role": "report-only-framework-provenance",
+                "framework_commit": args.framework_commit or "unknown",
+                "bound_at_utc": utc_now(),
+                "scientific_contract_sha256": contract["contract_sha256"],
+            },
+        )
 
         coverage = {}
         for modality in ("sequence", "text", "structure", "ppi"):
@@ -358,6 +366,7 @@ def publish(args: argparse.Namespace) -> dict[str, Any]:
             "targets.tsv",
             "pair_status.tsv",
             "summary.json",
+            "framework_provenance.json",
         ):
             path = stage / name
             files.append(

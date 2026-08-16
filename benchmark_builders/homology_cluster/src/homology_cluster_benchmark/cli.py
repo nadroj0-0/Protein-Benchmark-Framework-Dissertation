@@ -377,6 +377,28 @@ def _resolve_run_dir(candidate: Path) -> Path:
     return matches[0]
 
 
+def _canonical_json_sha256(payload: object) -> str:
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _normalized_attrition_policy_sha256(
+    run_dir: Path, metadata: dict[str, object]
+) -> str:
+    policy_path = run_dir / "attrition_policy.json"
+    observed_sha256 = sha256_file(policy_path)
+    expected_sha256 = str(metadata.get("attrition_policy_sha256", ""))
+    if observed_sha256 != expected_sha256:
+        raise ValueError(f"Child attrition policy hash mismatch: {run_dir}")
+    payload = json.loads(policy_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"Child attrition policy must be a JSON object: {run_dir}")
+    normalized = dict(payload)
+    normalized.pop("framework_commit", None)
+    return _canonical_json_sha256(normalized)
+
+
 def _cross_threshold_reports(
     runs,
     root: Path,
@@ -413,6 +435,10 @@ def _cross_threshold_reports(
             "Cross-threshold reporting requires each locked identity exactly once; "
             f"observed={sorted(observed_percentages, reverse=True)}"
         )
+    normalized_attrition_policy_hashes = {
+        percent: _normalized_attrition_policy_sha256(child_dirs[percent], metadata)
+        for percent, metadata in child_metadata.items()
+    }
     normalized_fingerprint_payloads: dict[int, dict[str, object]] = {}
     for percent, item in child_metadata.items():
         raw_payload = item.get("scientific_fingerprint_payload")
@@ -424,25 +450,24 @@ def _cross_threshold_reports(
             "allocated_slots", "mmseqs_threads",
         ):
             normalized_payload.pop(operational_field, None)
+        normalized_payload["attrition_policy_sha256"] = (
+            normalized_attrition_policy_hashes[percent]
+        )
         normalized_fingerprint_payloads[percent] = normalized_payload
     fingerprints = {
-        hashlib.sha256(
-            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        ).hexdigest()
+        _canonical_json_sha256(payload)
         for payload in normalized_fingerprint_payloads.values()
     }
     frozen_manifest_hashes = {
         str(item.get("frozen_input_manifest_sha256")) for item in child_metadata.values()
     }
     source_scopes = {str(item.get("uniprot_source_scope")) for item in child_metadata.values()}
-    attrition_policy_hashes = {
-        str(item.get("attrition_policy_sha256")) for item in child_metadata.values()
-    }
+    normalized_policy_hash_set = set(normalized_attrition_policy_hashes.values())
     if (
         len(fingerprints) != 1
         or len(frozen_manifest_hashes) != 1
         or len(source_scopes) != 1
-        or len(attrition_policy_hashes) != 1
+        or len(normalized_policy_hash_set) != 1
     ):
         raise ValueError(
             "The six threshold runs do not share one source scope, frozen manifest, "
@@ -471,7 +496,8 @@ def _cross_threshold_reports(
     production_eligible = next(iter(production_values))
     fixture_mode = next(iter(fixture_values))
     source_scope = next(iter(source_scopes))
-    attrition_policy_sha256 = next(iter(attrition_policy_hashes))
+    attrition_policy_sha256 = next(iter(normalized_policy_hash_set))
+    aggregate_scope = str(first["benchmark_scope"])
     aggregate_root = root.resolve() / f"source_{source_scope}"
     if actual_uniref_level != 90:
         sensitivity = float(fingerprint_payload["sensitivity"])
@@ -479,6 +505,7 @@ def _cross_threshold_reports(
             ".", "p"
         )
         aggregate_root /= profile
+    aggregate_root /= f"scope_{aggregate_scope}"
     final = (
         aggregate_root / "all_thresholds_summary" / actual_split_policy / actual_population
         / f"seed_{actual_seed}" / f"min_count_{actual_min_count}"
@@ -604,6 +631,11 @@ def _cross_threshold_reports(
             "uniref_level": actual_uniref_level,
             "frozen_input_manifest_sha256": next(iter(frozen_manifest_hashes)),
             "attrition_policy_sha256": attrition_policy_sha256,
+            "attrition_policy_hash_policy": "canonical-json-without-legacy-framework-commit",
+            "child_attrition_policy_sha256": {
+                str(percent): str(child_metadata[percent]["attrition_policy_sha256"])
+                for percent in percentages
+            },
             "split_policy": actual_split_policy,
             "training_population": actual_population,
             "seed": actual_seed,
@@ -688,6 +720,9 @@ def _cross_threshold_reports(
                 "publication_metadata_sha256": sha256_file(
                     run_dir / "publication_metadata.json"
                 ),
+                "attrition_policy_sha256": str(
+                    child_metadata[percent]["attrition_policy_sha256"]
+                ),
             }
             for percent, run_dir in sorted(child_dirs.items())
         }
@@ -698,6 +733,7 @@ def _cross_threshold_reports(
             "uniref_level": actual_uniref_level,
             "frozen_input_manifest_sha256": next(iter(frozen_manifest_hashes)),
             "attrition_policy_sha256": attrition_policy_sha256,
+            "attrition_policy_hash_policy": "canonical-json-without-legacy-framework-commit",
             "children": child_references,
         }
         (stage / "input_manifest.json").write_text(
