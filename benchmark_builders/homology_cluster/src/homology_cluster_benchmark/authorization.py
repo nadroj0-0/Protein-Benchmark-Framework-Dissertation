@@ -17,7 +17,6 @@ from .inputs import sha256_file
 
 
 APPROVAL_SCHEMA = "homology-cluster-pilot-approval"
-COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -85,7 +84,6 @@ def validate_pilot_attrition_against_reviewed_policy(
     reviewed_policy: dict[str, Any],
     reviewed_policy_sha256: str,
     source_scope: str,
-    framework_commit: str,
 ) -> dict[str, Any]:
     input_manifest_sha256 = str(attrition.get("input_manifest_sha256", ""))
     if SHA256_RE.fullmatch(input_manifest_sha256) is None:
@@ -97,7 +95,6 @@ def validate_pilot_attrition_against_reviewed_policy(
         reviewed_policy_sha256,
         _pilot_observations(attrition),
         source_scope=source_scope,
-        framework_commit=framework_commit,
         input_manifest_sha256=input_manifest_sha256,
         diagnostic=True,
     )
@@ -119,7 +116,6 @@ def validate_pilot_approval(
     attrition_report_path: Path,
     task_context_path: Path,
     measurement_evidence_path: Path,
-    framework_commit: str,
     frozen_input_manifest_sha256: str,
     source_scope: str,
     split_policy: str,
@@ -141,7 +137,6 @@ def validate_pilot_approval(
         "pilot_task_id": 1,
         "pilot_identity_percent": 30,
         "successful_completion_marker_sha256": sha256_file(completion_marker_path),
-        "framework_commit": framework_commit,
         "frozen_input_manifest_sha256": frozen_input_manifest_sha256,
         "uniprot_source_scope": source_scope,
         "split_policy": split_policy,
@@ -183,8 +178,6 @@ def validate_pilot_approval(
         date.fromisoformat(str(approval.get("review_date", "")))
     except ValueError as exc:
         raise ValueError("Pilot approval review_date must be an ISO date") from exc
-    if COMMIT_RE.fullmatch(framework_commit) is None:
-        raise ValueError("Expected framework commit must be a full lowercase SHA")
     if SHA256_RE.fullmatch(frozen_input_manifest_sha256) is None:
         raise ValueError("Expected frozen-input manifest hash must be one SHA-256")
     marker_expectations = {
@@ -192,8 +185,6 @@ def validate_pilot_approval(
         "benchmark_scope": "diagnostic-pilot",
         "production_eligible": False,
         "identity_percent": 30,
-        "framework_revision": framework_commit,
-        "repository_commit": framework_commit,
         "frozen_input_manifest_sha256": frozen_input_manifest_sha256,
         "uniprot_source_scope": source_scope,
         "split_policy": split_policy,
@@ -215,7 +206,6 @@ def validate_pilot_approval(
         raise ValueError("Pilot attrition report must declare production_authorized=false")
     attrition_expectations = {
         "uniprot_source_scope": source_scope,
-        "framework_commit": framework_commit,
         "input_manifest_sha256": marker.get("run_input_manifest_sha256"),
     }
     for key, value in attrition_expectations.items():
@@ -229,7 +219,6 @@ def validate_pilot_approval(
         reviewed_policy=reviewed_attrition_policy,
         reviewed_policy_sha256=reviewed_attrition_policy_sha256,
         source_scope=source_scope,
-        framework_commit=framework_commit,
     )
 
     task_expectations = {
@@ -238,7 +227,6 @@ def validate_pilot_approval(
         "identity_percent": 30,
         "uniprot_source_scope": source_scope,
         "run_id": approval.get("pilot_run_id"),
-        "framework_revision": framework_commit,
         "requested_smp_slots": 2,
         "nslots": 2,
         "mmseqs_threads": 2,
@@ -257,7 +245,6 @@ def validate_pilot_approval(
         "pilot_task_id": 1,
         "pilot_identity_percent": 30,
         "run_id": approval.get("pilot_run_id"),
-        "framework_commit": framework_commit,
         "uniprot_source_scope": source_scope,
         "successful_completion_marker_sha256": sha256_file(completion_marker_path),
         "runtime_seconds": approval.get("runtime_seconds"),

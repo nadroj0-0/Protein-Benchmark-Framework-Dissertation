@@ -8,7 +8,6 @@ import csv
 import hashlib
 import io
 import json
-import math
 import os
 import tarfile
 import tempfile
@@ -269,8 +268,8 @@ def publish(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError(f"Output directory already exists: {output_dir}")
     if not archive_path.is_file() or not config_path.is_file():
         raise ValueError("Archive and config must be regular files")
-    if len(args.framework_commit) != 40 or len(args.pfp_commit) != 40:
-        raise ValueError("Framework and PFP commits must be full 40-character hashes")
+    if len(args.pfp_commit) != 40:
+        raise ValueError("PFP commit must be a full 40-character hash")
 
     policy = load_policy(config_path)
     csv_records = benchmark_files(benchmark_dir)
@@ -297,7 +296,7 @@ def publish(args: argparse.Namespace) -> dict[str, Any]:
                 "manifest_sha256": sha256_text(target_text),
             },
             "pfp_commit": args.pfp_commit,
-            "framework_commit": args.framework_commit,
+            "framework_commit": args.framework_commit or "unknown",
             "policy": policy,
             "policy_sha256": canonical_sha256(policy),
             "environment": None,
@@ -395,7 +394,7 @@ def main() -> int:
     parser.add_argument("--archive", type=Path, required=True)
     parser.add_argument("--archive-sha256")
     parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--framework-commit", required=True)
+    parser.add_argument("--framework-commit", default="unknown")
     parser.add_argument("--pfp-commit", default=PFP_COMMIT)
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()

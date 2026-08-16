@@ -114,11 +114,8 @@ For the CAFA3 v1.5 control, the CAFA3 config additionally requires
 `--reference-source-archive`; the supplied directory must match the 30 relevant
 members of the catalogued author archive byte for byte.
 
-The direct runner rejects a dirty framework checkout by default. The
-`--allow-dirty-framework` escape hatch exists only for tiny development
-fixtures and marks the reported framework revision as dirty; it must not be
-used for dissertation model runs. The HPC wrapper has no such escape hatch and
-always clones a pinned clean framework commit.
+Framework Git metadata is report-only and never blocks execution. The external
+PFP checkout remains pinned and validated because it defines the model code.
 
 ## Policy configs
 
@@ -295,8 +292,7 @@ qsub -hold_jid JOBS hpc_jobs/active/hpc_pfp_modality_panel_analysis.sh \
   --prediction-run sequence-only=/SAN/.../sequence_only/CAPTURE_RUN \
   --prediction-run sequence-text=/SAN/.../sequence_text \
   --prediction-run sequence-structure=/SAN/.../sequence_structure \
-  --prediction-run sequence-ppi=/SAN/.../sequence_ppi \
-  --allow-framework-commit-drift
+  --prediction-run sequence-ppi=/SAN/.../sequence_ppi
 ```
 
 Every `--run` is a canonical `train-eval` source. Every `--prediction-run` is a

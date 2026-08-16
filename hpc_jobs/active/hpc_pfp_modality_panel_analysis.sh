@@ -20,8 +20,7 @@ usage() {
 Usage: qsub hpc_jobs/active/hpc_pfp_modality_panel_analysis.sh \
   --obo-file FILE --output-dir DIR \
   --run MODE=TRAIN_EVAL_RUN_OR_RESULTS_ROOT \
-  --prediction-run MODE=CAPTURE_RUN_OR_RESULTS_ROOT [repeat each five times] \
-  [--allow-framework-commit-drift]
+  --prediction-run MODE=CAPTURE_RUN_OR_RESULTS_ROOT [repeat each five times]
 
 Canonical --run inputs must be completed train-eval runs. Prediction inputs
 may be those same runs or separately captured eval-only runs, but exact
@@ -44,7 +43,6 @@ RUN_SPECS=()
 PREDICTION_SPECS=()
 RUN_COUNT=0
 PREDICTION_COUNT=0
-ALLOW_FRAMEWORK_COMMIT_DRIFT=0
 SUBMISSION_DIR="${SGE_O_WORKDIR:-$PWD}"
 
 while [[ $# -gt 0 ]]; do
@@ -53,7 +51,6 @@ while [[ $# -gt 0 ]]; do
     --output-dir) require_value "$@"; OUTPUT_DIR="$2"; shift 2 ;;
     --run) require_value "$@"; RUN_SPECS+=("$2"); RUN_COUNT=$((RUN_COUNT + 1)); shift 2 ;;
     --prediction-run) require_value "$@"; PREDICTION_SPECS+=("$2"); PREDICTION_COUNT=$((PREDICTION_COUNT + 1)); shift 2 ;;
-    --allow-framework-commit-drift) ALLOW_FRAMEWORK_COMMIT_DRIFT=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
   esac
@@ -203,9 +200,6 @@ COMPARISON_COMMAND=(
   "${PREDICTION_MANIFESTS[@]}"
   --output-dir "$RESULTS_STAGE/canonical_comparison"
 )
-if [[ "$ALLOW_FRAMEWORK_COMMIT_DRIFT" == "1" ]]; then
-  COMPARISON_COMMAND+=(--allow-framework-commit-drift)
-fi
 "${COMPARISON_COMMAND[@]}"
 
 for mode in sequence-only sequence-text sequence-structure sequence-ppi full; do

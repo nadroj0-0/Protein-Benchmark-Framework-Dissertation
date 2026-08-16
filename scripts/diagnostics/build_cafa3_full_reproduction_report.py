@@ -53,6 +53,13 @@ def git_commit(path: Path) -> str:
     ).strip()
 
 
+def optional_git_commit(path: Path) -> str:
+    try:
+        return git_commit(path)
+    except (OSError, subprocess.CalledProcessError):
+        return "unavailable"
+
+
 def package_versions() -> dict[str, str]:
     observed = {}
     for package in PACKAGES:
@@ -229,7 +236,7 @@ def main() -> int:
         "completed_at": datetime.now(timezone.utc).isoformat(),
         "provenance": {
             "pfp_commit": git_commit(args.pfp_root),
-            "framework_commit": git_commit(args.framework_root),
+            "framework_commit": optional_git_commit(args.framework_root),
             "text_cutoff_date": args.text_cutoff_date,
         },
         "environment": {

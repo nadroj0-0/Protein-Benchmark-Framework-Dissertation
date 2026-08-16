@@ -88,7 +88,9 @@ POLICY="$(cd "$(dirname "$POLICY")" && pwd)/$(basename "$POLICY")"
 
 validate_mmfp_env "$PYTHON_BIN" > "$OUTPUT_DIR/environment_validation.txt"
 pfp_commit="$(git_in_dir "$PFP_ROOT" rev-parse HEAD)"
-framework_commit="${FRAMEWORK_COMMIT:-$(git_in_dir "$FRAMEWORK_ROOT" rev-parse HEAD)}"
+expected_pfp_commit="${EXPECTED_PFP_COMMIT:-1e04fd6d6d3c40458fd41ec1a881ed6e24de768e}"
+[[ "$pfp_commit" == "$expected_pfp_commit" ]] || \
+  die "PFP commit mismatch: expected $expected_pfp_commit, found $pfp_commit"
 
 command=(
   "$PYTHON_BIN" "$HERE/manage_resumable_embedding_state.py" initialize
@@ -99,7 +101,6 @@ command=(
   --target-table "$REGENERATE_TABLE"
   --policy "$POLICY"
   --pfp-commit "$pfp_commit"
-  --framework-commit "$framework_commit"
   --environment-report "$OUTPUT_DIR/environment_validation.txt"
   --baseline-archive "$BASELINE_ARCHIVE"
   --baseline-assembly-report "$BASELINE_REPORT"

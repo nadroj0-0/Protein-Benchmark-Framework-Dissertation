@@ -95,7 +95,7 @@ def _validate_manifest_pair(
     for field in ("benchmark_id", "mode", "seed"):
         if validation[field] != test[field]:
             raise ValueError(f"Validation/test prediction {field} differs")
-    for field in ("framework_commit", "pfp_commit", "benchmark_fingerprint"):
+    for field in ("pfp_commit", "benchmark_fingerprint"):
         if validation["provenance"][field] != test["provenance"][field]:
             raise ValueError(f"Validation/test provenance {field} differs")
     if validation["config"]["sha256"] != test["config"]["sha256"]:

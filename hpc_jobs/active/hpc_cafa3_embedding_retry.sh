@@ -20,8 +20,7 @@ Usage: qsub hpc_jobs/active/hpc_cafa3_embedding_retry.sh \
   [--cafa3-id-mapping PATH --cafa3-id-mapping-sha256 SHA256] \
   [--embedding-state-root /SAN/bioinf/bmpfp/embedding_states/cafa3_full_reproduction] \
   [--results-root /absolute/path] \
-  [--text-cutoff-date YYYY-MM-DD] [--artifact-catalog PATH] \
-  [--strict-framework-commit]
+  [--text-cutoff-date YYYY-MM-DD] [--artifact-catalog PATH]
 
 This wrapper never submits another job. It retries only missing pairs for one
 modality, publishes valid arrays into the single persistent state, copies only
@@ -36,7 +35,6 @@ EMBEDDING_STATE_ROOT="/SAN/bioinf/bmpfp/embedding_states/cafa3_full_reproduction
 CLI_RESULTS_ROOT=""
 TEXT_CUTOFF_DATE="2016-02-17"
 CLI_ARTIFACT_CATALOG="${ARTIFACT_CATALOG:-}"
-STRICT_FRAMEWORK_COMMIT=0
 CAFA3_ID_MAPPING=""
 CAFA3_ID_MAPPING_SHA256=""
 while [[ $# -gt 0 ]]; do
@@ -48,7 +46,6 @@ while [[ $# -gt 0 ]]; do
     --results-root) CLI_RESULTS_ROOT="$2"; shift 2 ;;
     --text-cutoff-date) TEXT_CUTOFF_DATE="$2"; shift 2 ;;
     --artifact-catalog) CLI_ARTIFACT_CATALOG="$2"; shift 2 ;;
-    --strict-framework-commit) STRICT_FRAMEWORK_COMMIT=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; die "Unknown argument: $1" ;;
   esac
@@ -202,9 +199,6 @@ if [[ "$MODALITY" == "ppi" ]]; then
 fi
 if [[ -n "${ARTIFACT_CATALOG:-}" ]]; then
   command+=(--artifact-catalog "$ARTIFACT_CATALOG")
-fi
-if [[ "$STRICT_FRAMEWORK_COMMIT" == "1" ]]; then
-  command+=(--strict-framework-commit)
 fi
 printf 'Command:'; printf ' %q' "${command[@]}"; printf '\n'
 set +e

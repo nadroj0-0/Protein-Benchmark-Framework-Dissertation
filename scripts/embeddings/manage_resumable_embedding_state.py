@@ -18,7 +18,6 @@ import json
 import math
 import os
 import shutil
-import sys
 import tarfile
 import tempfile
 from contextlib import contextmanager
@@ -347,7 +346,6 @@ def build_contract(args: argparse.Namespace, policy: dict, targets: Mapping[str,
             "manifest_sha256": sha256_text(target_content),
         },
         "pfp_commit": args.pfp_commit,
-        "framework_commit": args.framework_commit,
         "policy": policy,
         "policy_sha256": sha256_file(Path(args.policy)),
         "environment": environment,
@@ -360,14 +358,11 @@ def build_contract(args: argparse.Namespace, policy: dict, targets: Mapping[str,
     return contract
 
 
-def contract_comparison_payload(
-    contract: Mapping[str, object], *, strict_framework_commit: bool
-) -> dict:
+def contract_comparison_payload(contract: Mapping[str, object]) -> dict:
     """Return contract content with non-comparable metadata removed."""
     payload = dict(contract)
     payload.pop("contract_sha256", None)
-    if not strict_framework_commit:
-        payload.pop("framework_commit", None)
+    payload.pop("framework_commit", None)
     return payload
 
 
@@ -873,12 +868,8 @@ def command_initialize(args: argparse.Namespace) -> dict:
         targets_path = state_root / "targets.tsv"
         if contract_path.exists() or targets_path.exists():
             existing = load_contract(state_root)
-            existing_payload = contract_comparison_payload(
-                existing, strict_framework_commit=args.strict_framework_commit
-            )
-            requested_payload = contract_comparison_payload(
-                contract, strict_framework_commit=args.strict_framework_commit
-            )
+            existing_payload = contract_comparison_payload(existing)
+            requested_payload = contract_comparison_payload(contract)
             if existing_payload != requested_payload:
                 differences = contract_difference_paths(existing_payload, requested_payload)
                 raise ValueError(
@@ -888,12 +879,6 @@ def command_initialize(args: argparse.Namespace) -> dict:
                     f"differing_fields={','.join(differences[:20])}"
                 )
             if existing != contract:
-                print(
-                    "WARNING: current framework commit differs from the state "
-                    "initializer; continuing because framework commit matching is "
-                    "disabled and every scientific contract field matched exactly",
-                    file=sys.stderr,
-                )
                 contract = existing
             existing_targets = load_target_manifest(state_root)
             if existing_targets != targets:
@@ -1621,25 +1606,11 @@ def parse_args() -> argparse.Namespace:
     )
     initialize.add_argument("--policy", type=Path, required=True)
     initialize.add_argument("--pfp-commit", required=True)
-    initialize.add_argument("--framework-commit", required=True)
     initialize.add_argument("--environment-report", type=Path)
     initialize.add_argument("--source-file", action="append", default=[])
     initialize.add_argument("--runtime-value", action="append", default=[])
     initialize.add_argument("--baseline-archive", type=Path)
     initialize.add_argument("--baseline-assembly-report", type=Path)
-    framework_commit_mode = initialize.add_mutually_exclusive_group()
-    framework_commit_mode.add_argument(
-        "--strict-framework-commit",
-        action="store_true",
-        help="require the current framework commit to equal an existing state contract",
-    )
-    framework_commit_mode.add_argument(
-        "--allow-framework-commit-drift",
-        action="store_false",
-        dest="strict_framework_commit",
-        help=argparse.SUPPRESS,
-    )
-    initialize.set_defaults(strict_framework_commit=False)
 
     merge = subparsers.add_parser("merge")
     add_state_root(merge)

@@ -147,7 +147,6 @@ def main() -> int:
             )
         prediction_destination.parent.mkdir(parents=True, exist_ok=True)
         required_provenance = {
-            "--framework-commit": args.framework_commit,
             "--pfp-commit": args.pfp_commit,
             "--preparation-report": args.preparation_report,
             "--embedding-report": args.embedding_report,
@@ -160,12 +159,10 @@ def main() -> int:
                 "Prediction capture requires provenance arguments: "
                 + ", ".join(missing_provenance)
             )
-        for option, commit in (
-            ("--framework-commit", args.framework_commit),
-            ("--pfp-commit", args.pfp_commit),
-        ):
-            if not isinstance(commit, str) or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
-                raise ValueError(f"{option} must be a 40-character lowercase git commit")
+        if not isinstance(args.pfp_commit, str) or re.fullmatch(
+            r"[0-9a-f]{40}", args.pfp_commit
+        ) is None:
+            raise ValueError("--pfp-commit must be a 40-character lowercase git commit")
         assert args.preparation_report is not None
         assert args.embedding_report is not None
         preparation, preparation_snapshot = load_passed_report(
@@ -234,7 +231,7 @@ def main() -> int:
                 "sha256": sha256_file(args.obo_file.resolve()),
             },
             "provenance": {
-                "framework_commit": args.framework_commit,
+                "framework_commit": args.framework_commit or "unknown",
                 "pfp_commit": args.pfp_commit,
                 "benchmark_fingerprint": benchmark_fingerprint,
                 "source_csv_sha256": preparation.get("source_csv_sha256", {}),

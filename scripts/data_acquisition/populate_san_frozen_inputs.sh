@@ -667,13 +667,6 @@ process_homology_derived_inputs() {
         die "Selected homology common preprocessing cache is missing or invalid: $destination"
     fi
 
-    revision="${FRAMEWORK_REVISION:-}"
-    if [[ -z "$revision" ]]; then
-        revision="$(cd "$FRAMEWORK_ROOT" && git rev-parse HEAD)" || \
-            die "FRAMEWORK_REVISION is unset and the framework is not a Git checkout"
-    fi
-    [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || \
-        die "Homology cache generation requires a 40-character FRAMEWORK_REVISION"
     work_root="${HOMOLOGY_CACHE_WORK_DIR:-${TMPDIR:-/tmp}/homology-common-cache-${USER:-user}-$$}"
     [[ "$work_root" = /* && "$work_root" != "/" ]] || \
         die "HOMOLOGY_CACHE_WORK_DIR must be an absolute non-root path"
@@ -686,7 +679,6 @@ process_homology_derived_inputs() {
         --manifest-out "$manifest" \
         --policy-out "$policy" \
         --source-scope "$HOMOLOGY_CACHE_SCOPE" \
-        --framework-revision "$revision" \
         --uniref-level 50 \
         --uniref50-fasta "$(homology_input_path uniref50_t1)" \
         --uniref50-fasta-url "$(homology_input_url uniref50_t1)" \

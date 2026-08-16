@@ -51,10 +51,6 @@ from .common_cache import (
 )
 from .config import PREFIX_TO_NAMESPACE, SPLITS, SUPPORTED_IDENTITIES, BuildConfig
 from .export import export_all
-from .external_clusters import (
-    load_external_cluster_provenance,
-    validate_external_cluster_counts,
-)
 from .frozen_inputs import (
     FrozenInputManifest,
     bind_frozen_inputs,
@@ -158,7 +154,6 @@ def _parameters(config: BuildConfig) -> dict[str, object]:
         "allocated_slots": config.allocated_slots,
         "run_id": config.run_id,
         "uniprot_source_scope": config.uniprot_source_scope,
-        "framework_revision": config.framework_revision,
         "benchmark_scope": config.benchmark_scope,
         "split_policy": config.split_policy,
         "development_fraction": config.development_fraction,
@@ -174,14 +169,6 @@ def _parameters(config: BuildConfig) -> dict[str, object]:
         "ontology_release": config.release_ontology,
         "fixture_mode": config.fixture_mode,
         "precomputed_cluster_assignments": str(config.cluster_assignments.resolve()) if config.cluster_assignments else None,
-        "external_cluster_assignments": (
-            str(config.external_cluster_assignments.resolve())
-            if config.external_cluster_assignments else None
-        ),
-        "external_cluster_provenance": (
-            str(config.external_cluster_provenance.resolve())
-            if config.external_cluster_provenance else None
-        ),
         "cluster_cache_enabled": config.cluster_cache_root is not None,
         "require_cluster_cache": config.require_cluster_cache,
         "scratch_safety_multiplier": config.scratch_safety_multiplier,
@@ -197,7 +184,6 @@ def _scientific_fingerprint_payload(
     config: BuildConfig,
     frozen_manifest: FrozenInputManifest,
     mmseqs_runtime,
-    repository_commit: str | None,
     attrition_policy_sha256: str,
 ) -> dict[str, object]:
     """Return the identity-independent contract shared by all six threshold jobs."""
@@ -236,11 +222,6 @@ def _scientific_fingerprint_payload(
         "expected_mmseqs_version": config.expected_mmseqs_version,
         "observed_mmseqs_version": mmseqs_runtime.version_token,
         "mmseqs_executable_sha256": mmseqs_runtime.executable_sha256,
-        "repository_commit": repository_commit,
-        "framework_revision": config.framework_revision or repository_commit,
-        "requested_slots": config.requested_slots,
-        "allocated_slots": config.allocated_slots,
-        "mmseqs_threads": config.threads,
     }
 
 
@@ -365,10 +346,6 @@ def _disk_preflight(
     logical_input_bytes = sum(item.size_bytes for item in inputs.values())
     uniref_bytes = inputs[config.uniref_input_name].size_bytes
     common_cache_bytes = 0
-    external_assignment_bytes = (
-        config.external_cluster_assignments.expanduser().stat().st_size
-        if config.external_cluster_assignments is not None else 0
-    )
     if config.common_preprocessing_cache is not None:
         cache_root = common_cache_root(config.common_preprocessing_cache)
         common_cache_bytes = sum(
@@ -376,16 +353,12 @@ def _disk_preflight(
         )
         staged_input_bytes = (
             uniref_bytes + inputs["go_obo"].size_bytes + common_cache_bytes
-            + external_assignment_bytes
         )
         goa_bytes = 0
     else:
         staged_input_bytes = logical_input_bytes
         goa_bytes = inputs["goa"].size_bytes
-    mmseqs_work_estimate = (
-        0 if config.external_cluster_assignments is not None
-        else int(uniref_bytes * config.mmseqs_work_multiplier)
-    )
+    mmseqs_work_estimate = int(uniref_bytes * config.mmseqs_work_multiplier)
     parser_index_estimate = (
         0 if config.common_preprocessing_cache is not None else int(
             (goa_bytes + inputs["idmapping"].size_bytes)
@@ -449,7 +422,6 @@ def _disk_preflight(
         "staged_input_bytes": staged_input_bytes,
         "common_preprocessing_cache_bytes": common_cache_bytes,
         "common_preprocessing_cache_used": config.common_preprocessing_cache is not None,
-        "external_cluster_assignment_bytes": external_assignment_bytes,
         f"uniref{config.uniref_level}_bytes": uniref_bytes,
         "goa_bytes": goa_bytes,
         "persistent_results_root": str(persistent_path),
@@ -786,7 +758,6 @@ def _write_attrition_summary(stage: Path, labels) -> None:
 def _write_nonproduction_attrition_policy(
     path: Path,
     config: BuildConfig,
-    repository_commit: str,
     frozen_manifest_sha256: str,
 ) -> None:
     """Write a non-authorizing measurement policy for fixtures and diagnostic pilots."""
@@ -815,7 +786,6 @@ def _write_nonproduction_attrition_policy(
         "author": "software-generated-non-production",
         "reviewer": "not-reviewed-for-production",
         "review_date": "2026-07-14",
-        "framework_commit": repository_commit,
         "frozen_input_manifest_sha256": frozen_manifest_sha256,
     })
 
@@ -1182,7 +1152,7 @@ def _validate_publication_marker(directory: Path) -> None:
         }:
             for key in (
                 "expected_mmseqs_version", "observed_mmseqs_version",
-                "mmseqs_resolved_executable", "repository_commit",
+                "mmseqs_resolved_executable",
             ):
                 if not isinstance(publication.get(key), str) or not publication[key].strip():
                     raise ValueError(
@@ -1219,10 +1189,6 @@ def _validate_publication_marker(directory: Path) -> None:
         ):
             raise ValueError("Publication metadata/input manifest frozen-manifest mismatch")
     provenance = json.loads((directory / "run_provenance.json").read_text(encoding="utf-8"))
-    if publication.get("repository_commit") != provenance.get("repository", {}).get("commit"):
-        raise ValueError("Publication metadata/repository commit mismatch")
-    if publication.get("framework_revision") != publication.get("repository_commit"):
-        raise ValueError("Publication requested/observed framework revision mismatch")
     runtime = provenance.get("runtime", {}).get("mmseqs2", {})
     if publication.get("expected_mmseqs_version") != runtime.get("expected_version"):
         raise ValueError("Publication metadata/MMseqs expected-version mismatch")
@@ -1239,8 +1205,6 @@ def _validate_publication_marker(directory: Path) -> None:
             str(publication["expected_mmseqs_version"]),
             str(publication["observed_mmseqs_version"]),
         )
-        if provenance.get("repository", {}).get("dirty") is not False:
-            raise ValueError("Production publication provenance must record a clean repository")
 
     fingerprint = publication.get("scientific_fingerprint")
     payload = publication.get("scientific_fingerprint_payload")
@@ -1273,13 +1237,8 @@ def _validate_publication_marker(directory: Path) -> None:
         "expected_mmseqs_version": publication.get("expected_mmseqs_version"),
         "observed_mmseqs_version": publication.get("observed_mmseqs_version"),
         "mmseqs_executable_sha256": publication.get("mmseqs_executable_sha256"),
-        "repository_commit": publication.get("repository_commit"),
-        "framework_revision": publication.get("framework_revision"),
         "uniprot_source_scope": publication.get("uniprot_source_scope"),
         "attrition_policy_sha256": publication.get("attrition_policy_sha256"),
-        "requested_slots": publication.get("requested_slots"),
-        "allocated_slots": publication.get("allocated_slots"),
-        "mmseqs_threads": publication.get("mmseqs_threads"),
     }
     for key, expected in bound_values.items():
         if payload.get(key) != expected:
@@ -1452,18 +1411,6 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
     config.validate()
     repository = Path(__file__).resolve().parents[4]
     repository_state = git_state(repository)
-    if not config.fixture_mode and (
-        repository_state["commit"] is None or repository_state["dirty"] is not False
-    ):
-        raise ValueError(
-            "Production publication requires a clean, commit-addressable framework checkout; "
-            f"observed repository state={repository_state}"
-        )
-    if not config.fixture_mode and repository_state["commit"] != config.framework_revision:
-        raise ValueError(
-            "Configured full framework revision does not match checked-out HEAD: "
-            f"expected={config.framework_revision}, observed={repository_state['commit']}"
-        )
     final_dir = config.output_dir.expanduser().resolve() / config.publication_relative_path
     work = config.temp_dir.expanduser().resolve() / (
         f"homology-{config.uniprot_source_scope}-{config.identity_directory}-"
@@ -1491,7 +1438,7 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
     )
     try:
         mmseqs_runtime = resolve_mmseqs_runtime(config.mmseqs_bin)
-        if not config.fixture_mode and config.external_cluster_assignments is None:
+        if not config.fixture_mode:
             validate_exact_mmseqs_version(
                 str(config.expected_mmseqs_version), mmseqs_runtime
             )
@@ -1518,7 +1465,6 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
             "goa": config.release_goa,
             "ontology": config.release_ontology,
         }
-        repository_commit = str(repository_state["commit"])
         policy_source = config.attrition_policy
         frozen_manifest = None
         policy = None
@@ -1537,14 +1483,12 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 _write_nonproduction_attrition_policy(
                     policy_source,
                     config,
-                    repository_commit,
                     frozen_manifest.sha256,
                 )
             policy, attrition_policy_sha256 = load_attrition_policy(
                 policy_source,
                 source_scope=config.uniprot_source_scope,
                 expected_releases=expected_releases,
-                framework_commit=repository_commit,
                 frozen_input_manifest_sha256=frozen_manifest.sha256,
             )
         elif not config.fixture_mode:  # guarded by BuildConfig.validate
@@ -1571,14 +1515,12 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 _write_nonproduction_attrition_policy(
                     policy_source,
                     config,
-                    repository_commit,
                     frozen_manifest.sha256,
                 )
             policy, attrition_policy_sha256 = load_attrition_policy(
                 policy_source,
                 source_scope=config.uniprot_source_scope,
                 expected_releases=expected_releases,
-                framework_commit=repository_commit,
                 frozen_input_manifest_sha256=frozen_manifest.sha256,
             )
         if policy is None or attrition_policy_sha256 is None or policy_source is None:
@@ -1588,7 +1530,6 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
         loaded_common_cache = None
         loaded_cluster_cache = None
         loaded_cluster_checkpoint = None
-        external_cluster_payload = None
         cluster_cache_action = "disabled"
         LOGGER.info(
             "Stage completed: resolve and hash frozen inputs elapsed_seconds=%.1f",
@@ -1714,8 +1655,6 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
             cache_contract = None
             derived_cluster_artifacts: dict[str, Path] = {}
             producer = {
-                "framework_revision": config.framework_revision,
-                "repository_commit": repository_commit,
                 "run_id": config.run_id,
                 "benchmark_scope": config.benchmark_scope,
                 "threads": config.threads,
@@ -1757,44 +1696,6 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                     "mmseqs_execution": "not executed by this run",
                     "cluster_assignments": str(source_clusters),
                     "cluster_assignments_sha256": sha256_file(source_clusters),
-                    "runtime_mmseqs_probe": mmseqs_runtime.as_dict(
-                        config.expected_mmseqs_version
-                    ),
-                })
-            elif config.external_cluster_assignments is not None:
-                source_clusters = config.external_cluster_assignments.expanduser().resolve()
-                provenance_path = config.external_cluster_provenance
-                if provenance_path is None:
-                    raise RuntimeError("External cluster provenance disappeared after validation")
-                external_cluster_payload = load_external_cluster_provenance(
-                    provenance_path,
-                    source_clusters,
-                    identity=config.identity,
-                    coverage=config.coverage,
-                    cov_mode=config.cov_mode,
-                    cluster_mode=config.cluster_mode,
-                    sensitivity=config.sensitivity,
-                    uniref_level=config.uniref_level,
-                    uniref_release=config.release_uniprot,
-                    uniref_sha256=inputs[config.uniref_input_name].sha256,
-                    uniref_records=uniref.count(),
-                )
-                external_log_dir = stage / "logs" / "mmseqs"
-                external_log_dir.mkdir(parents=True)
-                shutil.copyfile(
-                    provenance_path.expanduser().resolve(),
-                    stage / "external_cluster_provenance.json",
-                )
-                _json(external_log_dir / "EXTERNAL_ASSIGNMENTS_USED.json", {
-                    "lineage": "supervisor-generated",
-                    "mmseqs_execution": "not executed by this run",
-                    "cluster_assignments": str(source_clusters),
-                    "cluster_assignments_sha256": sha256_file(source_clusters),
-                    "provenance_path": str(provenance_path.expanduser().resolve()),
-                    "provenance_sha256": sha256_file(provenance_path.expanduser().resolve()),
-                    "framework_expected_command_preview": [
-                        command.display for command in core_commands
-                    ],
                     "runtime_mmseqs_probe": mmseqs_runtime.as_dict(
                         config.expected_mmseqs_version
                     ),
@@ -1873,12 +1774,6 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 has_header=loaded_cluster_cache is not None,
                 member_field=config.uniref_id_field,
             )
-            if external_cluster_payload is not None:
-                validate_external_cluster_counts(
-                    external_cluster_payload,
-                    members=cluster_index.member_count(),
-                    clusters=cluster_index.cluster_count(),
-                )
             if (
                 config.cluster_cache_root is not None
                 and loaded_cluster_cache is None
@@ -2129,24 +2024,11 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 },
             }
             if config.cluster_assignments:
-                input_manifest["synthetic_or_external_cluster_assignments"] = {
+                input_manifest["fixture_cluster_assignments"] = {
                     "resolved_path": str(source_clusters),
                     "size_bytes": source_clusters.stat().st_size,
                     "sha256": sha256_file(source_clusters),
                     "mmseqs_execution": "not executed by this run",
-                }
-            if config.external_cluster_assignments is not None:
-                input_manifest["external_supervisor_cluster_assignments"] = {
-                    "resolved_path": str(source_clusters),
-                    "size_bytes": source_clusters.stat().st_size,
-                    "sha256": sha256_file(source_clusters),
-                    "provenance_file": "external_cluster_provenance.json",
-                    "provenance_sha256": sha256_file(
-                        stage / "external_cluster_provenance.json"
-                    ),
-                    "lineage": "supervisor-generated",
-                    "mmseqs_execution": "not executed by this run",
-                    "independent_framework_comparison": "pending",
                 }
             _json(stage / "input_manifest.json", input_manifest)
 
@@ -2167,7 +2049,6 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 attrition_policy_sha256,
                 observations,
                 source_scope=config.uniprot_source_scope,
-                framework_commit=repository_commit,
                 input_manifest_sha256=sha256_file(stage / "input_manifest.json"),
                 override_path=config.attrition_override,
                 diagnostic=config.diagnostic_pilot,
@@ -2195,7 +2076,6 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 "uniprot_source_scope": config.uniprot_source_scope,
                 "uniref_level": config.uniref_level,
                 "uniref_scaffold": config.uniref_scaffold.display_name,
-                "framework_revision": config.framework_revision,
                 "run_id": config.run_id,
                 "identity_percent": int(config.identity * 100),
                 "identity_fraction": config.identity,
@@ -2260,7 +2140,6 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 config,
                 frozen_manifest,
                 mmseqs_runtime,
-                repository_state["commit"],
                 attrition_policy_sha256,
             )
             scientific_fingerprint = _scientific_fingerprint(fingerprint_payload)
@@ -2270,7 +2149,6 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 "production_eligible": production_eligible,
                 "benchmark_scope": config.benchmark_scope,
                 "uniprot_source_scope": config.uniprot_source_scope,
-                "framework_revision": config.framework_revision or repository_commit,
                 "run_id": config.run_id,
                 "identity_percent": int(config.identity * 100),
                 "identities": None,
@@ -2382,16 +2260,6 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
             ):
                 raise ValueError("Attrition override changed while the run was in progress")
             verify_mmseqs_executable_unchanged(mmseqs_runtime)
-            if not config.fixture_mode:
-                final_repository_state = git_state(repository)
-                if (
-                    final_repository_state.get("commit") != repository_state.get("commit")
-                    or final_repository_state.get("dirty") is not False
-                ):
-                    raise ValueError(
-                        "Framework repository changed or became dirty while the production run "
-                        f"was in progress: initial={repository_state}, final={final_repository_state}"
-                    )
             if config.cluster_assignments:
                 fixture_record = json.loads(
                     (stage / "logs" / "mmseqs" / "NOT_EXECUTED.json").read_text(encoding="utf-8")
@@ -2399,23 +2267,6 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 expected_fixture_hash = fixture_record["cluster_assignments_sha256"]
                 if sha256_file(source_clusters) != expected_fixture_hash:
                     raise ValueError("Fixture cluster assignments changed while the run was in progress")
-            if config.external_cluster_assignments is not None:
-                external_record = json.loads(
-                    (stage / "logs" / "mmseqs" / "EXTERNAL_ASSIGNMENTS_USED.json").read_text(
-                        encoding="utf-8"
-                    )
-                )
-                if sha256_file(source_clusters) != external_record["cluster_assignments_sha256"]:
-                    raise ValueError(
-                        "External cluster assignments changed while the run was in progress"
-                    )
-                provenance_path = config.external_cluster_provenance
-                if provenance_path is None or sha256_file(
-                    provenance_path.expanduser().resolve()
-                ) != external_record["provenance_sha256"]:
-                    raise ValueError(
-                        "External cluster provenance changed while the run was in progress"
-                    )
             write_output_manifest(stage)
             publish(stage, final_dir)
             try:

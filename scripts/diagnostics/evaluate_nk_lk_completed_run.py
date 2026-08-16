@@ -348,14 +348,6 @@ def main() -> int:
     lines.extend(
         [
             "",
-            "## Main Findings",
-            "",
-            "- Canonical Fmax is practically unchanged after adding LK: +0.004 BP, -0.002 CC and -0.001 MF. These are separately retrained models, so the small deltas should be treated as benchmark-level robustness rather than paired causal effects.",
-            "- BP is the clearest knowledge-state difference. At the shared threshold, LK exceeds NK on both all-test F (0.408 versus 0.241) and non-root-only F (0.438 versus 0.251), with non-overlapping protein-bootstrap intervals.",
-            "- CC changes direction after controlling for root-only truth. LK is lower on all-test F (0.627 versus 0.674) but higher on non-root-only F (0.717 versus 0.697), consistent with its much larger root-only fraction (32.44% versus 11.92%).",
-            "- Adding LK does not repair MF root-only dilution. MF remains 81.83% root-only overall; LK itself is 82.39% root-only. On informative rows, NK and LK are indistinguishable at this resolution (F 0.425 versus 0.427, with strongly overlapping intervals).",
-            "- The expanded benchmark nevertheless raises the observed non-root MF count from 1,162 to 1,924. This increases precision for aggregate conditional estimates but does not make those rows representative of the root-only majority.",
-            "",
             "## Interpretation Guardrails",
             "",
             "- Limited knowledge means prior qualifying knowledge in another ontology only; it is not same-aspect annotation extension.",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import logging
 import os
@@ -24,7 +25,6 @@ from .inputs import sha256_file
 from .mmseqs import build_mmseqs_commands
 from .pipeline import build_benchmark, validate_publication
 from .provenance import (
-    git_state,
     publish,
     staging_output,
     verify_output_manifest,
@@ -82,19 +82,6 @@ def _parser() -> argparse.ArgumentParser:
     _add_input(build, "go-obo", "frozen GO OBO")
     build.add_argument("--cluster-assignments", type=Path, help="Precomputed MMseqs2 createtsv output; intended for validated fixture tests")
     build.add_argument(
-        "--external-cluster-assignments",
-        type=Path,
-        help=(
-            "Externally generated production MMseqs2 createtsv output. Requires a "
-            "separate provenance JSON and remains outside framework-generated caches."
-        ),
-    )
-    build.add_argument(
-        "--external-cluster-provenance",
-        type=Path,
-        help="Provenance JSON binding an external assignment artifact to its source and method",
-    )
-    build.add_argument(
         "--cluster-cache-root", type=Path,
         help=(
             "Persistent validated MMseqs2 assignment-cache root. A matching cache is reused; "
@@ -125,10 +112,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     build.add_argument("--attrition-policy", type=Path)
     build.add_argument("--attrition-override", type=Path)
-    build.add_argument("--framework-revision")
     build.add_argument(
         "--diagnostic-pilot", action="store_true",
-        help="Publish measured 30% pilot evidence as non-production without self-approval",
+        help="Publish measured 30%% pilot evidence as non-production without self-approval",
     )
     build.add_argument("--output-dir", type=Path, required=True, help="Root beneath which identity/policy/population directories are published")
     build.add_argument(
@@ -197,7 +183,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     authorize = subparsers.add_parser(
         "authorize-array",
-        help="Validate reviewed attrition policy and 30% pilot approval before qsub",
+        help="Validate reviewed attrition policy and 30%% pilot approval before qsub",
     )
     authorize.add_argument("--attrition-policy", type=Path, required=True)
     authorize.add_argument("--pilot-approval", type=Path, required=True)
@@ -207,7 +193,6 @@ def _parser() -> argparse.ArgumentParser:
     authorize.add_argument("--pilot-task-context", type=Path, required=True)
     authorize.add_argument("--pilot-measurement-evidence", type=Path, required=True)
     authorize.add_argument("--frozen-input-manifest", type=Path, required=True)
-    authorize.add_argument("--framework-revision", required=True)
     authorize.add_argument("--uniprot-source-scope", choices=UNIPROT_SOURCE_SCOPES, required=True)
     authorize.add_argument("--split-policy", choices=("cluster-count-random", "sequence-balanced"), required=True)
     authorize.add_argument("--training-population", required=True)
@@ -294,15 +279,12 @@ def _config(args: argparse.Namespace, identity: float) -> BuildConfig:
         mmseqs_bin=args.mmseqs_bin,
         expected_mmseqs_version=args.expected_mmseqs_version,
         cluster_assignments=args.cluster_assignments,
-        external_cluster_assignments=args.external_cluster_assignments,
-        external_cluster_provenance=args.external_cluster_provenance,
         cluster_cache_root=args.cluster_cache_root,
         require_cluster_cache=args.require_cluster_cache,
         frozen_input_manifest=args.frozen_input_manifest,
         common_preprocessing_cache=args.common_preprocessing_cache,
         attrition_policy=args.attrition_policy,
         attrition_override=args.attrition_override,
-        framework_revision=args.framework_revision,
         fixture_mode=args.fixture_mode,
         diagnostic_pilot=args.diagnostic_pilot,
         threads=args.threads,
@@ -351,7 +333,6 @@ def _preview(config: BuildConfig) -> dict[str, object]:
         "sensitivity": config.sensitivity,
         "benchmark_scope": config.benchmark_scope,
         "uniprot_source_scope": config.uniprot_source_scope,
-        "framework_revision": config.framework_revision,
         "attrition_policy": str(config.attrition_policy) if config.attrition_policy else None,
         "common_preprocessing_cache": (
             str(config.common_preprocessing_cache)
@@ -432,12 +413,28 @@ def _cross_threshold_reports(
             "Cross-threshold reporting requires each locked identity exactly once; "
             f"observed={sorted(observed_percentages, reverse=True)}"
         )
-    fingerprints = {str(item.get("scientific_fingerprint")) for item in child_metadata.values()}
+    normalized_fingerprint_payloads: dict[int, dict[str, object]] = {}
+    for percent, item in child_metadata.items():
+        raw_payload = item.get("scientific_fingerprint_payload")
+        if not isinstance(raw_payload, dict):
+            raise ValueError("Child publication lacks a scientific fingerprint payload")
+        normalized_payload = dict(raw_payload)
+        for operational_field in (
+            "repository_commit", "framework_revision", "requested_slots",
+            "allocated_slots", "mmseqs_threads",
+        ):
+            normalized_payload.pop(operational_field, None)
+        normalized_fingerprint_payloads[percent] = normalized_payload
+    fingerprints = {
+        hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        for payload in normalized_fingerprint_payloads.values()
+    }
     frozen_manifest_hashes = {
         str(item.get("frozen_input_manifest_sha256")) for item in child_metadata.values()
     }
     source_scopes = {str(item.get("uniprot_source_scope")) for item in child_metadata.values()}
-    framework_revisions = {str(item.get("framework_revision")) for item in child_metadata.values()}
     attrition_policy_hashes = {
         str(item.get("attrition_policy_sha256")) for item in child_metadata.values()
     }
@@ -445,17 +442,14 @@ def _cross_threshold_reports(
         len(fingerprints) != 1
         or len(frozen_manifest_hashes) != 1
         or len(source_scopes) != 1
-        or len(framework_revisions) != 1
         or len(attrition_policy_hashes) != 1
     ):
         raise ValueError(
-            "The six threshold runs do not share one source scope, framework revision, "
-            "frozen manifest, attrition policy, and scientific fingerprint"
+            "The six threshold runs do not share one source scope, frozen manifest, "
+            "attrition policy, and scientific fingerprint"
         )
     first = child_metadata[max(child_metadata)]
-    fingerprint_payload = first.get("scientific_fingerprint_payload")
-    if not isinstance(fingerprint_payload, dict):
-        raise ValueError("Child publication lacks a validated scientific fingerprint payload")
+    fingerprint_payload = normalized_fingerprint_payloads[max(child_metadata)]
     actual_split_policy = str(first["split_policy"])
     actual_population = str(first["training_population"])
     actual_seed = int(first["seed"])
@@ -477,20 +471,8 @@ def _cross_threshold_reports(
     production_eligible = next(iter(production_values))
     fixture_mode = next(iter(fixture_values))
     source_scope = next(iter(source_scopes))
-    framework_revision = next(iter(framework_revisions))
     attrition_policy_sha256 = next(iter(attrition_policy_hashes))
-    aggregate_repository_state = git_state(Path(__file__).resolve().parents[4])
-    if production_eligible and (
-        aggregate_repository_state.get("commit") != first.get("repository_commit")
-        or aggregate_repository_state.get("dirty") is not False
-    ):
-        raise ValueError(
-            "Production aggregation requires the same clean framework commit as every child; "
-            f"observed={aggregate_repository_state}"
-        )
-    aggregate_root = (
-        root.resolve() / f"source_{source_scope}" / f"framework_{framework_revision[:12]}"
-    )
+    aggregate_root = root.resolve() / f"source_{source_scope}"
     if actual_uniref_level != 90:
         sensitivity = float(fingerprint_payload["sensitivity"])
         profile = f"uniref{actual_uniref_level}_sensitivity_{sensitivity:g}".replace(
@@ -620,7 +602,6 @@ def _cross_threshold_reports(
             "identities": percentages,
             "uniprot_source_scope": source_scope,
             "uniref_level": actual_uniref_level,
-            "framework_revision": framework_revision,
             "frozen_input_manifest_sha256": next(iter(frozen_manifest_hashes)),
             "attrition_policy_sha256": attrition_policy_sha256,
             "split_policy": actual_split_policy,
@@ -715,7 +696,6 @@ def _cross_threshold_reports(
             "kind": "all-thresholds-child-references",
             "uniprot_source_scope": source_scope,
             "uniref_level": actual_uniref_level,
-            "framework_revision": framework_revision,
             "frozen_input_manifest_sha256": next(iter(frozen_manifest_hashes)),
             "attrition_policy_sha256": attrition_policy_sha256,
             "children": child_references,
@@ -724,7 +704,6 @@ def _cross_threshold_reports(
             json.dumps(input_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
         runtime = {
-            "repository": aggregate_repository_state,
             "runtime": {"mmseqs2": {
                 "expected_version": first["expected_mmseqs_version"],
                 "observed_version_token": first["observed_mmseqs_version"],
@@ -742,7 +721,6 @@ def _cross_threshold_reports(
             "benchmark_scope": "all-thresholds-summary",
             "uniprot_source_scope": source_scope,
             "uniref_level": actual_uniref_level,
-            "framework_revision": framework_revision,
             "run_id": "aggregate",
             "identity_percent": None,
             "identities": percentages,
@@ -768,7 +746,6 @@ def _cross_threshold_reports(
             "observed_mmseqs_version": first["observed_mmseqs_version"],
             "mmseqs_resolved_executable": first["mmseqs_resolved_executable"],
             "mmseqs_executable_sha256": first["mmseqs_executable_sha256"],
-            "repository_commit": first["repository_commit"],
             "scientific_fingerprint_payload": fingerprint_payload,
             "scientific_fingerprint": next(iter(fingerprints)),
         }
@@ -824,7 +801,6 @@ def main(argv: list[str] | None = None) -> int:
                     "goa": args.goa_release,
                     "ontology": args.ontology_release,
                 },
-                framework_commit=args.framework_revision,
                 frozen_input_manifest_sha256=manifest_hash,
             )
             validate_pilot_approval(
@@ -833,7 +809,6 @@ def main(argv: list[str] | None = None) -> int:
                 attrition_report_path=args.pilot_attrition_report,
                 task_context_path=args.pilot_task_context,
                 measurement_evidence_path=args.pilot_measurement_evidence,
-                framework_commit=args.framework_revision,
                 frozen_input_manifest_sha256=manifest_hash,
                 source_scope=args.uniprot_source_scope,
                 split_policy=args.split_policy,

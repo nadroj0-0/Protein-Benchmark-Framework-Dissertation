@@ -33,7 +33,6 @@ EXPECTED_MMSEQS_VERSION="${EXPECTED_MMSEQS_VERSION:-}"
 FROZEN_INPUT_MANIFEST="${FROZEN_INPUT_MANIFEST:-}"
 ATTRITION_POLICY="${ATTRITION_POLICY:-}"
 ATTRITION_OVERRIDE="${ATTRITION_OVERRIDE:-}"
-FRAMEWORK_REVISION="${FRAMEWORK_REVISION:-}"
 DIAGNOSTIC_PILOT="${DIAGNOSTIC_PILOT:-0}"
 RUN_ID="${RUN_ID:-local}"
 REQUESTED_SLOTS="${REQUESTED_SLOTS:-}"
@@ -54,8 +53,6 @@ PUBLICATION_SAFETY_MULTIPLIER="${PUBLICATION_SAFETY_MULTIPLIER:-1}"
 EXCLUDED_SAMPLE_PER_REASON="${EXCLUDED_SAMPLE_PER_REASON:-1000}"
 HOMOLOGY_CLUSTER_CACHE_ROOT="${HOMOLOGY_CLUSTER_CACHE_ROOT:-}"
 REQUIRE_HOMOLOGY_CLUSTER_CACHE="${REQUIRE_HOMOLOGY_CLUSTER_CACHE:-0}"
-EXTERNAL_CLUSTER_ASSIGNMENTS="${EXTERNAL_CLUSTER_ASSIGNMENTS:-}"
-EXTERNAL_CLUSTER_PROVENANCE="${EXTERNAL_CLUSTER_PROVENANCE:-}"
 LOG_FILE="${LOG_FILE:-}"
 ACTIVE_CHILD_PID=""
 SIGNAL_STATUS=0
@@ -143,10 +140,6 @@ for catalog_input in "$UNIREF_FASTA" "$IDMAPPING" "$UNIPROT_SPROT_SEQUENCES" \
     "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" "$HOMOLOGY_CLUSTER_CACHE_ROOT"; do
     [[ -z "$catalog_input" ]] || add_mmfp_singularity_bind "$(dirname "$catalog_input")"
 done
-for external_input in "$EXTERNAL_CLUSTER_ASSIGNMENTS" "$EXTERNAL_CLUSTER_PROVENANCE"; do
-    [[ -z "$external_input" ]] || add_mmfp_singularity_bind "$(dirname "$external_input")"
-done
-
 case "$REQUIRE_HOMOLOGY_CLUSTER_CACHE" in
     0|1) ;;
     *) echo "REQUIRE_HOMOLOGY_CLUSTER_CACHE must be 0 or 1" >&2; exit 2 ;;
@@ -242,16 +235,6 @@ if [[ "$DRY_RUN" != "1" ]]; then
         echo "CLUSTER_ASSIGNMENTS is fixture-only; set FIXTURE_MODE=1 explicitly" >&2
         exit 1
     fi
-    if [[ -n "$EXTERNAL_CLUSTER_ASSIGNMENTS" || -n "$EXTERNAL_CLUSTER_PROVENANCE" ]]; then
-        [[ -f "$EXTERNAL_CLUSTER_ASSIGNMENTS" && -f "$EXTERNAL_CLUSTER_PROVENANCE" ]] || {
-            echo "External cluster assignments and provenance must both exist" >&2
-            exit 1
-        }
-        [[ -z "$HOMOLOGY_CLUSTER_CACHE_ROOT" ]] || {
-            echo "External supervisor assignments cannot share a framework cluster cache" >&2
-            exit 1
-        }
-    fi
     if [[ "$FIXTURE_MODE" != "1" ]]; then
         [[ -f "$FROZEN_INPUT_MANIFEST" ]] || {
             echo "Production run requires FROZEN_INPUT_MANIFEST" >&2
@@ -259,10 +242,6 @@ if [[ "$DRY_RUN" != "1" ]]; then
         }
         [[ -n "$EXPECTED_MMSEQS_VERSION" ]] || {
             echo "Production run requires exact EXPECTED_MMSEQS_VERSION" >&2
-            exit 1
-        }
-        [[ "$FRAMEWORK_REVISION" =~ ^[0-9a-f]{40}$ ]] || {
-            echo "Production run requires FRAMEWORK_REVISION as exactly 40 lowercase hex characters" >&2
             exit 1
         }
         if [[ "$DIAGNOSTIC_PILOT" != "1" ]]; then
@@ -336,12 +315,6 @@ fi
 if [[ -n "$HOMOLOGY_CLUSTER_CACHE_ROOT" ]]; then
     COMMAND+=(--cluster-cache-root "$HOMOLOGY_CLUSTER_CACHE_ROOT")
 fi
-if [[ -n "$EXTERNAL_CLUSTER_ASSIGNMENTS" ]]; then
-    COMMAND+=(
-        --external-cluster-assignments "$EXTERNAL_CLUSTER_ASSIGNMENTS"
-        --external-cluster-provenance "$EXTERNAL_CLUSTER_PROVENANCE"
-    )
-fi
 if [[ "$REQUIRE_HOMOLOGY_CLUSTER_CACHE" == "1" ]]; then
     COMMAND+=(--require-cluster-cache)
 fi
@@ -350,9 +323,6 @@ if [[ -n "$ATTRITION_POLICY" ]]; then
 fi
 if [[ -n "$ATTRITION_OVERRIDE" ]]; then
     COMMAND+=(--attrition-override "$ATTRITION_OVERRIDE")
-fi
-if [[ -n "$FRAMEWORK_REVISION" ]]; then
-    COMMAND+=(--framework-revision "$FRAMEWORK_REVISION")
 fi
 if [[ -n "$REQUESTED_SLOTS" ]]; then
     COMMAND+=(--requested-slots "$REQUESTED_SLOTS")

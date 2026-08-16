@@ -253,10 +253,8 @@ retry wrapper requests one GPU, recreates canonical inputs in scratch, runs a
 20-protein subset-equivalence control, merges only validated successes, copies
 compact reports to `$HOME/cafa3_embedding_retry_results`, and always removes
 scratch. It does not resubmit itself and does not trigger training.
-During development, retries permit a framework-commit difference only when all
-other scientific contract fields match exactly. Add
-`--strict-framework-commit` for a frozen run that also requires exact framework
-revision equality. Both modes clone and record the exact submitted commit.
+Retries enforce the pinned PFP revision and all scientific source and policy
+contracts. Framework Git metadata is informational only.
 
 After the SAN marker passes, continue the original audit without regenerating
 accepted embeddings:
@@ -475,11 +473,8 @@ qsub hpc_jobs/active/hpc_contemporary_embedding_retry.sh --modality text
 qsub hpc_jobs/active/hpc_contemporary_embedding_retry.sh --modality ppi
 ```
 
-Retries tolerate an unrelated framework revision change during development but
-still enforce the pinned PFP revision and all recorded critical source hashes.
-Add `--strict-framework-commit` after the modality argument for a frozen
-release audit that requires the retry checkout to equal the initialization
-commit exactly.
+Retries enforce the pinned PFP revision and all recorded critical source
+hashes. Framework Git metadata is informational only.
 
 The retry wrapper resolves explicit inputs and then the artifact catalogue:
 canonical CAFA3 CSVs are copied into scratch before PFP's header normalization,
@@ -578,17 +573,6 @@ hpc_jobs/active/hpc_homology_uniref50_common_cache.sh
 hpc_jobs/active/hpc_homology_cluster_runtime_array_12core_uniref50.sh
 hpc_jobs/active/hpc_homology_cluster_runtime_array_24core_uniref50.sh
 ```
-
-An externally generated 30% UniRef50 assignment from Daniel Buchan is handled by:
-
-```text
-hpc_jobs/active/hpc_homology_supervisor_daniel_30.sh
-```
-
-This job reads the raw assignment and provenance from the isolated
-`supervisor_daniel_buchan` SAN namespace, validates all UniRef50 members against the common cache,
-and publishes downstream benchmark artifacts beneath the matching supervisor namespace. It does
-not write to or reuse the framework-generated MMseqs cluster cache.
 
 The first job is run once after the frozen UniRef50 FASTA has been staged at
 `/SAN/bioinf/bmpfp/frozen_inputs/uniref50/2026_02/uniref50.fasta.gz`. It reads column 10 of the

@@ -188,7 +188,6 @@ def _merge_member_mappings(
                     right_only_sample.append(right_row[0])
                 right_row = next(right_rows, None)
                 continue
-            member = left_row[0]
             left_cluster = left_row[1]
             right_cluster = right_row[1]
             common += 1
@@ -459,7 +458,7 @@ def _write_summary(path: Path, payload: dict[str, object]) -> None:
         "",
         str(payload["interpretation_boundary"]),
         "",
-        "See `comparison.json`, `largest_framework_splits.tsv`, and `largest_daniel_merges.tsv` for full machine-readable results and bounded examples. The filenames are retained for compatibility; left/right labels in the report are authoritative.",
+        "See `comparison.json`, `largest_left_splits.tsv`, and `largest_right_merges.tsv` for full machine-readable results and bounded examples.",
     ]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -517,7 +516,7 @@ def compare(args: argparse.Namespace) -> dict[str, object]:
     _log(f"measuring {args.left_label} clusters split across {args.right_label} clusters")
     left_stats, overlap_pairs = _analyse_partition(
         pairs_by_left, primary_index=0, one_to_one_candidates=left_candidates,
-        divergence_path=output / "largest_framework_splits.tsv",
+        divergence_path=output / "largest_left_splits.tsv",
     )
     _log(f"re-sorting intersections by {args.right_label} cluster")
     _sort_file(
@@ -527,7 +526,7 @@ def compare(args: argparse.Namespace) -> dict[str, object]:
     _log(f"measuring {args.right_label} clusters merged from {args.left_label} clusters")
     right_stats, overlap_pairs_right = _analyse_partition(
         pairs_by_right, primary_index=1, one_to_one_candidates=right_candidates,
-        divergence_path=output / "largest_daniel_merges.tsv",
+        divergence_path=output / "largest_right_merges.tsv",
     )
     if overlap_pairs != overlap_pairs_right:
         raise AssertionError("Intersection-pair count changed after re-sorting")
@@ -592,14 +591,14 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--left", type=Path, required=True)
     parser.add_argument("--right", type=Path, required=True)
-    parser.add_argument("--left-label", default="framework-run")
-    parser.add_argument("--right-label", default="daniel-run")
-    parser.add_argument("--title", default="UniRef50 30% cluster-partition comparison")
+    parser.add_argument("--left-label", default="left-run")
+    parser.add_argument("--right-label", default="right-run")
+    parser.add_argument("--title", default="Homology cluster-partition comparison")
     parser.add_argument(
         "--interpretation-boundary",
         default=(
-            "The framework run records MMseqs 18-8cc5c. Daniel's final MMseqs version "
-            "and exact command remain unknown, so measured differences are not causally attributed."
+            "This comparison measures partition agreement only. It does not establish "
+            "exhaustive pairwise sequence-identity separation or causal attribution."
         ),
     )
     parser.add_argument("--output-dir", type=Path, required=True)

@@ -20,7 +20,7 @@ Usage: qsub hpc_jobs/active/hpc_contemporary_embedding_retry.sh \
   --modality sequence|text|structure|ppi \
   [--benchmark-dir PATH] [--baseline-root PATH] [--plan-dir PATH] \
   [--state-root PATH] [--artifact-catalog PATH] [--results-root PATH] \
-  [--strict-framework-commit] [--refresh-all-text|--generate-all-text-only]
+  [--refresh-all-text|--generate-all-text-only]
 
 The wrapper retries only pending pairs for one modality on animal-206-2.local,
 merges valid arrays into the one archive-backed SAN state, copies compact
@@ -44,7 +44,6 @@ STATE_ROOT=""
 CLI_ARTIFACT_CATALOG="${ARTIFACT_CATALOG:-}"
 CLI_RESULTS_ROOT=""
 TEXT_CUTOFF_DATE="2025-03-08"
-STRICT_FRAMEWORK_COMMIT=0
 REFRESH_ALL_TEXT=0
 GENERATE_ALL_TEXT_ONLY=0
 while [[ $# -gt 0 ]]; do
@@ -57,7 +56,6 @@ while [[ $# -gt 0 ]]; do
     --artifact-catalog) CLI_ARTIFACT_CATALOG="$2"; shift 2 ;;
     --results-root) CLI_RESULTS_ROOT="$2"; shift 2 ;;
     --text-cutoff-date) TEXT_CUTOFF_DATE="$2"; shift 2 ;;
-    --strict-framework-commit) STRICT_FRAMEWORK_COMMIT=1; shift ;;
     --refresh-all-text) REFRESH_ALL_TEXT=1; shift ;;
     --generate-all-text-only) GENERATE_ALL_TEXT_ONLY=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -207,9 +205,6 @@ command=(
 )
 if [[ -n "${ARTIFACT_CATALOG:-}" ]]; then
   command+=(--artifact-catalog "$ARTIFACT_CATALOG")
-fi
-if [[ "$STRICT_FRAMEWORK_COMMIT" == "1" ]]; then
-  command+=(--strict-framework-commit)
 fi
 if [[ "$REFRESH_ALL_TEXT" == "1" ]]; then
   command+=(--refresh-all-text)

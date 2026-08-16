@@ -90,19 +90,6 @@ Starting from UniRef50 is a new benchmark profile, not a byte-identical accelera
 the pre-existing 50% UniRef groups become the scaffold before the six lower-identity clusterings.
 Reports therefore record the scaffold level and sensitivity, and profile outputs must not be mixed.
 
-### Externally generated supervisor clusters
-
-Production continuation from a supervisor-generated `createtsv` artifact uses the separate
-`--external-cluster-assignments` and `--external-cluster-provenance` options. The provenance JSON
-must bind the assignment hash, UniRef release and hash, record count, identity, coverage, MMseqs
-profile and sensitivity. The builder then validates every member against the frozen UniRef index,
-rejects duplicates, missing or unknown members, and checks the final member and cluster counts.
-
-External assignments cannot be inserted into a framework-generated cluster cache. Their outputs
-must use a separate publication namespace and remain provisional until compared with an
-independent framework run. `hpc_jobs/active/hpc_homology_supervisor_daniel_30.sh` implements this
-route for Daniel Buchan's 30% UniRef50 artifact.
-
 ### Identity selection
 
 The Python CLI can build one locked threshold, any explicit subset, or all six:
@@ -138,7 +125,7 @@ revalidates the cached membership before annotation-dependent work.
 The cache key binds the selected UniRef level, release and SHA-256, exact MMseqs2 expected and
 observed versions and executable SHA-256, identity, coverage, cluster/alignment
 modes, reassignment, sensitivity, E-value, and database options. It deliberately
-does not bind threads, scheduler slots, framework commit, GOA, split policy,
+does not bind threads, scheduler slots, framework Git metadata, GOA, split policy,
 seed, training population, term universe, or PFP export settings. Those values
 either cannot change the deterministic clustering contract or occur downstream
 of the cache boundary. They remain recorded as run or producer provenance.
@@ -280,8 +267,7 @@ the reviewed attrition policy; there is no hidden hard-coded biological toleranc
 ## Production attrition gate
 
 Production requires a reviewed JSON policy based on evidence such as the 30% diagnostic pilot.
-The policy binds the scope, releases, full framework commit, frozen-manifest hash,
-author/reviewer/date, rationale, and
+The policy binds the scope, releases, frozen-manifest hash, author/reviewer/date, rationale, and
 an explicit minimum or maximum for every registered metric:
 
 | Metric | Numerator / denominator | Bound |
@@ -372,14 +358,13 @@ SGE_TASK_ID 1 -> 30%     SGE_TASK_ID 2 -> 25%     SGE_TASK_ID 3 -> 20%
 SGE_TASK_ID 4 -> 15%     SGE_TASK_ID 5 -> 10%     SGE_TASK_ID 6 -> 5%
 ```
 
-Missing/invalid task IDs and conflicting `IDENTITY` fail. Production requires `JOB_ID`, an exact
-40-character lowercase `FRAMEWORK_REVISION`, detached checkout, exact `git rev-parse HEAD`, and a
-clean tree. It requires shared local checksum-pinned inputs with `NO_DOWNLOADS=1`; six tasks never
+Missing/invalid task IDs and conflicting `IDENTITY` fail. Production requires `JOB_ID` and shared
+local checksum-pinned inputs with `NO_DOWNLOADS=1`; six tasks never
 download the source collection independently. The launcher exports a whitelist rather than the
 submission shell's full environment.
 
-Scratch and final paths include job ID, task ID, identity, source scope, run ID, split policy, and
-framework revision. Scratch is atomically claimed with an ownership marker. Success, command or
+Scratch and final paths include job ID, task ID, identity, source scope, run ID, and split policy.
+Scratch is atomically claimed with an ownership marker. Success, command or
 validation failure, INT, TERM, and copy failure all attempt marker-free diagnostics and then remove
 only task-owned scratch. Empty, root, relative, symlinked, pre-existing, out-of-base, or
 marker-mismatched deletion targets are refused. Persistent paths are atomically claimed so a
@@ -474,7 +459,6 @@ export UNIPROT_SOURCE_SCOPE=sprot-only
 export UNIPROT_RELEASE='2026_02'
 export GOA_RELEASE='234'
 export ONTOLOGY_RELEASE='releases/2026-06-15'
-export FRAMEWORK_REVISION='<40-lowercase-hex-reviewed-commit>'
 export RUN_ID='<collision-resistant-pilot-run-id>'
 export RESULTS_ROOT='/persistent/homology-results'
 export FROZEN_INPUT_MANIFEST='/persistent/inputs/homology-sprot.reviewed.json'

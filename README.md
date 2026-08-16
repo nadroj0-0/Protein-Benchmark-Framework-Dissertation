@@ -47,6 +47,7 @@ contracts before expensive training is launched.
 │   └── archive/                           # Historical reproduction attempts
 ├── configs/
 │   ├── cafa3.json                         # Default CAFA3 verification config
+│   ├── dissertation_submission_workflows.json # Scheduler-neutral reported workflow contract
 │   ├── embedding_inventory.cafa3_published.json
 │   ├── embedding_inventory.contemporary.json
 │   ├── artifact_paths.example.tsv         # Example machine-local artifact map

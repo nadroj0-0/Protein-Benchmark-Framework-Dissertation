@@ -131,7 +131,6 @@ def write_runtime_policy(
     policy_path: Path,
     manifest_path: Path,
     source_scope: str,
-    framework_revision: str,
     uniref_level: int = 90,
 ) -> str:
     manifest = load_frozen_input_manifest(
@@ -140,10 +139,6 @@ def write_runtime_policy(
         uniref_level=uniref_level,
         fixture_mode=False,
     )
-    if len(framework_revision) != 40 or any(
-        ch not in "0123456789abcdef" for ch in framework_revision
-    ):
-        raise ValueError("framework_revision must be exactly 40 lowercase hexadecimal characters")
     metrics = {}
     for name, definition in METRIC_DEFINITIONS.items():
         bound_key = f"allowed_{definition.bound}_ratio"
@@ -178,7 +173,6 @@ def write_runtime_policy(
         "author": "homology runtime wrapper",
         "reviewer": "automated-runtime-contract",
         "review_date": RUNTIME_REVIEW_DATE,
-        "framework_commit": framework_revision,
         "frozen_input_manifest_sha256": manifest.sha256,
     }
     if uniref_level != 90:
@@ -191,7 +185,6 @@ def write_runtime_contract(
     manifest_path: Path,
     policy_path: Path,
     source_scope: str,
-    framework_revision: str,
     inputs: list[RuntimeInput],
     uniref_level: int = 90,
 ) -> dict[str, str]:
@@ -203,9 +196,6 @@ def write_runtime_contract(
             "Runtime inputs do not exactly match source scope: "
             f"expected={list(ordered_names)}, observed={sorted(by_name)}"
         )
-    if len(framework_revision) != 40 or any(ch not in "0123456789abcdef" for ch in framework_revision):
-        raise ValueError("framework_revision must be exactly 40 lowercase hexadecimal characters")
-
     entries = []
     for name in ordered_names:
         item = by_name[name]
@@ -262,7 +252,7 @@ def write_runtime_contract(
     manifest_sha256 = sha256_file(manifest_path)
 
     policy_sha256 = write_runtime_policy(
-        policy_path, manifest_path, source_scope, framework_revision, uniref_level
+        policy_path, manifest_path, source_scope, uniref_level
     )
     return {
         "manifest_sha256": manifest_sha256,
@@ -297,7 +287,6 @@ def write_runtime_review(
         "run_dir": str(run_dir.resolve()),
         "identity_percent": publication["identity_percent"],
         "uniprot_source_scope": publication["uniprot_source_scope"],
-        "framework_revision": publication["framework_revision"],
         "validation_valid": validation.get("valid") is True,
         "validation_check_count": len(validation.get("checks", [])),
         "validation_warning_count": len(warnings),
@@ -363,7 +352,6 @@ def _parser() -> argparse.ArgumentParser:
         choices=("sprot-only", "trembl-only", "sprot-and-trembl"),
         required=True,
     )
-    prepare.add_argument("--framework-revision", required=True)
     prepare.add_argument(
         "--uniref-level", type=int, choices=SUPPORTED_UNIREF_LEVELS, default=90
     )
@@ -377,7 +365,6 @@ def _parser() -> argparse.ArgumentParser:
         choices=("sprot-only", "trembl-only", "sprot-and-trembl"),
         required=True,
     )
-    policy.add_argument("--framework-revision", required=True)
     policy.add_argument(
         "--uniref-level", type=int, choices=SUPPORTED_UNIREF_LEVELS, default=90
     )
@@ -398,7 +385,6 @@ def main(argv: list[str] | None = None) -> int:
             args.policy_out,
             args.manifest,
             args.source_scope,
-            args.framework_revision,
             args.uniref_level,
         )
         print(json.dumps({"policy_sha256": digest}, sort_keys=True))
@@ -422,7 +408,6 @@ def main(argv: list[str] | None = None) -> int:
         args.manifest_out,
         args.policy_out,
         args.source_scope,
-        args.framework_revision,
         inputs,
         args.uniref_level,
     )

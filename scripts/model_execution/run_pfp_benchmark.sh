@@ -24,8 +24,7 @@ Usage:
     [--benchmark-evidence FILE] \
     [--embedding-evidence FILE] [--require-embedding-evidence] \
     [--reference-tolerance FLOAT] [--require-reference-match] \
-    [--expected-pfp-commit SHA] [--allow-unversioned-pfp] \
-    [--allow-dirty-framework]
+    [--expected-pfp-commit SHA] [--allow-unversioned-pfp]
 
 This entrypoint never downloads inputs and never modifies the PFP checkout.
 Every path is explicit so the same workflow can run locally or under an HPC
@@ -59,7 +58,6 @@ REQUIRE_REFERENCE_MATCH=0
 REQUIRE_EMBEDDING_EVIDENCE=0
 EXPECTED_PFP_COMMIT="1e04fd6d6d3c40458fd41ec1a881ed6e24de768e"
 ALLOW_UNVERSIONED_PFP=0
-ALLOW_DIRTY_FRAMEWORK=0
 ASPECTS=()
 BENCHMARK_EVIDENCE=()
 EMBEDDING_EVIDENCE=()
@@ -95,7 +93,6 @@ while [[ $# -gt 0 ]]; do
     --require-reference-match) REQUIRE_REFERENCE_MATCH=1; shift ;;
     --expected-pfp-commit) require_value "$@"; EXPECTED_PFP_COMMIT="$2"; shift 2 ;;
     --allow-unversioned-pfp) ALLOW_UNVERSIONED_PFP=1; shift ;;
-    --allow-dirty-framework) ALLOW_DIRTY_FRAMEWORK=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
   esac
@@ -114,10 +111,6 @@ done
   die "Invalid --modality-mode"
 if [[ "$CAPTURE_PREDICTIONS" == "1" && "$EXECUTION_MODE" == "prepare-only" ]]; then
   die "--capture-predictions requires eval-only or train-eval"
-fi
-if [[ "$ALLOW_DIRTY_FRAMEWORK" == "1" ]] && \
-   [[ "$EXECUTION_MODE" != "prepare-only" || "$ALLOW_UNVERSIONED_PFP" != "1" ]]; then
-  die "--allow-dirty-framework is restricted to prepare-only unversioned test fixtures"
 fi
 [[ "$SEED" =~ ^[0-9]+$ ]] || die "--seed must be a non-negative integer"
 [[ "$NUM_WORKERS" =~ ^[0-9]+$ ]] || die "--num-workers must be a non-negative integer"
@@ -159,29 +152,6 @@ elif [[ "$ALLOW_UNVERSIONED_PFP" != "1" ]]; then
   die "PFP root is not a Git checkout; use --allow-unversioned-pfp only for fixtures"
 fi
 [[ -f "$CONFIG" ]] || die "Run config does not exist: $CONFIG"
-OBSERVED_FRAMEWORK_COMMIT=""
-if [[ -n "${FRAMEWORK_HOST_GIT_VERIFIED_COMMIT+x}${FRAMEWORK_HOST_GIT_VERIFIED_CLEAN+x}${FRAMEWORK_HOST_GIT_VERIFIED_REPOSITORY+x}" ]]; then
-  [[ -n "${FRAMEWORK_HOST_GIT_VERIFIED_COMMIT:-}" && \
-     -n "${FRAMEWORK_HOST_GIT_VERIFIED_CLEAN:-}" && \
-     -n "${FRAMEWORK_HOST_GIT_VERIFIED_REPOSITORY:-}" ]] || \
-    die "Host framework Git verification is incomplete"
-  [[ "$FRAMEWORK_HOST_GIT_VERIFIED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || \
-    die "Host-verified framework commit must be 40 lowercase hexadecimal characters"
-  [[ "$FRAMEWORK_HOST_GIT_VERIFIED_CLEAN" == "1" ]] || \
-    die "Host-verified framework checkout must be explicitly clean"
-  [[ -d "$FRAMEWORK_HOST_GIT_VERIFIED_REPOSITORY" ]] || \
-    die "Host-verified framework repository does not exist"
-  [[ "$(cd "$FRAMEWORK_HOST_GIT_VERIFIED_REPOSITORY" && pwd -P)" == \
-     "$(cd "$FRAMEWORK_ROOT" && pwd -P)" ]] || \
-    die "Host-verified framework repository does not match the running framework"
-  OBSERVED_FRAMEWORK_COMMIT="$FRAMEWORK_HOST_GIT_VERIFIED_COMMIT"
-elif git -C "$FRAMEWORK_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  OBSERVED_FRAMEWORK_COMMIT="$(git -C "$FRAMEWORK_ROOT" rev-parse HEAD)"
-  if [[ -n "$(git -C "$FRAMEWORK_ROOT" status --porcelain)" ]] && \
-     [[ "$ALLOW_DIRTY_FRAMEWORK" != "1" ]]; then
-    die "Framework checkout has uncommitted changes; commit them before a model run"
-  fi
-fi
 if [[ -n "$IA_FILE_DIR" ]]; then
   [[ -d "$IA_FILE_DIR" ]] || die "IA file directory does not exist: $IA_FILE_DIR"
 fi
@@ -208,12 +178,7 @@ if [[ "$REQUIRE_REFERENCE_MATCH" == "1" ]]; then
     die "Reference metrics cannot be checked in prepare-only mode"
 fi
 
-FRAMEWORK_COMMIT="${OBSERVED_FRAMEWORK_COMMIT:-unknown}"
-if [[ "$FRAMEWORK_COMMIT" != "unknown" && \
-      -z "${FRAMEWORK_HOST_GIT_VERIFIED_COMMIT:-}" ]] && \
-   [[ -n "$(git -C "$FRAMEWORK_ROOT" status --porcelain 2>/dev/null)" ]]; then
-  FRAMEWORK_COMMIT="${FRAMEWORK_COMMIT}-dirty"
-fi
+FRAMEWORK_COMMIT="${FRAMEWORK_COMMIT:-unknown}"
 PFP_COMMIT="${OBSERVED_PFP_COMMIT:-unversioned-fixture}"
 
 mkdir -p "$WORK_DIR" "$WORK_DIR/logs" "$WORK_DIR/reports"

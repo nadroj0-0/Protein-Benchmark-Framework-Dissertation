@@ -3,12 +3,6 @@
 
 set -euo pipefail
 
-git_in_dir() {
-    local directory="$1"
-    shift
-    (cd "$directory" && git "$@")
-}
-
 RUNTIME_KIND="${HOMOLOGY_RUNTIME_KIND:-}"
 case "$RUNTIME_KIND" in
     pilot|array) ;;
@@ -47,18 +41,6 @@ case "$UNIREF_LEVEL" in
     *) echo "UNIREF_LEVEL must be 90 or 50" >&2; exit 2 ;;
 esac
 MMSEQS_SENSITIVITY="${MMSEQS_SENSITIVITY:-$DEFAULT_MMSEQS_SENSITIVITY}"
-EXTERNAL_CLUSTER_ASSIGNMENTS="${EXTERNAL_CLUSTER_ASSIGNMENTS:-}"
-EXTERNAL_CLUSTER_PROVENANCE="${EXTERNAL_CLUSTER_PROVENANCE:-}"
-EXTERNAL_CLUSTER_MODE=0
-if [[ -n "$EXTERNAL_CLUSTER_ASSIGNMENTS" || -n "$EXTERNAL_CLUSTER_PROVENANCE" ]]; then
-    [[ -f "$EXTERNAL_CLUSTER_ASSIGNMENTS" && -f "$EXTERNAL_CLUSTER_PROVENANCE" ]] || {
-        echo "External cluster assignments and provenance must both be readable files" >&2
-        exit 2
-    }
-    # The provenance loader binds the external artifact to this task's identity,
-    # frozen UniRef input, MMseqs profile, file hash, member count and cluster count.
-    EXTERNAL_CLUSTER_MODE=1
-fi
 UNIREF_ROLE="uniref${UNIREF_LEVEL}_fasta"
 UNIREF_FILENAME="uniref${UNIREF_LEVEL}.fasta.gz"
 UNIREF_PATH_VARIABLE="UNIREF${UNIREF_LEVEL}_FASTA"
@@ -96,19 +78,6 @@ SUBMISSION_ROOT="${FRAMEWORK_SOURCE_ROOT:-${SGE_O_WORKDIR:-$PWD}}"
     exit 2
 }
 SUBMISSION_ROOT="$(cd "$SUBMISSION_ROOT" && pwd -P)"
-FRAMEWORK_REPO_URL="${FRAMEWORK_REPO_URL:-https://github.com/nadroj0-0/Protein-Benchmark-Framework-Dissertation.git}"
-FRAMEWORK_REVISION="${FRAMEWORK_REVISION:-}"
-if [[ "$TEST_MODE" != "1" && -z "$FRAMEWORK_REVISION" ]]; then
-    FRAMEWORK_REVISION="$(git_in_dir "$SUBMISSION_ROOT" rev-parse HEAD)"
-fi
-if [[ "$TEST_MODE" == "1" && -z "$FRAMEWORK_REVISION" ]]; then
-    FRAMEWORK_REVISION="$(printf 'a%.0s' {1..40})"
-fi
-[[ "$FRAMEWORK_REVISION" =~ ^[0-9a-f]{40}$ ]] || {
-    echo "FRAMEWORK_REVISION must be exactly 40 lowercase hexadecimal characters" >&2
-    exit 2
-}
-
 JOB_KEY="${JOB_ID:-local}"
 RUN_ID="${RUN_ID:-runtime-${JOB_KEY}}"
 for name in JOB_KEY RUN_ID; do
@@ -143,10 +112,9 @@ RESULTS_ROOT="${RESULTS_ROOT:-$HOME/homology_cluster_benchmark_results}"
     echo "RESULTS_ROOT must be an absolute non-root path" >&2
     exit 2
 }
-REVISION_TAG="${FRAMEWORK_REVISION:0:12}"
-FINAL_ROOT="$RESULTS_ROOT/runtime_${RUNTIME_KIND}/source_${UNIPROT_SOURCE_SCOPE}/framework_${REVISION_TAG}/run_${RUN_ID}/job_${JOB_KEY}/task_${TASK_ID}_identity_${IDENTITY}"
+FINAL_ROOT="$RESULTS_ROOT/runtime_${RUNTIME_KIND}/source_${UNIPROT_SOURCE_SCOPE}/run_${RUN_ID}/job_${JOB_KEY}/task_${TASK_ID}_identity_${IDENTITY}"
 if [[ "$UNIREF_LEVEL" != "90" ]]; then
-    FINAL_ROOT="$RESULTS_ROOT/runtime_${RUNTIME_KIND}/source_${UNIPROT_SOURCE_SCOPE}/uniref${UNIREF_LEVEL}_sensitivity_${MMSEQS_SENSITIVITY/./p}/framework_${REVISION_TAG}/run_${RUN_ID}/job_${JOB_KEY}/task_${TASK_ID}_identity_${IDENTITY}"
+    FINAL_ROOT="$RESULTS_ROOT/runtime_${RUNTIME_KIND}/source_${UNIPROT_SOURCE_SCOPE}/uniref${UNIREF_LEVEL}_sensitivity_${MMSEQS_SENSITIVITY/./p}/run_${RUN_ID}/job_${JOB_KEY}/task_${TASK_ID}_identity_${IDENTITY}"
 fi
 PARTIAL_ROOT="${FINAL_ROOT}.partial-${JOB_KEY}-${TASK_ID}"
 LOG_FILE="$ARTIFACTS/logs/runtime.log"
@@ -344,7 +312,6 @@ echo "Run kind         : $RUNTIME_KIND"
 echo "Identity         : $IDENTITY%"
 echo "UniProt scope    : $UNIPROT_SOURCE_SCOPE"
 echo "MMseqs profile   : ${MMSEQS_PROFILE:-legacy-calibrated}"
-echo "Framework commit : $FRAMEWORK_REVISION"
 echo "Scratch          : $WORK"
 echo "Final output     : $FINAL_ROOT"
 echo "Pilot prerequisite for array: no"
@@ -359,7 +326,7 @@ if [[ "$TEST_MODE" == "1" ]]; then
     exit 0
 fi
 
-for command in git wget tar gzip awk sha256sum; do
+for command in wget tar gzip awk sha256sum; do
     command -v "$command" >/dev/null 2>&1 || { echo "Missing required command: $command" >&2; exit 1; }
 done
 
@@ -375,27 +342,8 @@ PYTHON_BIN="$MMFP_ENV_DIR/bin/python"
 [[ -x "$PYTHON_BIN" ]] || { echo "mmfp Python is unavailable: $PYTHON_BIN" >&2; exit 1; }
 echo "Using existing Conda environment: $CONDA_PREFIX"
 
-echo "Cloning the pinned framework revision into scratch"
-git clone --quiet "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"
-git_in_dir "$FRAMEWORK_DIR" checkout --quiet --detach "$FRAMEWORK_REVISION"
-[[ "$(git_in_dir "$FRAMEWORK_DIR" rev-parse HEAD)" == "$FRAMEWORK_REVISION" ]] || {
-    echo "Scratch checkout does not match FRAMEWORK_REVISION" >&2
-    exit 1
-}
-[[ -z "$(git_in_dir "$FRAMEWORK_DIR" status --porcelain)" ]] || {
-    echo "Scratch framework checkout is unexpectedly dirty" >&2
-    exit 1
-}
-
-# Python runs inside the minimal MMFP Singularity image, which intentionally has
-# no Git executable. Export the state already verified above so the builder can
-# retain its production provenance gate without repeating Git inside the image.
-export HOMOLOGY_HOST_GIT_VERIFIED_COMMIT="$FRAMEWORK_REVISION"
-export HOMOLOGY_HOST_GIT_VERIFIED_CLEAN=1
-export HOMOLOGY_HOST_GIT_VERIFIED_REPOSITORY="$FRAMEWORK_DIR"
-export SINGULARITYENV_HOMOLOGY_HOST_GIT_VERIFIED_COMMIT="$FRAMEWORK_REVISION"
-export SINGULARITYENV_HOMOLOGY_HOST_GIT_VERIFIED_CLEAN=1
-export SINGULARITYENV_HOMOLOGY_HOST_GIT_VERIFIED_REPOSITORY="$FRAMEWORK_DIR"
+echo "Copying the submitted framework source into scratch"
+cp -a "$SUBMISSION_ROOT" "$FRAMEWORK_DIR"
 checkpoint_disk_usage framework-cloned
 # shellcheck source=../reproduction_common.sh
 source "$FRAMEWORK_DIR/scripts/reproduction_common.sh"
@@ -609,14 +557,11 @@ fi
 if [[ -n "$HOMOLOGY_CLUSTER_CACHE_ROOT" ]]; then
     HOMOLOGY_CLUSTER_CACHE_ROOT="$(cd "$HOMOLOGY_CLUSTER_CACHE_ROOT" && pwd -P)"
     echo "Using persistent homology cluster cache: $HOMOLOGY_CLUSTER_CACHE_ROOT"
-elif [[ "$EXTERNAL_CLUSTER_MODE" == "1" ]]; then
-    echo "Using provenance-paired external cluster assignments; framework cluster cache is intentionally disabled"
 else
     echo "No persistent homology cluster cache is configured; clustering output will not be reusable"
 fi
 if [[ "${MMSEQS_PROFILE:-legacy-calibrated}" == "daniel-aligned-defaults" \
-      && -z "$HOMOLOGY_CLUSTER_CACHE_ROOT" \
-      && "$EXTERNAL_CLUSTER_MODE" != "1" ]]; then
+      && -z "$HOMOLOGY_CLUSTER_CACHE_ROOT" ]]; then
     echo "MMSEQS_PROFILE=daniel-aligned-defaults requires a persistent cluster-cache root" >&2
     echo "The validated cluster assignments must survive scratch cleanup" >&2
     exit 1
@@ -641,7 +586,6 @@ if [[ "$CLUSTER_CACHE_PREFLIGHT_ONLY" == "1" ]]; then
 status=complete
 cluster_cache_root=$HOMOLOGY_CLUSTER_CACHE_ROOT
 container_bind_root=$CLUSTER_CACHE_CONTAINER_BIND_ROOT
-framework_revision=$FRAMEWORK_REVISION
 EOF
     echo "Cluster-cache-only preflight completed; MMseqs clustering was not started"
     exit 0
@@ -744,24 +688,6 @@ else
 fi
 stage_or_download go_obo "${GO_OBO:-}" "$GO_OBO_URL" \
     "$INPUT_ROOT/go-basic.obo" "${GO_OBO_SHA256:-}"
-if [[ -n "$EXTERNAL_CLUSTER_ASSIGNMENTS" ]]; then
-    echo "Staging external supervisor cluster artifact into job-owned scratch"
-    cp -p "$EXTERNAL_CLUSTER_ASSIGNMENTS" "$INPUT_ROOT/external_cluster_assignments.tsv.gz"
-    cp -p "$EXTERNAL_CLUSTER_PROVENANCE" "$INPUT_ROOT/external_cluster_provenance.json"
-    [[ -s "$INPUT_ROOT/external_cluster_assignments.tsv.gz" \
-       && -s "$INPUT_ROOT/external_cluster_provenance.json" ]] || {
-        echo "Staged external supervisor artifact is incomplete" >&2
-        exit 1
-    }
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
-        external_cluster_assignments "$INPUT_ROOT/external_cluster_assignments.tsv.gz" \
-        "supervisor://daniel-buchan" provided-path-staged-to-scratch \
-        "$(stat -c '%s' "$INPUT_ROOT/external_cluster_assignments.tsv.gz")" \
-        "$(sha256sum "$INPUT_ROOT/external_cluster_assignments.tsv.gz" | awk '{print $1}')" \
-        >> "$ARTIFACTS/logs/runtime_input_staging.tsv"
-    checkpoint_disk_usage external-cluster-artifact-staged
-fi
-
 if [[ "$needs_uniprot_download" == "1" ]]; then
     download_file "$UNIPROT_RELNOTES_URL" "$ARTIFACTS/logs/uniprot_relnotes_after_download.txt"
     [[ "$(sha256sum "$ARTIFACTS/logs/uniprot_relnotes.txt" | awk '{print $1}')" == \
@@ -840,7 +766,6 @@ if [[ -n "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then
         --manifest "$MANIFEST" \
         --policy-out "$ATTRITION_POLICY" \
         --source-scope "$UNIPROT_SOURCE_SCOPE" \
-        --framework-revision "$FRAMEWORK_REVISION" \
         --uniref-level "$UNIREF_LEVEL" \
         | tee "$ARTIFACTS/logs/runtime_contract.json"
 else
@@ -850,7 +775,6 @@ else
         --manifest-out "$MANIFEST"
         --policy-out "$ATTRITION_POLICY"
         --source-scope "$UNIPROT_SOURCE_SCOPE"
-        --framework-revision "$FRAMEWORK_REVISION"
         --uniref-level "$UNIREF_LEVEL"
         "$uniref_contract_option" "$INPUT_ROOT/$UNIREF_FILENAME"
         "${uniref_contract_option}-url" "$UNIREF_URL"
@@ -917,7 +841,6 @@ builder_environment=(
     EXPECTED_MMSEQS_VERSION="$EXPECTED_MMSEQS_VERSION"
     FROZEN_INPUT_MANIFEST="$MANIFEST"
     ATTRITION_POLICY="$ATTRITION_POLICY"
-    FRAMEWORK_REVISION="$FRAMEWORK_REVISION"
     DIAGNOSTIC_PILOT="$([[ "$RUNTIME_KIND" == "pilot" ]] && echo 1 || echo 0)"
     RUN_ID="$RUN_ID"
     REQUESTED_SLOTS="${NSLOTS:-2}"
@@ -941,12 +864,6 @@ if [[ -n "$HOMOLOGY_CLUSTER_CACHE_ROOT" ]]; then
     builder_environment+=(
         HOMOLOGY_CLUSTER_CACHE_ROOT="$HOMOLOGY_CLUSTER_CACHE_ROOT"
         REQUIRE_HOMOLOGY_CLUSTER_CACHE="$REQUIRE_HOMOLOGY_CLUSTER_CACHE"
-    )
-fi
-if [[ -n "$EXTERNAL_CLUSTER_ASSIGNMENTS" ]]; then
-    builder_environment+=(
-        EXTERNAL_CLUSTER_ASSIGNMENTS="$INPUT_ROOT/external_cluster_assignments.tsv.gz"
-        EXTERNAL_CLUSTER_PROVENANCE="$INPUT_ROOT/external_cluster_provenance.json"
     )
 fi
 if [[ -n "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then
@@ -1021,7 +938,6 @@ identity_percent=$IDENTITY
 uniprot_source_scope=$UNIPROT_SOURCE_SCOPE
 uniref_level=$UNIREF_LEVEL
 mmseqs_sensitivity=$MMSEQS_SENSITIVITY
-framework_revision=$FRAMEWORK_REVISION
 pilot_required_for_array=false
 publication_directory=$RUN_DIR
 cluster_cache_root=${HOMOLOGY_CLUSTER_CACHE_ROOT:-disabled}

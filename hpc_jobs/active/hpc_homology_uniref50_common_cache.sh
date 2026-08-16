@@ -67,7 +67,6 @@ POLICY="$WORK/contracts/unused_runtime_policy.json"
     --manifest-out "$MANIFEST" \
     --policy-out "$POLICY" \
     --source-scope sprot-and-trembl \
-    --framework-revision "$FRAMEWORK_REVISION" \
     --uniref-level 50 \
     --uniref50-fasta "$UNIREF50_FASTA" \
     --uniref50-fasta-url https://ftp.uniprot.org/pub/databases/uniprot/current_release/uniref/uniref50/uniref50.fasta.gz \

@@ -193,8 +193,7 @@ existing retry and hydration interfaces.
 - all nine contemporary CSV hashes;
 - every target protein and sequence SHA-256 from the exact reuse plan;
 - the benchmark build and reuse-plan manifests;
-- PFP/framework commits, environment report, compatibility scripts and runtime
-  policy;
+- the PFP commit, environment report, compatibility scripts and runtime policy;
 - the baseline archive and its complete assembly report.
 
 It verifies that the assembly report covers every target/modality pair and that
@@ -231,15 +230,9 @@ The real retry wrapper is pinned to `animal-206-2.local` to remove GPU-model
 variation.
 The wrappers never edit PFP and always remove job-owned scratch.
 
-The state records the framework commit used at initialization. During active
-development, a later retry may run from a newer framework commit without
-invalidating the scientific inputs. In the default permissive mode, retries
-authenticate against the state's initialized revision and record the actual
-retry revision separately, so Git drift cannot enter the compatibility
-decision. The exact PFP commit, text cutoff, environment fingerprint, and
-hashes of all extraction and compatibility scripts remain enforced. Use
-`--strict-framework-commit` when a frozen release requires whole-repository
-revision equality.
+The state binds the exact PFP commit, text cutoff, environment fingerprint, and
+hashes of all extraction and compatibility scripts. Framework Git metadata is
+informational only and never blocks initialization or retry.
 
 ### Transactional final cache consolidation
 
@@ -288,9 +281,10 @@ bash -n hpc_jobs/active/hpc_contemporary_embedding_state_initialize.sh
 bash -n hpc_jobs/active/hpc_contemporary_embedding_retry.sh
 ```
 
-The HPC wrapper performs the real bounded preflight before the full run. It
-must be submitted from a clean committed framework checkout so the scratch
-clone executes the reviewed revision.
+The HPC wrapper performs the real bounded preflight before the full run.
+Framework Git metadata is recorded when available, but it is not required and
+does not gate execution; the scientific inputs and external PFP revision remain
+validated independently.
 
 ## Resumable CAFA3 generation
 
@@ -303,7 +297,7 @@ persistent, benchmark-bound cache outside PFP. The default HPC location is:
 ```
 
 Its contract includes the nine CSV hashes, every protein sequence SHA-256, the
-PFP and framework commits, the author environment report, policy hash, text
+PFP commit, the author environment report, policy hash, text
 cutoff, GO/STRING inputs, and exact upstream/compatibility script hashes. An
 existing state is rejected if any contract field changes. Persistent arrays are
 accepted only after safe-ID, numeric dtype, finite-value, exact-dimension, and
@@ -325,8 +319,7 @@ atomically after every merge.
 `pair_status.tsv` also records `embedding_sha256` for every accepted pair.
 Baseline hashes are taken while authenticating the published archive; retry
 hashes are taken from the cumulative state cache. Do not rerun initialization
-to upgrade an older state: its immutable contract correctly rejects a newer
-framework commit. After every retry job has finished, perform a non-destructive
+to upgrade an older state. After every retry job has finished, perform a non-destructive
 evidence-only upgrade with:
 
 ```bash
@@ -377,9 +370,8 @@ state `source_cache`; a killed retry does not force their acquisition again.
    valid array. It does not train or evaluate.
 2. Submit `hpc_cafa3_embedding_retry.sh` once per modality that still has
    missing pairs. Each job builds a PFP view containing only that modality's
-   missing IDs plus 20 accepted controls. Framework-commit equality is
-   permissive by default during development while every scientific contract
-   field remains strict; add `--strict-framework-commit` for the frozen run.
+   missing IDs plus 20 accepted controls. Scientific input, PFP, policy, and
+   source-file contracts remain strict.
 3. At least five controls must regenerate and match the accepted arrays within
    `rtol=1e-5`, `atol=1e-6` before retry outputs can be merged. Source-unavailable
    controls are reported separately; numerical differences fail loudly.

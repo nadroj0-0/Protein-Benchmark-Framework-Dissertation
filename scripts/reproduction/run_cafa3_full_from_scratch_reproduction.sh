@@ -13,6 +13,7 @@ MMFP_BASE_URL="${MMFP_BASE_URL:-https://zenodo.org/records/19498341/files}"
 PREFLIGHT_PER_SPLIT="${PREFLIGHT_PER_SPLIT:-2}"
 DISK_POLL_SECONDS="${DISK_POLL_SECONDS:-120}"
 CAFA_ASSESSMENT_COMMIT="${CAFA_ASSESSMENT_COMMIT:-d72f0a5abb66d3224bd808e2015b55f1c9d18340}"
+EXPECTED_PFP_COMMIT="${EXPECTED_PFP_COMMIT:-1e04fd6d6d3c40458fd41ec1a881ed6e24de768e}"
 
 PFP_ROOT=""
 WORK_DIR=""
@@ -292,9 +293,10 @@ run_parallel_modalities() {
 }
 
 initialize_embedding_state() {
-  local pfp_commit framework_commit
+  local pfp_commit
   pfp_commit="$(git_in_dir "$PFP_ROOT" rev-parse HEAD)"
-  framework_commit="$(git_in_dir "$FRAMEWORK_ROOT" rev-parse HEAD)"
+  [[ "$pfp_commit" == "$EXPECTED_PFP_COMMIT" ]] || \
+    die "PFP commit mismatch: expected $EXPECTED_PFP_COMMIT, found $pfp_commit"
   local command=(
     "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/manage_resumable_embedding_state.py"
     initialize \
@@ -304,7 +306,6 @@ initialize_embedding_state() {
     --data-dir "$PFP_ROOT/data" \
     --policy "$EMBEDDING_POLICY" \
     --pfp-commit "$pfp_commit" \
-    --framework-commit "$framework_commit" \
     --environment-report "$OUTPUT_DIR/reports/environment_validation.txt" \
     --source-file "go-ontology=$PFP_ROOT/data/go.obo" \
     --source-file "string-alias=$STRING_ALIAS_FILE" \
@@ -689,7 +690,7 @@ else
     > "$OUTPUT_DIR/reports/preflight_skipped.json"
 fi
 
-"$PYTHON_BIN" - "$OUTPUT_DIR" "$PFP_ROOT" "$FRAMEWORK_ROOT" "$TEXT_CUTOFF_DATE" \
+"$PYTHON_BIN" - "$OUTPUT_DIR" "$PFP_ROOT" "$TEXT_CUTOFF_DATE" \
   "$EMBEDDING_MODE" "$EMBEDDING_STATE_ROOT" <<'PY'
 import json
 import subprocess
@@ -697,16 +698,15 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-output, pfp, framework = map(Path, sys.argv[1:4])
+output, pfp = map(Path, sys.argv[1:3])
 payload = {
     "complete": True,
     "schema_version": 1,
     "completed_at": datetime.now(timezone.utc).isoformat(),
-    "text_cutoff_date": sys.argv[4],
-    "embedding_mode": sys.argv[5],
-    "embedding_state_root": sys.argv[6],
+    "text_cutoff_date": sys.argv[3],
+    "embedding_mode": sys.argv[4],
+    "embedding_state_root": sys.argv[5],
     "pfp_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=pfp, text=True).strip(),
-    "framework_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=framework, text=True).strip(),
     "report_markdown": "cafa3_full_reproduction_report.md",
     "report_json": "cafa3_full_reproduction_report.json",
     "generated_embeddings_persisted": True,

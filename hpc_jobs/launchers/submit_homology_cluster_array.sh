@@ -48,7 +48,6 @@ PYTHONPATH="$FRAMEWORK_ROOT/benchmark_builders/homology_cluster/src${PYTHONPATH:
     --pilot-task-context "$PILOT_TASK_CONTEXT" \
     --pilot-measurement-evidence "$PILOT_MEASUREMENT_EVIDENCE" \
     --frozen-input-manifest "$FROZEN_INPUT_MANIFEST" \
-    --framework-revision "$FRAMEWORK_REVISION" \
     --uniprot-source-scope "$UNIPROT_SOURCE_SCOPE" \
     --split-policy "$SPLIT_POLICY" \
     --training-population "$TRAINING_POPULATION" \

@@ -187,8 +187,8 @@ contract for the actual MMseqs output, not absence of every possible biological 
 
 ## Reviewed attrition policy
 
-Every production run loads a structured policy bound to source scope, frozen releases, full
-framework commit, and frozen-manifest hash before hashing the large input files or beginning
+Every production run loads a structured policy bound to source scope, frozen releases, and the
+frozen-manifest hash before hashing the large input files or beginning
 ontology/MMseqs2 work. The actual input hashes are then checked against the manifest, and the policy
 hash is rechecked before evaluation and publication.
 It evaluates:
@@ -267,8 +267,8 @@ low-identity recall, scheduler resource sufficiency, or successful PFP training.
 The reusable cluster cache has a narrower contract than a complete publication. It is published
 only after `createtsv` and complete selected-scaffold assignment validation, and is keyed by the frozen
 selected-scaffold bytes, exact MMseqs2 binary/version, and every clustering parameter that can change
-membership. Thread count and framework revision are recorded as producer provenance but do not
-change the key. GOA retention, source-scope eligibility, split policy, seed, training population,
+membership. Thread count and optional framework Git metadata do not change the key. GOA retention,
+source-scope eligibility, split policy, seed, training population,
 labels, term universes, and exports remain downstream and are excluded. Every reuse rehashes the
 cache and reconstructs/revalidates the disk-backed assignment index before proceeding. This makes
 the costly clustering reusable for later reviewed downstream policies without claiming that those

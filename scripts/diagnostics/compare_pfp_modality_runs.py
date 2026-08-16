@@ -210,7 +210,6 @@ def _same_number(left: Any, right: Any) -> bool:
 def bind_prediction_manifest(
     bundle: Mapping[str, Any],
     manifest_path: Path,
-    allow_framework_commit_drift: bool,
 ) -> dict[str, Any]:
     manifest, artifact_root = verify_artifact_manifest(manifest_path)
     require_evaluation_split(manifest, "test", "Canonical modality comparison")
@@ -230,8 +229,6 @@ def bind_prediction_manifest(
     framework_commit_match = (
         provenance.get("framework_commit") == report.get("framework_commit")
     )
-    if not framework_commit_match and not allow_framework_commit_drift:
-        mismatched.append("framework_commit")
     if provenance.get("source_csv_sha256", {}) != bundle["preparation"].get(
         "source_csv_sha256", {}
     ):
@@ -344,7 +341,6 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--run-report", action="append", type=Path, required=True)
     parser.add_argument("--prediction-manifest", action="append", default=[])
-    parser.add_argument("--allow-framework-commit-drift", action="store_true")
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     if len(args.run_report) < 2:
@@ -414,13 +410,6 @@ def main() -> int:
                         f"Active {modality} embedding content differs for {mode} and full"
                     )
 
-    framework_commits = {report["framework_commit"] for report in reports}
-    if len(framework_commits) > 1 and not args.allow_framework_commit_drift:
-        raise ValueError(
-            "Framework commits differ; audit the drift and pass "
-            "--allow-framework-commit-drift explicitly"
-        )
-
     prediction_specs = _parse_prediction_specs(args.prediction_manifest)
     prediction_sources: list[dict[str, Any]] = []
     if prediction_specs:
@@ -434,7 +423,6 @@ def main() -> int:
             source = bind_prediction_manifest(
                 by_mode[mode],
                 prediction_specs[mode],
-                args.allow_framework_commit_drift,
             )
             source["mode"] = mode
             prediction_sources.append(source)
@@ -492,7 +480,7 @@ def main() -> int:
             "source_csv_sha256": reference["preparation"].get("source_csv_sha256", {}),
             "sequence_embedding_content_sha256": reference["embedding_contract"]["valid_content_sha256"]["sequence"],
             "information_accretion": reference["embedding_contract"]["information_accretion"],
-            "framework_commit_drift_allowed": args.allow_framework_commit_drift,
+            "framework_commit_report_only": True,
         },
         "source_reports": [
             {

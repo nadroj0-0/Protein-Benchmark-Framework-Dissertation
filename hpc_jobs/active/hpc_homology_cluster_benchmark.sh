@@ -764,7 +764,6 @@ if [[ "$FIXTURE_MODE_VALUE" != "1" && "$DIAGNOSTIC_PILOT_VALUE" != "1" ]]; then
         --pilot-task-context "$PILOT_TASK_CONTEXT" \
         --pilot-measurement-evidence "$PILOT_MEASUREMENT_EVIDENCE" \
         --frozen-input-manifest "$FROZEN_INPUT_MANIFEST" \
-        --framework-revision "$FRAMEWORK_REVISION" \
         --uniprot-source-scope "$UNIPROT_SOURCE_SCOPE" \
         --split-policy "$SPLIT_POLICY" \
         --training-population "$TRAINING_POPULATION" \

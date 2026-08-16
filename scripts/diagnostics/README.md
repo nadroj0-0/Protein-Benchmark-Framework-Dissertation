@@ -392,6 +392,5 @@ python scripts/diagnostics/compare_pfp_modality_runs.py \
 Canonical reports must be from `train-eval` runs. A prediction capture may come
 from the same run or a later `eval-only` replay, but its exact checkpoint hash,
 canonical metrics, prepared benchmark, configuration, IA and active embedding
-content must bind back to the canonical retraining run. Framework commit drift
-is rejected unless it has been audited and explicitly acknowledged with
-`--allow-framework-commit-drift`.
+content must bind back to the canonical retraining run. Framework Git metadata
+is reported but does not participate in the comparison contract.

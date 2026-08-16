@@ -53,31 +53,13 @@ def git_state(repository: Path) -> dict[str, object]:
     verified_clean = os.environ.get(HOST_GIT_CLEAN_ENV)
     verified_repository = os.environ.get(HOST_GIT_REPOSITORY_ENV)
     external_values = (verified_commit, verified_clean, verified_repository)
-    if any(value is not None for value in external_values):
-        if any(value is None for value in external_values):
-            raise ValueError(
-                "Host Git verification is incomplete; commit, clean state, and repository "
-                "path must be supplied together"
-            )
-        assert verified_commit is not None
-        assert verified_clean is not None
-        assert verified_repository is not None
-        if len(verified_commit) != 40 or any(
-            character not in "0123456789abcdef" for character in verified_commit
-        ):
-            raise ValueError("Host-verified Git commit must be 40 lowercase hexadecimal characters")
-        if verified_clean != "1":
-            raise ValueError("Host-verified Git checkout must be explicitly clean")
-        if Path(verified_repository).resolve() != repository.resolve():
-            raise ValueError(
-                "Host-verified Git repository does not match the repository being published: "
-                f"verified={Path(verified_repository).resolve()}, observed={repository.resolve()}"
-            )
+    if all(value is not None for value in external_values):
         return {
             "commit": verified_commit,
-            "dirty": False,
+            "dirty": verified_clean != "1",
             "status_porcelain": [],
-            "verification": "hpc-wrapper-host-git",
+            "repository": verified_repository,
+            "verification": "host-reported-git",
         }
 
     commit = subprocess.run(
@@ -214,12 +196,12 @@ def verify_output_manifest(directory: Path) -> None:
 PUBLICATION_MARKER_KEYS = (
     "fixture_mode", "production_eligible", "benchmark_scope", "identity_percent",
     "identities", "split_policy", "training_population", "seed", "min_count",
-    "uniprot_source_scope", "framework_revision", "run_id",
+    "uniprot_source_scope", "run_id",
     "run_input_manifest_sha256", "frozen_input_manifest_sha256",
     "attrition_policy_sha256", "attrition_report_sha256",
     "attrition_override_sha256", "attrition_policy_passed", "attrition_override_valid",
     "requested_slots", "allocated_slots", "mmseqs_threads",
-    "expected_mmseqs_version", "observed_mmseqs_version", "repository_commit",
+    "expected_mmseqs_version", "observed_mmseqs_version",
     "mmseqs_resolved_executable", "mmseqs_executable_sha256", "scientific_fingerprint",
 )
 

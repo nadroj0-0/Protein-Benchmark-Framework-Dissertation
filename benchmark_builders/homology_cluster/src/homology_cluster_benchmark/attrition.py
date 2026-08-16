@@ -13,7 +13,6 @@ from .inputs import sha256_file
 POLICY_SCHEMA = "homology-cluster-attrition-policy"
 OVERRIDE_SCHEMA = "homology-cluster-attrition-override"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 PLACEHOLDER_PREFIXES = ("REPLACE", "TODO", "TBD", "PLACEHOLDER")
 
 
@@ -134,7 +133,6 @@ def load_attrition_policy(
     *,
     source_scope: str,
     expected_releases: dict[str, str],
-    framework_commit: str,
     frozen_input_manifest_sha256: str,
 ) -> tuple[dict[str, Any], str]:
     payload, digest = _load_json(path, "Attrition policy")
@@ -144,10 +142,6 @@ def load_attrition_policy(
         raise ValueError("Attrition policy is bound to the wrong UniProt source scope")
     if payload.get("expected_releases") != expected_releases:
         raise ValueError("Attrition policy is bound to the wrong frozen releases")
-    if payload.get("framework_commit") != framework_commit or not COMMIT_RE.fullmatch(
-        str(payload.get("framework_commit", ""))
-    ):
-        raise ValueError("Attrition policy is bound to the wrong framework commit")
     if (
         payload.get("frozen_input_manifest_sha256") != frozen_input_manifest_sha256
         or not SHA256_RE.fullmatch(str(payload.get("frozen_input_manifest_sha256", "")))
@@ -190,7 +184,6 @@ def _load_override(
     *,
     failures: list[dict[str, Any]],
     source_scope: str,
-    framework_commit: str,
     input_manifest_sha256: str,
 ) -> tuple[dict[str, Any], str]:
     payload, digest = _load_json(path, "Attrition override")
@@ -198,8 +191,6 @@ def _load_override(
         raise ValueError("Attrition override has an unsupported schema_name/schema_version")
     if payload.get("uniprot_source_scope") != source_scope:
         raise ValueError("Attrition override is bound to the wrong source scope")
-    if payload.get("framework_commit") != framework_commit:
-        raise ValueError("Attrition override is bound to the wrong framework commit")
     if payload.get("input_manifest_sha256") != input_manifest_sha256:
         raise ValueError("Attrition override is bound to the wrong input-manifest hash")
     for key in ("justification", "reviewer", "pilot_or_run_identifier"):
@@ -221,7 +212,6 @@ def evaluate_attrition(
     observations: dict[str, dict[str, Any]],
     *,
     source_scope: str,
-    framework_commit: str,
     input_manifest_sha256: str,
     override_path: Path | None = None,
     diagnostic: bool = False,
@@ -258,7 +248,6 @@ def evaluate_attrition(
             override_path,
             failures=failures,
             source_scope=source_scope,
-            framework_commit=framework_commit,
             input_manifest_sha256=input_manifest_sha256,
         )
         override_valid = True
@@ -271,7 +260,6 @@ def evaluate_attrition(
         "policy_passed": passed,
         "override_valid": override_valid,
         "uniprot_source_scope": source_scope,
-        "framework_commit": framework_commit,
         "input_manifest_sha256": input_manifest_sha256,
         "policy_sha256": policy_sha256,
         "override_sha256": override_sha256,

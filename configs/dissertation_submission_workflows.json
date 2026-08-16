@@ -1,0 +1,209 @@
+{
+  "schema_version": 1,
+  "purpose": "Scheduler-neutral scientific contract for the experiment families reported in the dissertation",
+  "framework_provenance_policy": "Framework Git metadata may be recorded when available but must never be required, compared, or included in scientific identity.",
+  "external_tools": {
+    "pfp": {
+      "repository": "https://github.com/psipred/PFP.git",
+      "commit": "1e04fd6d6d3c40458fd41ec1a881ed6e24de768e"
+    },
+    "cafa_assessment_tool": {
+      "repository": "https://github.com/ashleyzhou972/CAFA_assessment_tool.git",
+      "commit": "d72f0a5abb66d3224bd808e2015b55f1c9d18340"
+    },
+    "mmseqs2": {
+      "release": "18-8cc5c",
+      "reported_commit": "8cc5ce367b5638c4306c2d7cfc652dd099a4643f"
+    }
+  },
+  "shared_model_execution": {
+    "entrypoint": "scripts/model_execution/run_pfp_benchmark.sh",
+    "aspects": [
+      "BPO",
+      "CCO",
+      "MFO"
+    ],
+    "seed": 42,
+    "num_workers": 0,
+    "training_invocation": "One upstream train.py --single invocation per aspect",
+    "evaluation": {
+      "norm": "cafa",
+      "prop": "max",
+      "no_orphans": false,
+      "strict_failure_policy": true
+    }
+  },
+  "workflows": {
+    "cafa3": {
+      "text_cutoff": "2016-02-17",
+      "benchmark_config": "configs/pfp_benchmark_run.cafa3.json",
+      "embedding_config": "configs/cafa3_embedding_resume.json",
+      "published_metrics_config": "configs/pfp_cafa3_published_metrics.json",
+      "official_organizer_archive_sha256": "d41dd38436461f4aa8072fca0e3c7476f36475e68cf1dc2555e78ccbdb15d70c",
+      "modality_modes": [
+        "sequence-only",
+        "sequence-text",
+        "sequence-structure",
+        "sequence-ppi",
+        "full"
+      ],
+      "execution_order": [
+        "scripts/validation/run_cafa3_deepgoplus_pickle_generation_validation.sh",
+        "scripts/validation/run_cafa3_deepgoplus_validation.sh",
+        "scripts/validation/run_cafa3_historical_validation.sh",
+        "scripts/reproduction/run_cafa3_full_from_scratch_reproduction.sh",
+        "scripts/reproduction/run_cafa3_embedding_retry.sh",
+        "scripts/model_execution/run_pfp_benchmark.sh"
+      ]
+    },
+    "contemporary_global_nk": {
+      "builder_profile": "supervisor",
+      "test_eligibility": "global-no-knowledge",
+      "t1_endpoint_policy": "snapshot-membership",
+      "t1_backfill_policy": "allow",
+      "text_cutoff": "2025-03-08",
+      "ppi_policy": "paper-faithful",
+      "min_count": 50,
+      "development_split_fraction": 0.9,
+      "builder_seed": 0,
+      "benchmark_config": "configs/pfp_benchmark_run.temporal.json",
+      "embedding_acceptance_config": "configs/contemporary_embedding_resume.json",
+      "modality_modes": [
+        "sequence-only",
+        "sequence-text",
+        "sequence-structure",
+        "sequence-ppi",
+        "full"
+      ],
+      "execution_order": [
+        "scripts/benchmark_generation/run_contemporary_temporal_benchmark.sh",
+        "scripts/verification/run_contemporary_embedding_inventory.sh",
+        "scripts/verification/run_benchmark_reuse_plan.sh",
+        "scripts/embeddings/run_contemporary_embedding_generation.sh",
+        "scripts/embeddings/initialize_contemporary_embedding_state.sh",
+        "scripts/embeddings/run_contemporary_embedding_retry.sh",
+        "scripts/embeddings/compose_contemporary_text_replacement.py",
+        "scripts/embeddings/finalize_embedding_state.py",
+        "scripts/model_execution/run_pfp_benchmark.sh"
+      ]
+    },
+    "contemporary_nk_lk": {
+      "builder_profile": "supervisor-nk-lk",
+      "test_eligibility": "ontology-no-knowledge",
+      "id_overlap_policy": "per-ontology-disjoint",
+      "sequence_overlap_policy": "per-ontology-disjoint",
+      "t1_endpoint_policy": "snapshot-membership",
+      "t1_backfill_policy": "allow",
+      "text_cutoff": "2025-03-08",
+      "temporal_text_policy": "historical-if-test-in-any-aspect",
+      "ppi_policy": "paper-faithful",
+      "min_count": 50,
+      "development_split_fraction": 0.9,
+      "builder_seed": 0,
+      "benchmark_config": "configs/pfp_benchmark_run.temporal_nk_lk.json",
+      "modality_modes": [
+        "full"
+      ],
+      "cohort_bootstrap_seed": 20260805,
+      "execution_order": [
+        "scripts/benchmark_generation/run_contemporary_temporal_benchmark.sh",
+        "scripts/verification/run_benchmark_reuse_plan.sh",
+        "scripts/embeddings/resolve_embedding_reuse_sources.py",
+        "scripts/embeddings/run_homology_embedding_modality.sh",
+        "scripts/embeddings/assemble_pair_resolved_embedding_cache.py",
+        "scripts/embeddings/bind_embedding_archive_evidence.py",
+        "scripts/model_execution/run_pfp_benchmark.sh",
+        "scripts/diagnostics/evaluate_nk_lk_completed_run.py"
+      ]
+    },
+    "homology_framework": {
+      "cluster_source": "framework-generated",
+      "uniref_level": 50,
+      "uniprot_release": "2026_02",
+      "goa_release": "234",
+      "ontology_release": "releases/2026-06-15",
+      "uniprot_source_scope": "sprot-and-trembl",
+      "identity_percentages": [
+        30,
+        25,
+        20,
+        15,
+        10,
+        5
+      ],
+      "mmseqs": {
+        "sensitivity": 4.0,
+        "coverage": 0.8,
+        "cov_mode": 0,
+        "cluster_mode": 0,
+        "alignment_mode": 3,
+        "createdb_shuffle": null,
+        "cluster_reassign": 0,
+        "evalue": null,
+        "export_alignment_statistics": false,
+        "export_cluster_fasta": false
+      },
+      "split_policy": "cluster-count-random",
+      "development_fraction": 0.8,
+      "training_fraction_within_development": 0.9,
+      "training_population": "annotated-only",
+      "seed": 0,
+      "min_count": 50,
+      "benchmark_config": "configs/pfp_benchmark_run.homology.json",
+      "embedding_config": "configs/homology_embedding_generation.json",
+      "text_policy": "source-current",
+      "ppi_policy": "paper-faithful",
+      "embedding_reuse_sources": [
+        {
+          "label": "contemporary_hydrated_population",
+          "archive_sha256": "8c579d492a9e9ee93a3539f722e479da9f917c6aada2f0238893b263066aa70e"
+        },
+        {
+          "label": "cafa3_hydrated_population",
+          "archive_sha256": "c6cdcafd00b0cb871a50beb8cd649ce5c13d5882fcde9c3663a19a86905b9e87"
+        }
+      ],
+      "modality_modes": [
+        "full"
+      ],
+      "execution_order": [
+        "scripts/data_acquisition/populate_san_frozen_inputs.sh",
+        "scripts/benchmark_generation/run_homology_cluster_benchmark.sh",
+        "scripts/verification/run_benchmark_reuse_plan.sh",
+        "scripts/embeddings/resolve_embedding_reuse_sources.py",
+        "scripts/embeddings/run_homology_embedding_modality.sh",
+        "scripts/embeddings/assemble_pair_resolved_embedding_cache.py",
+        "scripts/embeddings/bind_embedding_archive_evidence.py",
+        "scripts/model_execution/run_pfp_benchmark.sh"
+      ]
+    }
+  },
+  "analysis_defaults": {
+    "specificity": {
+      "measure": "all_separate",
+      "positive_bins": 4,
+      "bootstrap_replicates": 2000,
+      "bootstrap_seed": 42
+    },
+    "calibration": {
+      "positive_ia_bins": 4,
+      "reliability_bins": 10
+    },
+    "confidence_methods": [
+      "raw-sigmoid",
+      "ffpred-style",
+      "hierarchy-calibrated"
+    ],
+    "relationship_policy_comparison": {
+      "primary": "accepted-all-relationships",
+      "sensitivity": "diagnostic-is-a-plus-part-of"
+    }
+  },
+  "excluded_from_submission": [
+    "widened-or-unambiguous-ppi",
+    "externally-supplied-homology-cluster-assignments",
+    "stale-contemporary-text-cutoff",
+    "sequence-balanced-homology-results"
+  ],
+  "frozen_input_catalog": "scripts/data_acquisition/san_frozen_inputs.tsv"
+}

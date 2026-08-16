@@ -60,7 +60,6 @@ MMSEQS_PROFILE_POLICIES = {
         "export_cluster_fasta": False,
     },
 }
-FRAMEWORK_REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 def parse_identity(value: str | int | float) -> float:
@@ -77,7 +76,7 @@ def parse_identity(value: str | int | float) -> float:
         if abs(numeric - supported) < 1e-12:
             return supported
     allowed = ", ".join(str(int(item * 100)) for item in SUPPORTED_IDENTITIES)
-    raise ValueError(f"Unsupported identity {value!r}; Daniel's allowed percentages are {allowed}")
+    raise ValueError(f"Unsupported identity {value!r}; allowed percentages are {allowed}")
 
 
 @dataclass(frozen=True)
@@ -98,15 +97,12 @@ class BuildConfig:
     mmseqs_bin: str = "mmseqs"
     expected_mmseqs_version: str | None = None
     cluster_assignments: Path | None = None
-    external_cluster_assignments: Path | None = None
-    external_cluster_provenance: Path | None = None
     cluster_cache_root: Path | None = None
     require_cluster_cache: bool = False
     common_preprocessing_cache: Path | None = None
     frozen_input_manifest: Path | None = None
     attrition_policy: Path | None = None
     attrition_override: Path | None = None
-    framework_revision: str | None = None
     fixture_mode: bool = False
     diagnostic_pilot: bool = False
     threads: int = 1
@@ -219,7 +215,6 @@ class BuildConfig:
         if (
             self.mmseqs_profile == MMSEQS_PROFILE_DANIEL
             and self.cluster_cache_root is None
-            and self.external_cluster_assignments is None
         ):
             raise ValueError(
                 "The Daniel-aligned MMseqs2 profile requires --cluster-cache-root so its "
@@ -258,37 +253,10 @@ class BuildConfig:
                 "Precomputed --cluster-assignments are fixture-only because their generating "
                 "MMseqs2 identity, coverage, command, and version cannot be proven by this run"
             )
-        external_pair = (
-            self.external_cluster_assignments is not None,
-            self.external_cluster_provenance is not None,
-        )
-        if external_pair[0] != external_pair[1]:
-            raise ValueError(
-                "--external-cluster-assignments and --external-cluster-provenance "
-                "must be supplied together"
-            )
-        if self.external_cluster_assignments is not None and self.fixture_mode:
-            raise ValueError("External production cluster artifacts cannot be used in fixture mode")
-        if self.cluster_assignments is not None and self.external_cluster_assignments is not None:
-            raise ValueError(
-                "Fixture and external production cluster assignments are mutually exclusive"
-            )
         if self.cluster_assignments is not None and self.cluster_cache_root is not None:
             raise ValueError(
                 "Fixture --cluster-assignments cannot be combined with a production cluster cache"
             )
-        if self.external_cluster_assignments is not None and self.cluster_cache_root is not None:
-            raise ValueError(
-                "Externally generated assignments must remain separate from the "
-                "framework-generated cluster cache"
-            )
-        if self.external_cluster_assignments is not None:
-            for label, path in (
-                ("external cluster assignments", self.external_cluster_assignments),
-                ("external cluster provenance", self.external_cluster_provenance),
-            ):
-                if path is None or not path.expanduser().is_file():
-                    raise ValueError(f"Configured {label} file does not exist: {path}")
         if self.require_cluster_cache and self.cluster_cache_root is None:
             raise ValueError("--require-cluster-cache requires --cluster-cache-root")
         if self.common_preprocessing_cache is not None:
@@ -324,12 +292,6 @@ class BuildConfig:
                 )
             if not self.diagnostic_pilot and self.attrition_policy is None:
                 raise ValueError("Production requires a reviewed --attrition-policy JSON file")
-            revision = (self.framework_revision or "").strip()
-            if FRAMEWORK_REVISION_RE.fullmatch(revision) is None:
-                raise ValueError(
-                    "Production and diagnostic pilots require --framework-revision as exactly "
-                    "40 lowercase hexadecimal characters"
-                )
         frozen = {
             "UniProt/UniRef": (self.release_uniprot, FROZEN_UNIPROT_RELEASE),
             "GOA": (self.release_goa, FROZEN_GOA_RELEASE),
@@ -411,11 +373,7 @@ class BuildConfig:
 
     @property
     def publication_relative_path(self) -> Path:
-        revision_component = (
-            f"framework_{self.framework_revision[:12]}"
-            if self.framework_revision else "framework_fixture"
-        )
-        root = Path(f"source_{self.uniprot_source_scope}") / revision_component
+        root = Path(f"source_{self.uniprot_source_scope}")
         if self.uniref_level != 90:
             profile = (
                 f"uniref{self.uniref_level}_sensitivity_{self.sensitivity:g}"
