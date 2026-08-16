@@ -302,15 +302,11 @@ def publish(args: argparse.Namespace) -> dict[str, Any]:
             "source_files": [
                 {
                     "label": "hydrated_embedding_archive",
-                    "name": archive_path.name,
-                    "path": str(archive_path),
                     "sha256": archive_sha,
                     "size_bytes": archive_path.stat().st_size,
                 },
                 {
                     "label": "model_execution_config",
-                    "name": config_path.name,
-                    "path": str(config_path),
                     "sha256": sha256_file(config_path),
                     "size_bytes": config_path.stat().st_size,
                 },
@@ -326,6 +322,18 @@ def publish(args: argparse.Namespace) -> dict[str, Any]:
                 "framework_commit": args.framework_commit or "unknown",
                 "bound_at_utc": utc_now(),
                 "scientific_contract_sha256": contract["contract_sha256"],
+                "source_locations": [
+                    {
+                        "label": "hydrated_embedding_archive",
+                        "name": archive_path.name,
+                        "path": str(archive_path),
+                    },
+                    {
+                        "label": "model_execution_config",
+                        "name": config_path.name,
+                        "path": str(config_path),
+                    },
+                ],
             },
         )
 

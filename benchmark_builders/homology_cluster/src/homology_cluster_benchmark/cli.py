@@ -13,6 +13,7 @@ import pandas as pd
 from .attrition import load_attrition_policy
 from .authorization import validate_pilot_approval
 from .config import (
+    MMSEQS_PROFILE_LEGACY,
     MMSEQS_PROFILE_POLICIES,
     MMSEQS_PROFILES,
     SUPPORTED_IDENTITIES,
@@ -505,6 +506,9 @@ def _cross_threshold_reports(
             ".", "p"
         )
         aggregate_root /= profile
+    mmseqs_profile = str(fingerprint_payload["mmseqs_profile"])
+    if mmseqs_profile != MMSEQS_PROFILE_LEGACY:
+        aggregate_root /= f"mmseqs_{mmseqs_profile}"
     aggregate_root /= f"scope_{aggregate_scope}"
     final = (
         aggregate_root / "all_thresholds_summary" / actual_split_policy / actual_population
