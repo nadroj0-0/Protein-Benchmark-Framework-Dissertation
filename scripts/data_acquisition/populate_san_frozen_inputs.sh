@@ -392,10 +392,13 @@ write_artifact_metadata() {
 verify_recorded_sha256() {
     local path="$1"
     local sidecar="${path}.sha256"
-    local expected observed
+    local expected recorded_name observed
     [[ -s "$sidecar" ]] || die "Missing SHA-256 sidecar for unpinned artifact: $path"
     expected="$(awk 'NR == 1 {print $1}' "$sidecar")"
+    recorded_name="$(awk 'NR == 1 {print $2}' "$sidecar")"
     [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || die "Invalid SHA-256 sidecar: $sidecar"
+    [[ "$recorded_name" == "$(basename "$path")" ]] || \
+        die "SHA-256 sidecar names the wrong artifact: $sidecar"
     observed="$(sha256_file "$path")"
     [[ "$observed" == "$expected" ]] || \
         die "Recorded SHA-256 mismatch for $path: expected=$expected observed=$observed"
@@ -429,6 +432,32 @@ require_derivation_value() {
         die "Derived provenance lacks $key: $path"
     [[ "$observed" == "$expected" ]] || \
         die "Derived provenance mismatch for $key in $path: expected=$expected observed=$observed"
+}
+
+provenance_value() {
+    local path="$1"
+    local key="$2"
+    awk -F '\t' -v wanted="$key" '
+        NR == 1 {
+            for (field = 1; field <= NF; field++) {
+                if ($field == wanted) {column=field; break}
+            }
+            next
+        }
+        NR == 2 && column {print $column; found=1; exit}
+        END {exit !found}
+    ' "$path"
+}
+
+require_provenance_value() {
+    local path="$1"
+    local key="$2"
+    local expected="$3"
+    local observed
+    observed="$(provenance_value "$path" "$key")" || \
+        die "Artifact provenance lacks $key: $path"
+    [[ "$observed" == "$expected" ]] || \
+        die "Artifact provenance mismatch for $key in $path: expected=$expected observed=$observed"
 }
 
 count_uniprot_records() {
@@ -626,9 +655,23 @@ process_mmseqs_tool() {
     echo "[$MMSEQS_TOOL_ROLE] $MMSEQS_TOOL_RELATIVE"
     if [[ -x "$destination" && -s "${destination}.sha256" && \
           -s "${destination}.provenance.tsv" && -s "$derivation" ]]; then
+        verify_recorded_sha256 "$destination"
+        output_sha="$(sha256_file "$destination")"
+        require_derivation_value "$derivation" schema_version 1
+        require_derivation_value "$derivation" source_artifact_id "$MMSEQS_ARCHIVE_ROLE"
         require_derivation_value "$derivation" source_sha256 "$source_sha"
         require_derivation_value "$derivation" binary_version "$MMSEQS_TOOL_VERSION"
-        verify_recorded_sha256 "$destination"
+        require_derivation_value "$derivation" output_sha256 "$output_sha"
+        require_provenance_value "${destination}.provenance.tsv" role "$MMSEQS_TOOL_ROLE"
+        require_provenance_value "${destination}.provenance.tsv" release "$MMSEQS_TOOL_RELEASE"
+        require_provenance_value "${destination}.provenance.tsv" relative_path "$MMSEQS_TOOL_RELATIVE"
+        require_provenance_value "${destination}.provenance.tsv" \
+            url "derived://${MMSEQS_ARCHIVE_ROLE}#mmseqs/bin/mmseqs"
+        require_provenance_value "${destination}.provenance.tsv" \
+            observed_bytes "$(file_size "$destination")"
+        require_provenance_value "${destination}.provenance.tsv" observed_sha256 "$output_sha"
+        require_provenance_value "${destination}.provenance.tsv" \
+            acquisition extracted-authenticated-tool
         observed_version="$("$destination" version | tr -d '[:space:]')" || \
             die "Extracted MMseqs2 binary cannot run on this host: $destination"
         [[ "$observed_version" == "$MMSEQS_TOOL_VERSION" ]] || \

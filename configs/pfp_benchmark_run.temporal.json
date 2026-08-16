@@ -33,5 +33,14 @@
   },
   "evaluation": {
     "require_precomputed_ia": false
+  },
+  "embedding_evidence_contract": {
+    "required": true,
+    "cache_role": "accepted-corrected-2025-03-08",
+    "text_cutoff_date": "2025-03-08",
+    "required_source_labels": [
+      "corrected-text-generation",
+      "replacement-composition"
+    ]
   }
 }

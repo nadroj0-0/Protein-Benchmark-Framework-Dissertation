@@ -213,6 +213,7 @@ def main() -> int:
     args = parser.parse_args()
 
     config = load_run_config(args.config)
+    evidence_contract = config.get("embedding_evidence_contract", {})
     cache_root = args.cache_root.resolve()
     directories = modality_paths(cache_root, config)
     aspects = selected_aspects(args.aspect)
@@ -340,6 +341,25 @@ def main() -> int:
                 raise ValueError("contract.json CSV sizes differ from the selected nine CSVs")
             if contract_payload.get("pfp_commit") != "1e04fd6d6d3c40458fd41ec1a881ed6e24de768e":
                 raise ValueError("contract.json records an unexpected PFP commit")
+            if evidence_contract:
+                runtime = contract_payload.get("runtime", {})
+                if runtime.get("cache_role") != evidence_contract["cache_role"]:
+                    raise ValueError("Embedding contract has the wrong cache role")
+                if runtime.get("text_cutoff_date") != evidence_contract["text_cutoff_date"]:
+                    raise ValueError("Embedding contract has the wrong text cutoff")
+                source_labels = {
+                    item.get("label")
+                    for item in contract_payload.get("source_files", [])
+                    if isinstance(item, dict)
+                }
+                missing_labels = sorted(
+                    set(evidence_contract["required_source_labels"]) - source_labels
+                )
+                if missing_labels:
+                    raise ValueError(
+                        "Embedding contract lacks required corrected-cache evidence: "
+                        + ", ".join(missing_labels)
+                    )
             state_modalities = contract_payload.get("policy", {}).get("modalities", {})
             for modality, specification in config["modalities"].items():
                 state_specification = state_modalities.get(modality, {})
@@ -400,7 +420,7 @@ def main() -> int:
             }
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
             failures.append(f"Embedding state evidence binding failed: {exc}")
-    if args.require_embedding_evidence and not evidence_bound:
+    if (args.require_embedding_evidence or evidence_contract.get("required")) and not evidence_bound:
         failures.append(
             "Required embedding evidence must include coverage.json, contract.json, "
             "targets.tsv and pair_status.tsv bound to this benchmark and cache"

@@ -56,8 +56,10 @@ d72f0a5abb66d3224bd808e2015b55f1c9d18340
 The submitted homology workflow validates MMseqs2 release `18-8cc5c` and full
 commit `8cc5ce367b5638c4306c2d7cfc652dd099a4643f`. On compatible Linux AVX2 hosts,
 the input populator extracts and catalogues the authenticated executable. An
-explicit `MMSEQS_BIN` remains available for another compatible installation,
-but it must report the same full identity.
+authenticated catalogue entry takes precedence; without one, explicit
+`MMSEQS_BIN` remains available for another compatible installation before the
+launcher falls back to `PATH`. Every selected binary must report the same full
+identity.
 
 Framework Git metadata is optional report-only provenance. It is never an
 execution gate or part of scientific identity, so a clean clone, edited clone,

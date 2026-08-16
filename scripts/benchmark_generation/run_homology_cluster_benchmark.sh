@@ -29,11 +29,9 @@ TEMP_DIR="${TEMP_DIR:-${TMPDIR:-/tmp}/homology-cluster-benchmark}"
 THREADS="${THREADS:-1}"
 SEED="${SEED:-0}"
 MIN_COUNT="${MIN_COUNT:-50}"
-MMSEQS_BIN="${MMSEQS_BIN:-}"
-if [[ -z "$MMSEQS_BIN" ]]; then
-    MMSEQS_BIN="$(resolve_artifact_path mmseqs2_executable "" || true)"
-fi
-MMSEQS_BIN="${MMSEQS_BIN:-mmseqs}"
+configured_mmseqs_bin="${MMSEQS_BIN:-}"
+catalogued_mmseqs_bin="$(resolve_artifact_path mmseqs2_executable "" || true)"
+MMSEQS_BIN="${catalogued_mmseqs_bin:-${configured_mmseqs_bin:-mmseqs}}"
 MMSEQS_PROFILE="${MMSEQS_PROFILE:-framework-uniref50-s4-defaults}"
 UNIREF_LEVEL="${UNIREF_LEVEL:-50}"
 case "$UNIREF_LEVEL" in

@@ -79,6 +79,25 @@ def load_run_config(path: Path) -> Dict[str, Any]:
         evaluation.get("require_precomputed_ia", False), bool
     ):
         raise ValueError(f"Config evaluation.require_precomputed_ia must be boolean: {path}")
+    embedding_contract = value.get("embedding_evidence_contract")
+    if embedding_contract is not None:
+        if not isinstance(embedding_contract, dict):
+            raise ValueError(f"Config embedding_evidence_contract must be an object: {path}")
+        required = embedding_contract.get("required")
+        cache_role = embedding_contract.get("cache_role")
+        text_cutoff = embedding_contract.get("text_cutoff_date")
+        source_labels = embedding_contract.get("required_source_labels")
+        if required is not True or not isinstance(cache_role, str) or not cache_role:
+            raise ValueError(f"Config has an invalid embedding evidence requirement: {path}")
+        if not isinstance(text_cutoff, str) or not text_cutoff:
+            raise ValueError(f"Config has an invalid embedding text cutoff: {path}")
+        if (
+            not isinstance(source_labels, list)
+            or not source_labels
+            or any(not isinstance(label, str) or not label for label in source_labels)
+            or len(set(source_labels)) != len(source_labels)
+        ):
+            raise ValueError(f"Config has invalid embedding source labels: {path}")
     reference = value.get("reference_preparation")
     if reference is not None:
         required_reference = {

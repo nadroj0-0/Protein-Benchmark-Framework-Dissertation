@@ -29,7 +29,8 @@ METRIC_DEFINITIONS: dict[str, MetricDefinition] = {
         "all qualifying GOA accessions after evidence, NOT, object, and ontology filtering",
         "minimum",
     ),
-    "selected_uniprot_to_uniref_mapping_ratio": MetricDefinition(
+    # Schema-1 machine key retained for compatibility; definitions are scaffold-neutral.
+    "selected_uniprot_to_uniref90_mapping_ratio": MetricDefinition(
         "selected-UniProt accessions mapped uniquely to the selected UniRef FASTA member",
         "qualifying GOA accessions resolving to one selected-UniProt sequence",
         "minimum",
@@ -78,6 +79,17 @@ METRIC_DEFINITIONS: dict[str, MetricDefinition] = {
         "absolute achieved-minus-requested training-within-development member fraction",
         "one whole ratio unit",
         "maximum",
+    ),
+}
+
+LEGACY_SCHEMA_1_DEFINITIONS = {
+    "selected_uniprot_to_uniref90_mapping_ratio": (
+        "selected-UniProt accessions mapped uniquely to a UniRef90 FASTA member",
+        "qualifying GOA accessions resolving to one selected-UniProt sequence",
+    ),
+    "retained_cluster_member_ratio": (
+        "UniRef90 members in clusters retained by a qualifying selected-UniProt annotation",
+        "all frozen UniRef90 FASTA members clustered by MMseqs2",
     ),
 }
 
@@ -161,10 +173,16 @@ def load_attrition_policy(
         entry = metrics[name]
         if not isinstance(entry, dict):
             raise ValueError(f"Attrition policy metric {name} must be an object")
-        if entry.get("numerator_definition") != definition.numerator:
-            raise ValueError(f"Attrition policy numerator definition mismatch for {name}")
-        if entry.get("denominator_definition") != definition.denominator:
-            raise ValueError(f"Attrition policy denominator definition mismatch for {name}")
+        observed_definition = (
+            entry.get("numerator_definition"),
+            entry.get("denominator_definition"),
+        )
+        accepted_definitions = {(definition.numerator, definition.denominator)}
+        legacy_definition = LEGACY_SCHEMA_1_DEFINITIONS.get(name)
+        if legacy_definition is not None:
+            accepted_definitions.add(legacy_definition)
+        if observed_definition not in accepted_definitions:
+            raise ValueError(f"Attrition policy definition mismatch for {name}")
         expected_key = f"allowed_{definition.bound}_ratio"
         other_key = "allowed_maximum_ratio" if definition.bound == "minimum" else "allowed_minimum_ratio"
         if expected_key not in entry or other_key in entry:

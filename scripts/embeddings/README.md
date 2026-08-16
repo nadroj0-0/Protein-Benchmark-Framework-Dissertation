@@ -63,6 +63,12 @@ authenticate the coarse non-text base used by composition, then to authenticate
 the composed corrected cache. The earlier text layer is never a reported model
 input.
 
+The first state is marked `composition-base-only`. Initialization grants
+`accepted-corrected-2025-03-08` only after authenticating both the composition
+marker and complete text-generation marker. The temporal model config requires
+that accepted role and bound state evidence, so the coarse cache cannot enter
+training or evaluation.
+
 `configs/contemporary_embedding_resume.json` defines acceptance dimensions,
 coverage floors, cutoff, and paper-faithful PPI policy.
 

@@ -71,6 +71,10 @@ configs/pfp_benchmark_run.temporal_nk_lk.json
 configs/pfp_benchmark_run.homology.json
 ```
 
+The global-NK temporal config requires bound embedding evidence with cache role
+`accepted-corrected-2025-03-08`. The intermediate composition base cannot pass
+model validation, even if `--require-embedding-evidence` is omitted.
+
 Run `--help` for checkpoint, reference-artifact, tolerance, aspect, and evidence
 options.
 

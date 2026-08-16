@@ -70,6 +70,7 @@
       "t1_endpoint_policy": "snapshot-membership",
       "t1_backfill_policy": "allow",
       "text_cutoff": "2025-03-08",
+      "accepted_cache_role": "accepted-corrected-2025-03-08",
       "ppi_policy": "paper-faithful",
       "min_count": 50,
       "development_split_fraction": 0.9,

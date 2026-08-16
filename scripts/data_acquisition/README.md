@@ -64,8 +64,10 @@ after the configured size, checksum, metadata, and structural checks pass.
 The workflow also creates the filtered temporal TrEMBL products, authenticated
 UniRef50 common-preprocessing cache, MMseqs cluster-cache root, and an extracted
 MMseqs2 executable from the pinned Linux AVX2 archive. The executable must report
-the exact accepted commit before it is catalogued. These products are exposed in
-`manifests/artifact_paths.tsv`; point later workflows at that catalogue with:
+the exact accepted commit before it is catalogued. Offline verification checks
+the archive binding, executable hash, derivation record, and provenance fields.
+These products are exposed in `manifests/artifact_paths.tsv`; point later
+workflows at that catalogue with:
 
 ```bash
 export ARTIFACT_CATALOG=/absolute/path/to/pfp_inputs/manifests/artifact_paths.tsv

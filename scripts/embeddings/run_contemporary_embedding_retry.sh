@@ -131,7 +131,8 @@ if contract["pfp_commit"] != observed_pfp_commit:
         f"State contract pfp_commit mismatch: {contract['pfp_commit']} != "
         f"{observed_pfp_commit}"
     )
-cutoff = contract.get("runtime", {}).get("text_cutoff_date")
+runtime = contract.get("runtime", {})
+cutoff = runtime.get("text_generation_cutoff", runtime.get("text_cutoff_date"))
 if cutoff != sys.argv[3]:
     raise SystemExit(f"State contract text cutoff mismatch: {cutoff} != {sys.argv[3]}")
 sources = {entry["label"]: entry["sha256"] for entry in contract["source_files"]}

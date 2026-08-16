@@ -444,7 +444,7 @@ export HF_HOME="$WORK_DIR/model_cache/huggingface"
 export TORCH_HOME="$WORK_DIR/model_cache/torch"
 export ALPHAFOLD_ACQUISITION_MODE=framework-bounded
 # Structures are acquisition intermediates. Keeping tens of thousands of PDBs
-# as loose SAN files would consume the same inode quota this workflow protects.
+# as loose persistent files would consume the same inode quota this workflow protects.
 export ALPHAFOLD_PERSISTENT_CACHE_DIR="$WORK_DIR/source_cache/alphafold_structures"
 export ALPHAFOLD_API_WORKERS="${ALPHAFOLD_API_WORKERS:-8}"
 export ALPHAFOLD_DOWNLOAD_WORKERS="${ALPHAFOLD_DOWNLOAD_WORKERS:-8}"
@@ -533,7 +533,7 @@ else
   initialize_embedding_state
   attempt_id="${JOB_ID:-local}_$(date -u +%Y%m%dT%H%M%SZ)_initial"
   # This merge records reasons for missing pairs. Arrays already authenticated
-  # in the baseline are recognized as accepted and are not copied into SAN.
+  # in the baseline are recognized as accepted and are not copied into the store.
   merge_command=(
     "$PYTHON_BIN" "$FRAMEWORK_ROOT/scripts/embeddings/manage_resumable_embedding_state.py"
     merge

@@ -32,7 +32,7 @@ Usage: initialize_contemporary_embedding_state.sh \
 
 The baseline root must contain archive/contemporary_embedding_cache.tar.gz and
 reports/assembly/embedding_assembly.tsv.gz. The command indexes the archive
-without extracting its hundreds of thousands of arrays onto persistent SAN.
+without extracting its hundreds of thousands of arrays onto persistent storage.
 EOF
 }
 
@@ -63,6 +63,7 @@ done
 [[ "$TEXT_CUTOFF_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || \
   die "Invalid text cutoff date: $TEXT_CUTOFF_DATE"
 [[ -f "$POLICY" ]] || die "Missing policy: $POLICY"
+command -v "$PYTHON_BIN" >/dev/null 2>&1 || die "Python not found: $PYTHON_BIN"
 
 BASELINE_ARCHIVE="$BASELINE_ROOT/archive/contemporary_embedding_cache.tar.gz"
 BASELINE_REPORT="$BASELINE_ROOT/reports/assembly/embedding_assembly.tsv.gz"
@@ -76,6 +77,75 @@ for path in \
   "$BASELINE_ROOT/reports/input_acquisition.tsv"; do
   [[ -f "$path" ]] || die "Missing required input: $path"
 done
+
+CACHE_ROLE="$("$PYTHON_BIN" - "$BASELINE_ROOT" "$BASELINE_ARCHIVE" \
+  "$BASELINE_REPORT" "$TEXT_CUTOFF_DATE" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+root, archive, assembly = map(Path, sys.argv[1:4])
+cutoff = sys.argv[4]
+composition_path = root / "COMPOSITION_COMPLETE.json"
+text_path = root / "provenance" / "TEXT_GENERATION_COMPLETE.json"
+present = (composition_path.is_file(), text_path.is_file())
+if present == (False, False):
+    print("composition-base-only")
+    raise SystemExit(0)
+if present != (True, True) or composition_path.is_symlink() or text_path.is_symlink():
+    raise SystemExit("Corrected baseline has incomplete or unsafe composition evidence")
+
+def load(path):
+    with path.open(encoding="utf-8") as handle:
+        value = json.load(handle)
+    if not isinstance(value, dict):
+        raise SystemExit(f"Invalid evidence object: {path}")
+    return value
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+composition = load(composition_path)
+text = load(text_path)
+required_composition = {
+    "complete": True,
+    "operation": "replace-finalized-text-layer",
+    "expected_cutoff": cutoff,
+    "old_text_carried_forward": False,
+    "roundtrip_validated": True,
+    "combined_archive": "archive/contemporary_embedding_cache.tar.gz",
+}
+required_text = {
+    "complete": True,
+    "mode": "full-text-generation-only",
+    "requested_cutoff": cutoff,
+    "effective_cutoff": cutoff,
+    "old_text_carried_forward": False,
+    "hydration_performed": False,
+    "state_modified": False,
+}
+for key, expected in required_composition.items():
+    if composition.get(key) != expected:
+        raise SystemExit(f"Composition evidence mismatch for {key}")
+for key, expected in required_text.items():
+    if text.get(key) != expected:
+        raise SystemExit(f"Text-generation evidence mismatch for {key}")
+if composition.get("combined_archive_sha256") != sha256(archive):
+    raise SystemExit("Composition evidence does not authenticate the baseline archive")
+if composition.get("assembly_report_sha256") != sha256(assembly):
+    raise SystemExit("Composition evidence does not authenticate the assembly report")
+if composition.get("replacement_archive_sha256") != text.get("archive_sha256"):
+    raise SystemExit("Composition and text-generation evidence bind different text archives")
+if composition.get("target_count") != text.get("target_count"):
+    raise SystemExit("Composition and text-generation target counts differ")
+print(f"accepted-corrected-{cutoff}")
+PY
+)"
 
 mkdir -p "$OUTPUT_DIR" "$STATE_ROOT"
 OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
@@ -115,7 +185,8 @@ command=(
   --source-file "pfp-ppi=$PFP_ROOT/scripts/extract_ppi_embeddings.py"
   --source-file "framework-if1-compat=$HERE/build_pfp_if1_compat_copy.py"
   --source-file "framework-ppi-compat=$HERE/build_pfp_ppi_compat_copy.py"
-  --runtime-value "text_cutoff_date=$TEXT_CUTOFF_DATE"
+  --runtime-value "cache_role=$CACHE_ROLE"
+  --runtime-value "text_generation_cutoff=$TEXT_CUTOFF_DATE"
   --runtime-value "temporal_profile=supervisor"
   --runtime-value "t1_endpoint_policy=snapshot-membership"
   --runtime-value "exclude_t1_backfill=false"
@@ -126,6 +197,7 @@ command=(
 if [[ -f "$BASELINE_ROOT/COMPOSITION_COMPLETE.json" ]]; then
   command+=(
     --source-file "replacement-composition=$BASELINE_ROOT/COMPOSITION_COMPLETE.json"
+    --runtime-value "text_cutoff_date=$TEXT_CUTOFF_DATE"
   )
 fi
 if [[ -f "$BASELINE_ROOT/provenance/TEXT_GENERATION_COMPLETE.json" ]]; then
