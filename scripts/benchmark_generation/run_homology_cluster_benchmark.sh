@@ -40,7 +40,15 @@ case "$UNIREF_LEVEL" in
     *) echo "UNIREF_LEVEL must be 90 or 50" >&2; exit 2 ;;
 esac
 MMSEQS_SENSITIVITY="${MMSEQS_SENSITIVITY:-$DEFAULT_MMSEQS_SENSITIVITY}"
-EXPECTED_MMSEQS_VERSION="${EXPECTED_MMSEQS_VERSION:-8cc5ce367b5638c4306c2d7cfc652dd099a4643f}"
+EXPECTED_MMSEQS_VERSION="8cc5ce367b5638c4306c2d7cfc652dd099a4643f"
+for forwarded_argument in "$@"; do
+    case "$forwarded_argument" in
+        --expected-mmseqs-version|--expected-mmseqs-version=*)
+            echo "The dissertation MMseqs2 identity cannot be overridden" >&2
+            exit 2
+            ;;
+    esac
+done
 FROZEN_INPUT_MANIFEST="${FROZEN_INPUT_MANIFEST:-}"
 ATTRITION_POLICY="${ATTRITION_POLICY:-}"
 ATTRITION_OVERRIDE="${ATTRITION_OVERRIDE:-}"

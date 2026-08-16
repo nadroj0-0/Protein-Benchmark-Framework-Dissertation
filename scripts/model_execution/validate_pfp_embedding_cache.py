@@ -207,6 +207,7 @@ def main() -> int:
     parser.add_argument("--issues-tsv", type=Path, required=True)
     parser.add_argument("--embedding-evidence", type=Path, action="append", default=[])
     parser.add_argument("--require-embedding-evidence", action="store_true")
+    parser.add_argument("--composition-base-evidence-policy", type=Path)
     parser.add_argument("--preparation-report", type=Path, required=True)
     parser.add_argument("--ia-file-dir", type=Path)
     parser.add_argument("--aspect", action="append", default=[])
@@ -214,6 +215,16 @@ def main() -> int:
 
     config = load_run_config(args.config)
     evidence_contract = config.get("embedding_evidence_contract", {})
+    if args.composition_base_evidence_policy:
+        evidence_contract = json.loads(
+            args.composition_base_evidence_policy.read_text(encoding="utf-8")
+        )
+        if evidence_contract != {
+            "schema_version": 1,
+            "required": True,
+            "cache_role": "composition-base-only",
+        }:
+            raise ValueError("Invalid composition-base evidence policy")
     cache_root = args.cache_root.resolve()
     directories = modality_paths(cache_root, config)
     aspects = selected_aspects(args.aspect)
@@ -345,7 +356,11 @@ def main() -> int:
                 runtime = contract_payload.get("runtime", {})
                 if runtime.get("cache_role") != evidence_contract["cache_role"]:
                     raise ValueError("Embedding contract has the wrong cache role")
-                if runtime.get("text_cutoff_date") != evidence_contract["text_cutoff_date"]:
+                required_cutoff = evidence_contract.get("text_cutoff_date")
+                if (
+                    required_cutoff is not None
+                    and runtime.get("text_cutoff_date") != required_cutoff
+                ):
                     raise ValueError("Embedding contract has the wrong text cutoff")
                 source_labels = {
                     item.get("label")
@@ -353,7 +368,7 @@ def main() -> int:
                     if isinstance(item, dict)
                 }
                 missing_labels = sorted(
-                    set(evidence_contract["required_source_labels"]) - source_labels
+                    set(evidence_contract.get("required_source_labels", [])) - source_labels
                 )
                 if missing_labels:
                     raise ValueError(

@@ -59,6 +59,7 @@ the input populator extracts and catalogues the authenticated executable. An
 authenticated catalogue entry takes precedence; without one, explicit
 `MMSEQS_BIN` remains available for another compatible installation before the
 launcher falls back to `PATH`. Every selected binary must report the same full
+identity. The dissertation launcher does not permit overriding that expected
 identity.
 
 Framework Git metadata is optional report-only provenance. It is never an

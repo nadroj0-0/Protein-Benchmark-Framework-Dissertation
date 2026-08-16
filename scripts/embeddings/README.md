@@ -58,10 +58,13 @@ python scripts/embeddings/compose_contemporary_text_replacement.py --help
 python scripts/embeddings/finalize_embedding_state.py --help
 ```
 
-The finalizer is therefore invoked twice with different roots: first to
-authenticate the coarse non-text base used by composition, then to authenticate
-the composed corrected cache. The earlier text layer is never a reported model
-input.
+The finalizer is therefore invoked twice with different roots. Both calls keep
+`--config configs/pfp_benchmark_run.temporal.json`; the first additionally uses
+`--composition-base-evidence-policy
+configs/contemporary_embedding_composition_base.json` to authenticate only the
+coarse base used by composition. The second call omits that override, so the
+strict corrected-cache contract applies. The earlier text layer is never a
+reported model input.
 
 The first state is marked `composition-base-only`. Initialization grants
 `accepted-corrected-2025-03-08` only after authenticating both the composition

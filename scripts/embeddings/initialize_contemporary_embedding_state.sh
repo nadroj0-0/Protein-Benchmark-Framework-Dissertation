@@ -78,8 +78,15 @@ for path in \
   [[ -f "$path" ]] || die "Missing required input: $path"
 done
 
+expected_pfp_commit="1e04fd6d6d3c40458fd41ec1a881ed6e24de768e"
+pfp_commit="$(git_in_dir "$PFP_ROOT" rev-parse HEAD)"
+[[ "$pfp_commit" == "$expected_pfp_commit" ]] || \
+  die "PFP commit mismatch: expected $expected_pfp_commit, found $pfp_commit"
+
 CACHE_ROLE="$("$PYTHON_BIN" - "$BASELINE_ROOT" "$BASELINE_ARCHIVE" \
-  "$BASELINE_REPORT" "$TEXT_CUTOFF_DATE" <<'PY'
+  "$BASELINE_REPORT" "$TEXT_CUTOFF_DATE" "$REUSE_TABLE" \
+  "$REGENERATE_TABLE" "$pfp_commit" <<'PY'
+import csv
 import hashlib
 import json
 import sys
@@ -87,13 +94,23 @@ from pathlib import Path
 
 root, archive, assembly = map(Path, sys.argv[1:4])
 cutoff = sys.argv[4]
+target_tables = [Path(sys.argv[5]), Path(sys.argv[6])]
+expected_pfp_commit = sys.argv[7]
 composition_path = root / "COMPOSITION_COMPLETE.json"
 text_path = root / "provenance" / "TEXT_GENERATION_COMPLETE.json"
-present = (composition_path.is_file(), text_path.is_file())
+present = tuple(
+    path.exists() or path.is_symlink() for path in (composition_path, text_path)
+)
 if present == (False, False):
     print("composition-base-only")
     raise SystemExit(0)
-if present != (True, True) or composition_path.is_symlink() or text_path.is_symlink():
+if (
+    present != (True, True)
+    or composition_path.is_symlink()
+    or text_path.is_symlink()
+    or not composition_path.is_file()
+    or not text_path.is_file()
+):
     raise SystemExit("Corrected baseline has incomplete or unsafe composition evidence")
 
 def load(path):
@@ -109,6 +126,35 @@ def sha256(path):
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+def require_sha256(value, label):
+    if not isinstance(value, str) or len(value) != 64 or any(
+        character not in "0123456789abcdef" for character in value
+    ):
+        raise SystemExit(f"Invalid SHA-256 for {label}")
+    return value
+
+targets = {}
+for table in target_tables:
+    with table.open(encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        required_columns = {"protein_id", "sequence_sha256"}
+        if reader.fieldnames is None or not required_columns.issubset(reader.fieldnames):
+            raise SystemExit(f"Target table lacks required columns: {table}")
+        for row in reader:
+            protein_id = row["protein_id"]
+            sequence_sha256 = row["sequence_sha256"]
+            if not protein_id or protein_id in targets:
+                raise SystemExit(f"Invalid or repeated target: {protein_id!r}")
+            targets[protein_id] = require_sha256(
+                sequence_sha256, f"target sequence {protein_id}"
+            )
+if not targets:
+    raise SystemExit("Planner population is empty")
+target_manifest = "protein_id\tsequence_sha256\n" + "".join(
+    f"{protein_id}\t{targets[protein_id]}\n" for protein_id in sorted(targets)
+)
+target_manifest_sha256 = hashlib.sha256(target_manifest.encode("utf-8")).hexdigest()
 
 composition = load(composition_path)
 text = load(text_path)
@@ -139,10 +185,51 @@ if composition.get("combined_archive_sha256") != sha256(archive):
     raise SystemExit("Composition evidence does not authenticate the baseline archive")
 if composition.get("assembly_report_sha256") != sha256(assembly):
     raise SystemExit("Composition evidence does not authenticate the assembly report")
-if composition.get("replacement_archive_sha256") != text.get("archive_sha256"):
+composition_replacement_sha = require_sha256(
+    composition.get("replacement_archive_sha256"), "composition replacement archive"
+)
+text_archive_sha = require_sha256(text.get("archive_sha256"), "text archive")
+if composition_replacement_sha != text_archive_sha:
     raise SystemExit("Composition and text-generation evidence bind different text archives")
-if composition.get("target_count") != text.get("target_count"):
-    raise SystemExit("Composition and text-generation target counts differ")
+for label, value in (
+    ("composition", composition.get("target_count")),
+    ("text generation", text.get("target_count")),
+):
+    if type(value) is not int or value != len(targets):
+        raise SystemExit(f"{label} target count differs from the planner population")
+
+source_contract_path = root / "provenance" / "contract.json"
+if not source_contract_path.is_file() or source_contract_path.is_symlink():
+    raise SystemExit("Corrected baseline lacks a safe source-state contract")
+source_contract_sha = require_sha256(
+    text.get("source_state_contract_sha256"), "source-state contract"
+)
+if source_contract_sha != sha256(source_contract_path):
+    raise SystemExit("Text-generation evidence does not authenticate the source-state contract")
+source_contract = load(source_contract_path)
+recorded_contract_sha = require_sha256(
+    source_contract.pop("contract_sha256", None), "source-state contract self-hash"
+)
+canonical_contract = json.dumps(
+    source_contract, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+).encode("utf-8")
+if recorded_contract_sha != hashlib.sha256(canonical_contract).hexdigest():
+    raise SystemExit("Source-state contract self-hash is invalid")
+if source_contract.get("pfp_commit") != expected_pfp_commit:
+    raise SystemExit("Source-state contract has the wrong PFP commit")
+source_targets = source_contract.get("targets", {})
+if (
+    source_targets.get("count") != len(targets)
+    or source_targets.get("manifest_sha256") != target_manifest_sha256
+):
+    raise SystemExit("Source-state contract targets differ from the planner population")
+if text.get("pfp_commit") != expected_pfp_commit:
+    raise SystemExit("Text-generation evidence has the wrong PFP commit")
+source_runtime = source_contract.get("runtime", {})
+if source_runtime.get("cache_role") != "composition-base-only":
+    raise SystemExit("Text-generation source was not the composition base")
+if source_runtime.get("text_generation_cutoff") != cutoff:
+    raise SystemExit("Source-state contract has the wrong text-generation cutoff")
 print(f"accepted-corrected-{cutoff}")
 PY
 )"
@@ -157,10 +244,6 @@ PFP_ROOT="$(cd "$PFP_ROOT" && pwd)"
 POLICY="$(cd "$(dirname "$POLICY")" && pwd)/$(basename "$POLICY")"
 
 validate_mmfp_env "$PYTHON_BIN" > "$OUTPUT_DIR/environment_validation.txt"
-pfp_commit="$(git_in_dir "$PFP_ROOT" rev-parse HEAD)"
-expected_pfp_commit="${EXPECTED_PFP_COMMIT:-1e04fd6d6d3c40458fd41ec1a881ed6e24de768e}"
-[[ "$pfp_commit" == "$expected_pfp_commit" ]] || \
-  die "PFP commit mismatch: expected $expected_pfp_commit, found $pfp_commit"
 
 command=(
   "$PYTHON_BIN" "$HERE/manage_resumable_embedding_state.py" initialize

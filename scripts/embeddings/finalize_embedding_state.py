@@ -273,6 +273,7 @@ def validate_cache(
     report: Path,
     issues: Path,
     log: Path,
+    composition_base_evidence_policy: Path | None,
 ) -> None:
     command = [
         sys.executable,
@@ -293,6 +294,13 @@ def validate_cache(
         str(preparation_report),
         "--require-embedding-evidence",
     ]
+    if composition_base_evidence_policy is not None:
+        command.extend(
+            (
+                "--composition-base-evidence-policy",
+                str(composition_base_evidence_policy),
+            )
+        )
     for name in ("coverage.json", "contract.json", "targets.tsv", "pair_status.tsv"):
         command.extend(("--embedding-evidence", str(evidence_dir / name)))
     run_logged(label, command, log)
@@ -311,6 +319,7 @@ def main() -> int:
     parser.add_argument("--final-root", type=Path, required=True)
     parser.add_argument("--report-dir", type=Path, required=True)
     parser.add_argument("--archive-name", default="contemporary_embedding_cache.tar.gz")
+    parser.add_argument("--composition-base-evidence-policy", type=Path)
     parser.add_argument("--confirm-retries-finished", action="store_true")
     parser.add_argument("--retire-source-embeddings", action="store_true")
     args = parser.parse_args()
@@ -324,7 +333,10 @@ def main() -> int:
     for path in (args.state_root, args.benchmark_dir, args.pfp_root):
         if not path.is_dir():
             raise SystemExit(f"ERROR: Required directory is missing: {path}")
-    for path in (args.obo_file, args.config):
+    required_files = [args.obo_file, args.config]
+    if args.composition_base_evidence_policy is not None:
+        required_files.append(args.composition_base_evidence_policy)
+    for path in required_files:
         if not path.is_file():
             raise SystemExit(f"ERROR: Required file is missing: {path}")
     if args.final_root.exists():
@@ -421,6 +433,7 @@ def main() -> int:
             reports / "hydrated_cache_validation.json",
             reports / "hydrated_cache_issues.tsv",
             logs / "04_validate_hydrated.log",
+            args.composition_base_evidence_policy,
         )
 
         scratch_archive = args.work_dir / args.archive_name
@@ -491,6 +504,7 @@ def main() -> int:
             reports / "roundtrip_cache_validation.json",
             reports / "roundtrip_cache_issues.tsv",
             logs / "07_validate_roundtrip.log",
+            args.composition_base_evidence_policy,
         )
         if source_snapshot(args.state_root) != snapshot:
             raise ValueError("Embedding state changed before final publication")
@@ -510,6 +524,12 @@ def main() -> int:
             "source_contract_sha256": evidence_summary["source_contract_sha256"],
             "final_contract_sha256": evidence_summary["final_contract_sha256"],
         }
+        if args.composition_base_evidence_policy is not None:
+            policy_destination = staging / "evidence" / "composition_base_policy.json"
+            shutil.copy2(args.composition_base_evidence_policy, policy_destination)
+            validation_marker["composition_base_evidence_policy_sha256"] = sha256_file(
+                policy_destination
+            )
         atomic_write_json(staging / "CACHE_ARCHIVE_VALIDATED.json", validation_marker)
         os.replace(staging, args.final_root)
         published = True
