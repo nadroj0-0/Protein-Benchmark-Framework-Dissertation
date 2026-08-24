@@ -25,7 +25,7 @@ from homology_cluster_benchmark.pipeline import build_benchmark, validate_public
 from homology_cluster_benchmark.inputs import sha256_file
 from homology_cluster_benchmark.provenance import PUBLICATION_MARKER_KEYS
 
-from tests.helpers import FIXTURES, fixture_config, uniref50_fixture_config
+from tests.helpers import corrected_goa_text, FIXTURES, fixture_config, uniref50_fixture_config
 
 
 REQUIRED_MANIFESTS = {
@@ -458,7 +458,7 @@ class PipelineTests(unittest.TestCase):
                 f"UniProtKB\tPX{index}\tPX{index}\tinvolved_in\tGO:0009987\tPMID:9\tIEA\t\tP\t\t\tprotein\ttaxon:9606\t20260617\tUniProt\t\t\n"
                 for index in range(25)
             )
-            goa.write_text((FIXTURES / "goa.gaf").read_text() + extra)
+            goa.write_text(corrected_goa_text() + extra)
             outputs = []
             for name in ("a", "b"):
                 result = build_benchmark(fixture_config(

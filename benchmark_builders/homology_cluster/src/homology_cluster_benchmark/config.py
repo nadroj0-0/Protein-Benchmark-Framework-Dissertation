@@ -23,7 +23,8 @@ IDENTITY_DIRECTORY = {
 
 SUPERVISOR_EVIDENCE_CODES = frozenset({
     "EXP", "IDA", "IPI", "IMP", "IGI", "IEP", "HTP", "HDA", "HMP",
-    "HGI", "HEP", "TAS", "NAS", "IGC", "RCA", "ND", "IC",
+    "HGI", "HEP", "IGC",
+    # Corrected on 2026-08-23: "TAS", "NAS", "RCA", "ND", "IC",
 })
 
 ROOT_TERMS = frozenset({"GO:0008150", "GO:0005575", "GO:0003674"})

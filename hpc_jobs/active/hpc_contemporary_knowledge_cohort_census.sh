@@ -48,6 +48,7 @@ done
 [[ ! -e "$OUTPUT_DIR" ]] || die "Output directory already exists: $OUTPUT_DIR"
 
 BENCHMARK_DIR="${BENCHMARK_DIR:-/SAN/bioinf/bmpfp/benchmarks/contemporary/2025_01_to_2026_02_supervisor}"
+BENCHMARK_MANIFEST="${BENCHMARK_MANIFEST:-$BENCHMARK_DIR/build_manifest.json}"
 T0_SPROT_ARCHIVE="${T0_SPROT_ARCHIVE:-/SAN/bioinf/bmpfp/frozen_inputs/uniprot/2025_01/uniprot_sprot-only2025_01.tar.gz}"
 T0_TREMBL="${T0_TREMBL:-/SAN/bioinf/bmpfp/derived_inputs/uniprot/cafa3_target_taxa/2025_01/uniprot_trembl_cafa3_targets.dat.gz}"
 T1_SPROT="${T1_SPROT:-/SAN/bioinf/bmpfp/frozen_inputs/uniprot/2026_02/uniprot_sprot.dat.gz}"
@@ -59,7 +60,7 @@ T0_SOURCE_OBO="${T0_SOURCE_OBO:-/SAN/bioinf/bmpfp/frozen_inputs/ontology/2025-03
 T1_SOURCE_OBO="${T1_SOURCE_OBO:-/SAN/bioinf/bmpfp/frozen_inputs/ontology/2026-06-19/go-basic.obo}"
 
 for path in \
-  "$BENCHMARK_DIR/build_manifest.json" \
+  "$BENCHMARK_MANIFEST" \
   "$T0_SPROT_ARCHIVE" "$T0_TREMBL" "$T1_SPROT" "$T1_TREMBL" \
   "$GOA_T0" "$GOA_T1" "$BENCHMARK_OBO" "$T0_SOURCE_OBO" "$T1_SOURCE_OBO"; do
   [[ -s "$path" ]] || die "Required source is missing or empty: $path"
@@ -130,6 +131,7 @@ tar -xzf "$T0_SPROT_ARCHIVE" -C "$INPUT_DIR" uniprot_sprot.dat.gz
 echo "==> Reconstructing direct/closure states and cohort census"
 "$PYTHON_BIN" scripts/diagnostics/build_contemporary_knowledge_cohort_census.py \
   --accepted-benchmark-dir "$BENCHMARK_DIR" \
+  --accepted-build-manifest "$BENCHMARK_MANIFEST" \
   --t0-sprot "$INPUT_DIR/uniprot_sprot.dat.gz" \
   --t0-trembl "$T0_TREMBL" \
   --t1-sprot "$T1_SPROT" \

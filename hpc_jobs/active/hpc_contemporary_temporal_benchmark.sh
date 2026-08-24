@@ -30,7 +30,11 @@ FRAMEWORK_REPO_URL="${FRAMEWORK_REPO_URL:-https://github.com/nadroj0-0/Protein-B
 FRAMEWORK_REVISION="${FRAMEWORK_REVISION:-}"
 FRAMEWORK_DIR="$WORK/Protein-Benchmark-Framework-Dissertation"
 STAGED_DB_ROOT="$WORK/protein_databases"
-RUN_TAG="${JOB_ID:-manual}_$(date +%Y%m%d_%H%M%S)"
+RUN_TAG="${RUN_TAG:-${JOB_ID:-manual}_$(date +%Y%m%d_%H%M%S)}"
+[[ "$RUN_TAG" =~ ^[A-Za-z0-9._-]+$ && "$RUN_TAG" =~ [A-Za-z0-9] ]] || {
+    echo "RUN_TAG contains unsafe path characters: $RUN_TAG" >&2
+    exit 2
+}
 SCRATCH_RUN_ROOT="$WORK/run"
 FINAL_RUN_ROOT="$RESULTS_ROOT/$RUN_TAG"
 COPIED_RESULTS=0

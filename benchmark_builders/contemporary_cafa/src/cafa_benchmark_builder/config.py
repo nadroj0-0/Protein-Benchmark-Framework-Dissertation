@@ -16,11 +16,13 @@ CAFA3_PUBLIC_PYTHON_EXP_CODES = frozenset({
     "EXP", "IDA", "IPI", "IMP", "IGI", "IEP",
 })
 
-# Dissertation-supervisor policy. It is deliberately a named alternative, not
-# folded into the CAFA3 profile, so results can state exactly which was used.
+# Dissertation-supervisor policy, corrected on 2026-08-23. It is deliberately
+# a named alternative, not folded into the CAFA3 profile, so results can state
+# exactly which was used. The removed entries remain visible for auditability.
 SUPERVISOR_EXP_CODES = frozenset({
     "EXP", "IDA", "IPI", "IMP", "IGI", "IEP", "HTP", "HDA", "HMP",
-    "HGI", "HEP", "TAS", "NAS", "IGC", "RCA", "ND", "IC",
+    "HGI", "HEP", "IGC",
+    # "TAS", "NAS", "RCA", "ND", "IC",
 })
 
 EVIDENCE_POLICIES = {

@@ -87,8 +87,8 @@ class ParserTests(unittest.TestCase):
     def test_goa_exact_policy_and_diagnostics(self):
         ontology = Ontology(FIXTURES / "go-mini.obo")
         result = load_goa(FIXTURES / "goa.gaf", ontology)
-        self.assertEqual(result.counters["kept_rows"], 17)
-        self.assertEqual(result.counters["qualifying_proteins"], 17)
+        self.assertEqual(result.counters["kept_rows"], 12)
+        self.assertEqual(result.counters["qualifying_proteins"], 12)
         self.assertNotIn("PNOT", result.annotations)
         self.assertNotIn("PLOW", result.annotations)
         self.assertEqual(result.annotations["P2MF"], {"GO:0005488"})
@@ -100,7 +100,7 @@ class ParserTests(unittest.TestCase):
         }.issubset(reasons))
         self.assertEqual(set(result.evidence_counts), {
             "EXP", "IDA", "IPI", "IMP", "IGI", "IEP", "HTP", "HDA", "HMP", "HGI",
-            "HEP", "TAS", "NAS", "IGC", "RCA", "ND", "IC",
+            "HEP", "IGC",
         })
         first = result.records[0]
         self.assertEqual(first.database, "UniProtKB")
@@ -108,7 +108,7 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(first.assigned_date, "20260617")
         self.assertEqual(first.assigned_by, "UniProt")
 
-    def test_every_supervisor_evidence_code_is_accepted_literally(self):
+    def test_every_corrected_evidence_code_is_accepted_literally(self):
         ontology = Ontology(FIXTURES / "go-mini.obo")
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -124,6 +124,22 @@ class ParserTests(unittest.TestCase):
                     self.assertEqual(result.counters["kept_rows"], 1)
                     self.assertEqual(set(result.evidence_counts), {code})
 
+    def test_removed_non_direct_codes_are_rejected(self):
+        ontology = Ontology(FIXTURES / "go-mini.obo")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "removed.gaf"
+            rows = "".join(
+                "UniProtKB\tP{code}\tP{code}\tinvolved_in\tGO:0009987\t"
+                "PMID:1\t{code}\t\tP\t\t\tprotein\ttaxon:9606\t20260617\tUniProt\t\t\n".format(
+                    code=code
+                )
+                for code in ("TAS", "NAS", "RCA", "ND", "IC")
+            )
+            path.write_text("!gaf-version: 2.2\n" + rows)
+            result = load_goa(path, ontology)
+        self.assertEqual(result.counters["kept_rows"], 0)
+        self.assertEqual(result.counters["rejected_evidence_code"], 5)
+
     def test_compressed_goa_and_uniref_are_streamed(self):
         ontology = Ontology(FIXTURES / "go-mini.obo")
         with tempfile.TemporaryDirectory() as tmp:
@@ -134,7 +150,7 @@ class ParserTests(unittest.TestCase):
                 handle.write((FIXTURES / "goa.gaf").read_text())
             with gzip.open(fasta_gz, "wt") as handle:
                 handle.write((FIXTURES / "uniref90.fasta").read_text())
-            self.assertEqual(load_goa(goa_gz, ontology).counters["kept_rows"], 17)
+            self.assertEqual(load_goa(goa_gz, ontology).counters["kept_rows"], 12)
             self.assertEqual(len(list(iter_fasta(fasta_gz))), 7)
 
     def test_malformed_gaf_is_distinguished_and_strict_mode_fails(self):
@@ -172,10 +188,19 @@ class ParserTests(unittest.TestCase):
 
     def test_mapping_chain_reports_ambiguous_and_unmapped(self):
         ontology = Ontology(FIXTURES / "go-mini.obo")
-        goa = load_goa(FIXTURES / "goa.gaf", ontology)
-        catalog = load_requested_proteins(FIXTURES / "uniprot.fasta", set(goa.annotations))
-        canonicalize_goa_accessions(goa, catalog)
         with tempfile.TemporaryDirectory() as tmp:
+            goa_path = Path(tmp) / "mapping.gaf"
+            goa_path.write_text(
+                (FIXTURES / "goa.gaf").read_text().replace(
+                    "PUN\tPUN\tinvolved_in\tGO:0009987\tPMID:7\tND",
+                    "PUN\tPUN\tinvolved_in\tGO:0009987\tPMID:7\tIGC",
+                )
+            )
+            goa = load_goa(goa_path, ontology)
+            catalog = load_requested_proteins(
+                FIXTURES / "uniprot.fasta", set(goa.annotations)
+            )
+            canonicalize_goa_accessions(goa, catalog)
             index = UniRefIndex.build(FIXTURES / "uniref90.fasta", Path(tmp) / "uniref.sqlite")
             decisions = load_uniref90_mappings(
                 FIXTURES / "idmapping_selected.tab", set(record.raw_accession for record in goa.records),

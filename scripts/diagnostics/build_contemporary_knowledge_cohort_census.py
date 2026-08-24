@@ -349,6 +349,7 @@ def _census_tsv(summary: Mapping[str, Any]) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--accepted-benchmark-dir", type=Path, required=True)
+    parser.add_argument("--accepted-build-manifest", type=Path)
     parser.add_argument("--t0-sprot", type=Path, required=True)
     parser.add_argument("--t0-trembl", type=Path, required=True)
     parser.add_argument("--t1-sprot", type=Path, required=True)
@@ -374,7 +375,10 @@ def main() -> int:
     if output_dir.exists():
         raise ValueError(f"Output directory already exists: {output_dir}")
     benchmark_dir = args.accepted_benchmark_dir.resolve()
-    manifest_path = _require_file(benchmark_dir / "build_manifest.json", "accepted build manifest")
+    manifest_path = _require_file(
+        args.accepted_build_manifest or benchmark_dir / "build_manifest.json",
+        "accepted build manifest",
+    )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     _validate_manifest(manifest)
 

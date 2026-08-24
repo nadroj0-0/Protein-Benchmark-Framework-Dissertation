@@ -232,8 +232,9 @@ class BenchmarkBuilderSmokeTest(unittest.TestCase):
     def test_named_evidence_policies_are_available(self):
         self.assertIn("TAS", EVIDENCE_POLICIES["cafa3-final"])
         self.assertIn("IC", EVIDENCE_POLICIES["cafa3-final"])
-        self.assertIn("NAS", EVIDENCE_POLICIES["supervisor"])
-        self.assertIn("ND", EVIDENCE_POLICIES["supervisor"])
+        self.assertIn("IGC", EVIDENCE_POLICIES["supervisor"])
+        self.assertNotIn("NAS", EVIDENCE_POLICIES["supervisor"])
+        self.assertNotIn("ND", EVIDENCE_POLICIES["supervisor"])
         self.assertNotIn("TAS", EVIDENCE_POLICIES["cafa3-public-python"])
 
     def test_profiles_separate_training_and_target_policy(self):

@@ -215,7 +215,9 @@ JOB_TOKEN="${JOB_ID:-manual}"
 if [[ -n "${SGE_TASK_ID:-}" && "${SGE_TASK_ID}" != "undefined" ]]; then
   JOB_TOKEN="${JOB_TOKEN}_${SGE_TASK_ID}"
 fi
-RUN_TAG="${JOB_TOKEN}_$(date +%Y%m%d_%H%M%S)"
+RUN_TAG="${RUN_TAG:-${JOB_TOKEN}_$(date +%Y%m%d_%H%M%S)}"
+[[ "$RUN_TAG" =~ ^[A-Za-z0-9._-]+$ && "$RUN_TAG" =~ [A-Za-z0-9] ]] || \
+  die "RUN_TAG contains unsafe path characters: $RUN_TAG"
 WORK="/scratch0/pfp_benchmark_${JOB_TOKEN}"
 FRAMEWORK_DIR="$WORK/Protein-Benchmark-Framework-Dissertation"
 PFP_DIR="$WORK/PFP"

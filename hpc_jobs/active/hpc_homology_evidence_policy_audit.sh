@@ -28,6 +28,7 @@ ROOT_15="${ROOT_15:-$FRAMEWORK_OLD_PREFIX/task_4_identity_15/$SUFFIX_BASE/framew
 ROOT_10="${ROOT_10:-$FRAMEWORK_OLD_PREFIX/task_5_identity_10/$SUFFIX_BASE/framework_e08c2dc2733e/uniref50_sensitivity_4/mmseqs_daniel-aligned-defaults/identity_10/cluster-count-random/annotated-only/seed_0/min_count_50}"
 ROOT_05="${ROOT_05:-$FRAMEWORK_OLD_PREFIX/task_6_identity_5/$SUFFIX_BASE/framework_e08c2dc2733e/uniref50_sensitivity_4/mmseqs_daniel-aligned-defaults/identity_05/cluster-count-random/annotated-only/seed_0/min_count_50}"
 DANIEL_30="${DANIEL_30:-$BENCHMARK_BASE/supervisor_daniel_buchan/uniref50_sensitivity_4/runtime_array/source_sprot-and-trembl/uniref50_sensitivity_4/framework_ffe3c038bb78/run_runtime-7132993/job_7132993/task_1_identity_30/benchmark/source_sprot-and-trembl/framework_ffe3c038bb78/uniref50_sensitivity_4/mmseqs_daniel-aligned-defaults/identity_30/cluster-count-random/annotated-only/seed_0/min_count_50}"
+INCLUDE_DANIEL_COMPARATOR="${INCLUDE_DANIEL_COMPARATOR:-1}"
 RESULTS_ROOT="${RESULTS_ROOT:-/SAN/bioinf/bmpfp/diagnostics/homology_evidence_policy/2026_02}"
 FRAMEWORK_REPO_URL="${FRAMEWORK_REPO_URL:-https://github.com/nadroj0-0/Protein-Benchmark-Framework-Dissertation.git}"
 FRAMEWORK_COMMIT="${FRAMEWORK_COMMIT:-}"
@@ -74,7 +75,11 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
-for root in "$ROOT_30" "$ROOT_25" "$ROOT_20" "$ROOT_15" "$ROOT_10" "$ROOT_05" "$DANIEL_30"; do
+[[ "$INCLUDE_DANIEL_COMPARATOR" == 0 || "$INCLUDE_DANIEL_COMPARATOR" == 1 ]] || \
+  die "INCLUDE_DANIEL_COMPARATOR must be 0 or 1"
+ROOTS=("$ROOT_30" "$ROOT_25" "$ROOT_20" "$ROOT_15" "$ROOT_10" "$ROOT_05")
+if [[ "$INCLUDE_DANIEL_COMPARATOR" == 1 ]]; then ROOTS+=("$DANIEL_30"); fi
+for root in "${ROOTS[@]}"; do
   [[ -f "$root/qualifying_annotations.tsv.gz" ]] || die "Missing qualifying annotations: $root"
 done
 [[ -x "$PYTHON_BIN" ]] || die "Missing Python: $PYTHON_BIN"
@@ -96,15 +101,20 @@ echo "Final output     : $FINAL_OUTPUT"
 git clone --no-checkout "$FRAMEWORK_REPO_URL" "$FRAMEWORK_DIR"
 git_in_dir "$FRAMEWORK_DIR" checkout --detach "$FRAMEWORK_COMMIT"
 
-"$PYTHON_BIN" "$FRAMEWORK_DIR/scripts/diagnostics/audit_homology_evidence_policy.py" \
+COMMAND=(
+  "$PYTHON_BIN" "$FRAMEWORK_DIR/scripts/diagnostics/audit_homology_evidence_policy.py" \
   --benchmark "framework-30=$ROOT_30" \
   --benchmark "framework-25=$ROOT_25" \
   --benchmark "framework-20=$ROOT_20" \
   --benchmark "framework-15=$ROOT_15" \
   --benchmark "framework-10=$ROOT_10" \
   --benchmark "framework-05=$ROOT_05" \
-  --benchmark "daniel-30=$DANIEL_30" \
   --output-dir "$SCRATCH_OUTPUT"
+)
+if [[ "$INCLUDE_DANIEL_COMPARATOR" == 1 ]]; then
+  COMMAND+=(--benchmark "daniel-30=$DANIEL_30")
+fi
+"${COMMAND[@]}"
 
 [[ -f "$SCRATCH_OUTPUT/RUN_COMPLETE.json" ]] || die "Completion marker is missing"
 publish 0

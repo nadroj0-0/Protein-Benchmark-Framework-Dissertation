@@ -9,7 +9,21 @@ from homology_cluster_benchmark.models import InputSpec
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
+def corrected_goa_text() -> str:
+    return (
+        (FIXTURES / "goa.gaf").read_text()
+        .replace("\tTAS\t", "\tEXP\t")
+        .replace("\tNAS\t", "\tIGC\t")
+        .replace("\tRCA\t", "\tIGC\t")
+        .replace("\tND\t", "\tIGC\t")
+        .replace("\tIC\t", "\tIGC\t")
+    )
+
+
 def fixture_config(output_root: Path, temp_root: Path, **overrides) -> BuildConfig:
+    corrected_goa = temp_root / "fixture-inputs" / "goa-corrected.gaf"
+    corrected_goa.parent.mkdir(parents=True, exist_ok=True)
+    corrected_goa.write_text(corrected_goa_text())
     values = {
         "identity": 0.30,
         "output_dir": output_root,
@@ -29,7 +43,7 @@ def fixture_config(output_root: Path, temp_root: Path, **overrides) -> BuildConf
         ),
         "uniprot_trembl_sequences": None,
         "goa": InputSpec(
-            "goa", FIXTURES / "goa.gaf", release="234",
+            "goa", corrected_goa, release="234",
             source_population="uniprotkb-goa",
         ),
         "go_obo": InputSpec(
