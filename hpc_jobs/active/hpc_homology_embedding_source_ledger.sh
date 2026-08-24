@@ -31,6 +31,7 @@ CONTEMPORARY_EMBEDDED_BENCHMARK="${CONTEMPORARY_EMBEDDED_BENCHMARK:-contemporary
 CAFA3_EMBEDDED_BENCHMARK="${CAFA3_EMBEDDED_BENCHMARK:-cafa3_hydrated_population}"
 CONTEMPORARY_TEXT_REUSE_POLICY="${CONTEMPORARY_TEXT_REUSE_POLICY:-source-current}"
 CAFA3_TEXT_REUSE_POLICY="${CAFA3_TEXT_REUSE_POLICY:-source-current}"
+SECOND_SOURCE_ENABLED="${SECOND_SOURCE_ENABLED:-1}"
 
 JOB_TOKEN="${JOB_ID:-manual_$$}"
 RUN_TAG="${JOB_TOKEN}_$(date -u +%Y%m%dT%H%M%SZ)"
@@ -97,15 +98,23 @@ trap 'echo "Received termination signal"; exit 130' INT TERM
 
 [[ -d "$COARSE_PLAN_DIR" ]] || die "Coarse plan is missing: $COARSE_PLAN_DIR"
 [[ -f "$CONTEMPORARY_ARCHIVE" ]] || die "Contemporary archive is missing"
-[[ -f "$CAFA3_ARCHIVE" ]] || die "CAFA3 archive is missing"
+[[ "$SECOND_SOURCE_ENABLED" == 0 || "$SECOND_SOURCE_ENABLED" == 1 ]] || \
+  die "SECOND_SOURCE_ENABLED must be 0 or 1"
+if [[ "$SECOND_SOURCE_ENABLED" == 1 ]]; then
+  [[ -f "$CAFA3_ARCHIVE" ]] || die "CAFA3 archive is missing"
+fi
 [[ "$CONTEMPORARY_EMBEDDED_BENCHMARK" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || \
   die "Unsafe contemporary embedded-benchmark name"
-[[ "$CAFA3_EMBEDDED_BENCHMARK" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || \
-  die "Unsafe CAFA3 embedded-benchmark name"
+if [[ "$SECOND_SOURCE_ENABLED" == 1 ]]; then
+  [[ "$CAFA3_EMBEDDED_BENCHMARK" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || \
+    die "Unsafe CAFA3 embedded-benchmark name"
+fi
 [[ "$CONTEMPORARY_TEXT_REUSE_POLICY" =~ ^(never|same-role|source-current)$ ]] || \
   die "Invalid contemporary text reuse policy"
-[[ "$CAFA3_TEXT_REUSE_POLICY" =~ ^(never|same-role|source-current)$ ]] || \
-  die "Invalid CAFA3 text reuse policy"
+if [[ "$SECOND_SOURCE_ENABLED" == 1 ]]; then
+  [[ "$CAFA3_TEXT_REUSE_POLICY" =~ ^(never|same-role|source-current)$ ]] || \
+    die "Invalid CAFA3 text reuse policy"
+fi
 [[ ! -e "$WORK" ]] || die "Scratch path already exists: $WORK"
 [[ "$RESULTS_ROOT" == /SAN/* ]] || die "RESULTS_ROOT must be on SAN"
 mkdir -p "$WORK" "$RESULTS_ROOT"
@@ -125,9 +134,12 @@ echo "Coarse plan          : $COARSE_PLAN_DIR"
 echo "Contemporary source  : $CONTEMPORARY_ARCHIVE"
 echo "Contemporary label   : $CONTEMPORARY_EMBEDDED_BENCHMARK"
 echo "Contemporary text    : $CONTEMPORARY_TEXT_REUSE_POLICY"
-echo "CAFA3 source         : $CAFA3_ARCHIVE"
-echo "CAFA3 label          : $CAFA3_EMBEDDED_BENCHMARK"
-echo "CAFA3 text           : $CAFA3_TEXT_REUSE_POLICY"
+echo "Second source enabled: $SECOND_SOURCE_ENABLED"
+if [[ "$SECOND_SOURCE_ENABLED" == 1 ]]; then
+  echo "CAFA3 source         : $CAFA3_ARCHIVE"
+  echo "CAFA3 label          : $CAFA3_EMBEDDED_BENCHMARK"
+  echo "CAFA3 text           : $CAFA3_TEXT_REUSE_POLICY"
+fi
 echo "Final output         : $FINAL_OUTPUT"
 echo "Started              : $(date -Is)"
 
@@ -141,15 +153,22 @@ add_mmfp_singularity_bind "$WORK"
 activate_or_create_mmfp_env
 PYTHON_BIN="$(command -v python)"
 
-set +e
-"$PYTHON_BIN" scripts/embeddings/resolve_embedding_reuse_sources.py \
+command=(
+  "$PYTHON_BIN" scripts/embeddings/resolve_embedding_reuse_sources.py
   --coarse-plan-dir "$COARSE_PLAN_DIR" \
   --cache-source "contemporary_paper_faithful=${CONTEMPORARY_EMBEDDED_BENCHMARK}=${CONTEMPORARY_ARCHIVE}=${CONTEMPORARY_ARCHIVE_SHA256}" \
-  --cache-source "cafa3_regenerated_hydrated=${CAFA3_EMBEDDED_BENCHMARK}=${CAFA3_ARCHIVE}=${CAFA3_ARCHIVE_SHA256}" \
   --source-text-policy "contemporary_paper_faithful=${CONTEMPORARY_TEXT_REUSE_POLICY}" \
-  --source-text-policy "cafa3_regenerated_hydrated=${CAFA3_TEXT_REUSE_POLICY}" \
   --output-dir "$SCRATCH_OUTPUT" \
-  2>&1 | tee "$WORKFLOW_LOG"
+)
+if [[ "$SECOND_SOURCE_ENABLED" == 1 ]]; then
+  command+=(
+    --cache-source "cafa3_regenerated_hydrated=${CAFA3_EMBEDDED_BENCHMARK}=${CAFA3_ARCHIVE}=${CAFA3_ARCHIVE_SHA256}"
+    --source-text-policy "cafa3_regenerated_hydrated=${CAFA3_TEXT_REUSE_POLICY}"
+  )
+fi
+
+set +e
+"${command[@]}" 2>&1 | tee "$WORKFLOW_LOG"
 status=${PIPESTATUS[0]}
 set -e
 [[ "$status" == 0 ]] || exit "$status"
