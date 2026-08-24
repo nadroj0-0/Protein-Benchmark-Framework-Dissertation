@@ -25,7 +25,7 @@ done
 [[ "$CAMPAIGN_ROOT" == /* && "$CAMPAIGN_ROOT" != / ]] || die "CAMPAIGN_ROOT must be absolute"
 [[ "$LOG_ROOT" == /* && "$LOG_ROOT" != / ]] || die "LOG_ROOT must be absolute"
 
-BRANCH="$(git branch --show-current)"
+BRANCH="$(git symbolic-ref --quiet --short HEAD || true)"
 [[ "$BRANCH" == fixed-evidence-codes ]] || die "Submit from fixed-evidence-codes, not $BRANCH"
 if [[ "$DRY_RUN" == 0 || "$ALLOW_DIRTY_PREVIEW" == 0 ]]; then
   [[ -z "$(git status --porcelain)" ]] || die "Framework checkout must be clean"
@@ -34,8 +34,19 @@ FRAMEWORK_COMMIT="$(git rev-parse HEAD)"
 SHORT_COMMIT="${FRAMEWORK_COMMIT:0:12}"
 
 EXPECTED_CODES="EXP,IDA,IPI,IMP,IGI,IEP,HTP,HDA,HMP,HGI,HEP,IGC"
+SUBMISSION_PYTHON="${PYTHON_BIN:-}"
+if [[ -z "$SUBMISSION_PYTHON" ]]; then
+  if command -v python3 >/dev/null 2>&1; then
+    SUBMISSION_PYTHON="$(command -v python3)"
+  elif [[ -x /share/apps/miniforge3_mamba/bin/python3 ]]; then
+    SUBMISSION_PYTHON=/share/apps/miniforge3_mamba/bin/python3
+  else
+    die "Python 3 is unavailable for the evidence-policy preflight"
+  fi
+fi
+[[ -x "$SUBMISSION_PYTHON" ]] || die "Submission Python is not executable: $SUBMISSION_PYTHON"
 PYTHONPATH="$FRAMEWORK_ROOT/benchmark_builders/contemporary_cafa/src:$FRAMEWORK_ROOT/benchmark_builders/homology_cluster/src" \
-python3 - "$EXPECTED_CODES" <<'PY'
+"$SUBMISSION_PYTHON" - "$EXPECTED_CODES" <<'PY'
 import sys
 from cafa_benchmark_builder.config import SUPERVISOR_EXP_CODES
 from homology_cluster_benchmark.config import SUPERVISOR_EVIDENCE_CODES
