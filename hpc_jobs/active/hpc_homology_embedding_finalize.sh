@@ -15,10 +15,12 @@ git_in_dir() { local directory="$1"; shift; (cd "$directory" && git "$@"); }
 
 LEDGER_DIR=""
 BATCH_ROOT=""
+EMBEDDING_POLICY="configs/homology_embedding_generation.json"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --ledger-dir) LEDGER_DIR="$2"; shift 2 ;;
     --batch-root) BATCH_ROOT="$2"; shift 2 ;;
+    --policy) EMBEDDING_POLICY="$2"; shift 2 ;;
     *) die "Unknown argument: $1" ;;
   esac
 done
@@ -164,6 +166,20 @@ source scripts/reproduction_common.sh
 load_framework_paths "$FRAMEWORK_DIR"
 activate_or_create_mmfp_env
 python_bin="$(command -v python)"
+[[ -f "$EMBEDDING_POLICY" ]] || die "Missing embedding policy: $EMBEDDING_POLICY"
+EMBEDDING_POLICY="$(cd "$(dirname "$EMBEDDING_POLICY")" && pwd)/$(basename "$EMBEDDING_POLICY")"
+policy_sha="$($python_bin - "$EMBEDDING_POLICY" <<'PY'
+import hashlib
+import sys
+print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())
+PY
+)"
+required_text_cutoff="$($python_bin - "$EMBEDDING_POLICY" <<'PY'
+import json
+import sys
+print(json.load(open(sys.argv[1], encoding="utf-8")).get("required_text_cutoff") or "")
+PY
+)"
 wait_for_file "$LEDGER_DIR/output_manifest.json" || \
   die "Ledger output manifest did not become visible: $LEDGER_DIR/output_manifest.json"
 stage_ledger_with_retry || die "Could not stage a complete readable ledger from SAN"
@@ -185,7 +201,8 @@ for modality in sequence text structure ppi; do
     die "Could not stage $modality completion marker"
   stage_file_with_retry "$source_archive" "$archive" || \
     die "Could not stage $modality archive"
-  "$python_bin" - "$marker" "$archive" "$ledger_sha" "$modality" <<'PY'
+  "$python_bin" - "$marker" "$archive" "$ledger_sha" "$modality" \
+    "$policy_sha" "$required_text_cutoff" <<'PY'
 import hashlib
 import json
 import sys
@@ -195,6 +212,10 @@ if marker.get("complete") is not True or marker.get("modality") != sys.argv[4]:
     raise SystemExit("Invalid modality completion marker")
 if marker.get("ledger_output_manifest_sha256") != sys.argv[3]:
     raise SystemExit("Delta is bound to a different pair ledger")
+if marker.get("policy_sha256") != sys.argv[5]:
+    raise SystemExit("Delta is bound to a different embedding policy")
+if sys.argv[4] == "text" and sys.argv[6] and marker.get("text_cutoff_date") != sys.argv[6]:
+    raise SystemExit("Text delta uses the wrong cutoff")
 if marker.get("archive_sha256") != observed:
     raise SystemExit("Delta archive hash does not match its completion marker")
 PY
@@ -248,7 +269,7 @@ mkdir -p "$SCRATCH_RESULT/reports"
   --ledger-dir "$STAGED_LEDGER" \
   "${generated_args[@]}" \
   "${source_args[@]}" \
-  --policy configs/homology_embedding_generation.json \
+  --policy "$EMBEDDING_POLICY" \
   --output-archive "$SCRATCH_RESULT/homology_30_embedding_cache.tar.gz" \
   --report-dir "$SCRATCH_RESULT/reports/assembly"
 

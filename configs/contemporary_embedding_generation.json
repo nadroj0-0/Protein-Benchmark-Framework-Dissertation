@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "description": "Pair-resolved contemporary temporal embedding cache",
+  "required_text_cutoff": "2025-03-08",
+  "modalities": {
+    "sequence": {
+      "cache_directory": "prott5",
+      "dimension": 1024,
+      "min_accepted_fraction": 1.0,
+      "model": "Rostlab/prot_t5_xl_half_uniref50-enc"
+    },
+    "text": {
+      "cache_directory": "exp_text_embeddings_temporal",
+      "dimension": 768,
+      "min_accepted_count": 1,
+      "model": "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext",
+      "source_policy": "UniProt text available by 2025-03-08; historical if test in any ontology",
+      "pooling": "CLS token selected as array[0,0,:]"
+    },
+    "structure": {
+      "cache_directory": "IF1",
+      "dimension": 512,
+      "min_accepted_count": 1,
+      "model": "esm_if1_gvp4_t16_142M_UR50",
+      "source_policy": "current AlphaFold API at generation time",
+      "pooling": "mean"
+    },
+    "ppi": {
+      "cache_directory": "ppi",
+      "dimension": 512,
+      "min_accepted_count": 1,
+      "source": "STRING protein network embeddings v12.0",
+      "alias_policy": "PFP paper-faithful restricted alias sources"
+    }
+  }
+}

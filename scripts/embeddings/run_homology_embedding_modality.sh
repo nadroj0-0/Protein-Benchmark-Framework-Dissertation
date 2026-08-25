@@ -17,6 +17,7 @@ BENCHMARK_DIR=""
 LEDGER_DIR=""
 MODALITY=""
 TEXT_CUTOFF_DATE=""
+POLICY="$FRAMEWORK_ROOT/configs/homology_embedding_generation.json"
 
 usage() {
   cat <<'EOF'
@@ -24,7 +25,7 @@ Usage: run_homology_embedding_modality.sh \
   --pfp-root PATH --work-dir PATH --output-dir PATH \
   --benchmark-dir PATH --ledger-dir PATH \
   --modality sequence|text|structure|ppi [--text-cutoff-date YYYY-MM-DD] \
-  [--artifact-catalog PATH]
+  [--policy PATH] [--artifact-catalog PATH]
 EOF
 }
 
@@ -39,6 +40,7 @@ while [[ $# -gt 0 ]]; do
     --ledger-dir) LEDGER_DIR="$2"; shift 2 ;;
     --modality) MODALITY="$2"; shift 2 ;;
     --text-cutoff-date) TEXT_CUTOFF_DATE="$2"; shift 2 ;;
+    --policy) POLICY="$2"; shift 2 ;;
     --artifact-catalog) ARTIFACT_CATALOG="$2"; export ARTIFACT_CATALOG; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; die "Unknown argument: $1" ;;
@@ -48,16 +50,35 @@ done
 [[ -d "$PFP_ROOT/.git" ]] || die "PFP root is not a Git checkout: $PFP_ROOT"
 [[ -d "$BENCHMARK_DIR" ]] || die "Missing benchmark: $BENCHMARK_DIR"
 [[ -d "$LEDGER_DIR" ]] || die "Missing source-resolved ledger: $LEDGER_DIR"
+[[ -f "$POLICY" ]] || die "Missing embedding policy: $POLICY"
+POLICY="$(cd "$(dirname "$POLICY")" && pwd)/$(basename "$POLICY")"
 [[ -n "$WORK_DIR" && ! -e "$WORK_DIR" ]] || die "Work directory is missing or exists"
 [[ -n "$OUTPUT_DIR" && ! -e "$OUTPUT_DIR" ]] || die "Output directory is missing or exists"
 case "$MODALITY" in sequence|text|structure|ppi) ;; *) die "Invalid modality: $MODALITY" ;; esac
+command -v "$PYTHON_BIN" >/dev/null 2>&1 || die "Python not found: $PYTHON_BIN"
 if [[ -n "$TEXT_CUTOFF_DATE" ]]; then
   [[ "$MODALITY" == "text" ]] || die "--text-cutoff-date is valid only for text"
   [[ "$TEXT_CUTOFF_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || \
     die "--text-cutoff-date must be YYYY-MM-DD"
 fi
+required_text_cutoff="$("$PYTHON_BIN" - "$POLICY" <<'PY'
+import json
+import sys
+from datetime import date
+
+value = json.load(open(sys.argv[1], encoding="utf-8")).get("required_text_cutoff")
+if value is not None:
+    if not isinstance(value, str):
+        raise SystemExit("Embedding policy has an invalid required_text_cutoff")
+    date.fromisoformat(value)
+print(value or "")
+PY
+)"
+if [[ "$MODALITY" == "text" && -n "$required_text_cutoff" ]]; then
+  [[ "$TEXT_CUTOFF_DATE" == "$required_text_cutoff" ]] || \
+    die "Text cutoff mismatch: policy requires $required_text_cutoff"
+fi
 [[ "$PREFLIGHT_PER_SPLIT" =~ ^[1-9][0-9]*$ ]] || die "PREFLIGHT_PER_SPLIT must be positive"
-command -v "$PYTHON_BIN" >/dev/null 2>&1 || die "Python not found: $PYTHON_BIN"
 
 artifact_catalog_configure "$FRAMEWORK_ROOT" "${ARTIFACT_CATALOG:-}"
 mkdir -p "$WORK_DIR" "$OUTPUT_DIR/logs" "$OUTPUT_DIR/reports" "$OUTPUT_DIR/artifacts"
@@ -184,7 +205,7 @@ archive="$OUTPUT_DIR/artifacts/generated_${MODALITY}.tar.gz"
 assembly="$OUTPUT_DIR/artifacts/generated_${MODALITY}_assembly.tsv.gz"
 "$PYTHON_BIN" "$HERE/build_embedding_baseline_archive.py" \
   --generated-cache-root "$PFP_ROOT/data/embedding_cache" \
-  --data-dir "$PFP_ROOT/data" --policy "$FRAMEWORK_ROOT/configs/homology_embedding_generation.json" \
+  --data-dir "$PFP_ROOT/data" --policy "$POLICY" \
   --only-modality "$MODALITY" --archive "$archive" \
   --assembly-report "$assembly" --report "$OUTPUT_DIR/reports/delta_archive.json"
 
@@ -212,7 +233,7 @@ if [[ -f data/alphafold_coverage_results.txt ]]; then
 fi
 
 echo "==> [7/7] Publish the completion marker"
-"$PYTHON_BIN" - "$OUTPUT_DIR" "$MODALITY" "$LEDGER_DIR" "$BENCHMARK_DIR" \
+EMBEDDING_POLICY_PATH="$POLICY" "$PYTHON_BIN" - "$OUTPUT_DIR" "$MODALITY" "$LEDGER_DIR" "$BENCHMARK_DIR" \
   "$TEXT_CUTOFF_DATE" <<'PY'
 import hashlib
 import json
@@ -223,6 +244,7 @@ from pathlib import Path
 
 root = Path(sys.argv[1])
 modality = sys.argv[2]
+policy = Path(os.environ["EMBEDDING_POLICY_PATH"])
 archive = root / "artifacts" / f"generated_{modality}.tar.gz"
 assembly = root / "artifacts" / f"generated_{modality}_assembly.tsv.gz"
 def sha(path):
@@ -241,6 +263,8 @@ payload = {
     "ledger_output_manifest_sha256": sha(Path(sys.argv[3]) / "output_manifest.json"),
     "benchmark_dir": str(Path(sys.argv[4]).resolve()),
     "text_cutoff_date": sys.argv[5] or None,
+    "policy": str(policy.resolve()),
+    "policy_sha256": sha(policy),
     "framework_commit": os.environ.get("FRAMEWORK_COMMIT", "unknown"),
     "pfp_commit": os.environ.get("PFP_COMMIT", "unknown"),
     "archive": str(archive.relative_to(root)),

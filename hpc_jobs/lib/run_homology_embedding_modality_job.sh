@@ -15,6 +15,7 @@ LEDGER_DIR=""
 BATCH_ROOT=""
 TEXT_CUTOFF_DATE=""
 CLI_ARTIFACT_CATALOG="${ARTIFACT_CATALOG:-}"
+EMBEDDING_POLICY="${EMBEDDING_POLICY:-configs/homology_embedding_generation.json}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -160,6 +161,7 @@ COMMAND=(
   --benchmark-dir "$BENCHMARK_STAGE"
   --ledger-dir "$LEDGER_STAGE"
   --modality "$MODALITY"
+  --policy "$EMBEDDING_POLICY"
 )
 if [[ -n "$ARTIFACT_CATALOG" ]]; then
   COMMAND+=(--artifact-catalog "$ARTIFACT_CATALOG")
