@@ -42,7 +42,7 @@ verify_benchmark() {
 }
 
 [[ -d .git ]] || die "Run from the framework checkout root"
-[[ "$(git branch --show-current)" == fixed-evidence-codes ]] || die "Submit from fixed-evidence-codes"
+[[ "$(git symbolic-ref --quiet --short HEAD)" == fixed-evidence-codes ]] || die "Submit from fixed-evidence-codes"
 [[ -z "$(git status --porcelain)" ]] || die "Framework checkout must be clean"
 FRAMEWORK_COMMIT="$(git rev-parse HEAD)"
 [[ "$FRAMEWORK_COMMIT" == "$(git rev-parse origin/fixed-evidence-codes)" ]] || die "Local branch is not at origin/fixed-evidence-codes"
