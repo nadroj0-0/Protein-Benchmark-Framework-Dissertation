@@ -38,7 +38,7 @@ for condition in "${conditions[@]}"; do
 done
 
 mkdir -p "$RESULTS_ROOT/submissions" "$LOG_ROOT"
-output="$(qsub -terse -t 1-4 -tc 2 -N c3orgrep -o "$LOG_ROOT" \
+output="$(qsub -terse -t 1-4 -tc 4 -N c3orgrep -o "$LOG_ROOT" \
   -v "FRAMEWORK_COMMIT=$FRAMEWORK_COMMIT,RESULTS_ROOT=$RESULTS_ROOT,RUN_TAG=$CAMPAIGN_TAG" \
   hpc_jobs/active/hpc_cafa3_organizer_replay.sh)"
 job_id="${output%%.*}"
@@ -56,6 +56,6 @@ ledger="$RESULTS_ROOT/submissions/${CAMPAIGN_TAG}.tsv"
   done
 } > "$ledger"
 
-printf 'Organizer replay array : %s (tasks 1-4, max 2 concurrent)\n' "$job_id"
+printf 'Organizer replay array : %s (tasks 1-4, max 4 concurrent)\n' "$job_id"
 printf 'Campaign prefix        : %s/%s\n' "$RESULTS_ROOT" "$CAMPAIGN_TAG"
 printf 'Submission ledger      : %s\n' "$ledger"
