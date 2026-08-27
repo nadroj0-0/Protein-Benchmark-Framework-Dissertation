@@ -14,6 +14,7 @@ dependencies = [
 
 [project.scripts]
 cafa-benchmark-builder = "cafa_benchmark_builder.cli:main"
+cafa3-organizer-replay = "cafa_benchmark_builder.organizer_replay:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
