@@ -28,6 +28,7 @@ HISTORICAL_T1_ENDPOINT_POLICY="${HISTORICAL_T1_ENDPOINT_POLICY:-assigned-date-pr
 HISTORICAL_BACKFILL_POLICY="${HISTORICAL_BACKFILL_POLICY:-exclude-pre-t0}"
 HISTORICAL_BENCHMARK_ONTOLOGY="${HISTORICAL_BENCHMARK_ONTOLOGY:-}"
 OFFICIAL_CAFA3_ARCHIVE_INPUT="${OFFICIAL_CAFA3_ARCHIVE_INPUT:-}"
+CAFA3_ORGANIZER_REPLAY_MATRIX="${CAFA3_ORGANIZER_REPLAY_MATRIX:-0}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -57,6 +58,9 @@ GO_T1_BASIC_URL="https://release.geneontology.org/2017-11-01/ontology/go-basic.o
 CAFA3_REFERENCE_RECORD_URL="https://zenodo.org/records/7409660"
 CAFA3_REFERENCE_CSV_BASE_URL="${CAFA3_REFERENCE_RECORD_URL}/files"
 DEFAULT_DEEPGOPLUS_PICKLES_URL="https://deepgo.cbrc.kaust.edu.sa/data/data-cafa.tar.gz"
+CAFA3_SUPPLEMENTARY_URL="https://ndownloader.figshare.com/files/17519846"
+CAFA3_SUPPLEMENTARY_SIZE="87529287"
+CAFA3_SUPPLEMENTARY_MD5="2eae900f6f3b60228fb99771576c3a12"
 UNIPROT_2016_08_URL="https://ftp.uniprot.org/pub/databases/uniprot/previous_releases/release-2016_08/knowledgebase/uniprot_sprot-only2016_08.tar.gz"
 UNIPROT_2016_08_METALINK_URL="https://ftp.uniprot.org/pub/databases/uniprot/previous_releases/release-2016_08/knowledgebase/RELEASE.metalink"
 UNIPROT_2016_08_SIZE="1515243865"
@@ -429,6 +433,10 @@ done
 if [ "$DECOMPRESS_GOA" = "1" ] || [ "$INCLUDE_TREMBL_TARGETS" = "1" ]; then
   require_cmd gzip
 fi
+case "$CAFA3_ORGANIZER_REPLAY_MATRIX" in
+  0|1) ;;
+  *) echo "CAFA3_ORGANIZER_REPLAY_MATRIX must be 0 or 1" >&2; exit 1 ;;
+esac
 export CAFA_BUILDER_USE_PIGZ="${CAFA_BUILDER_USE_PIGZ:-${USE_PIGZ}}"
 export CAFA_BUILDER_GOA_PROGRESS_INTERVAL="${GOA_PROGRESS_INTERVAL}"
 
@@ -471,7 +479,7 @@ case "$HISTORICAL_BACKFILL_POLICY" in
   *) echo "Unknown HISTORICAL_BACKFILL_POLICY: $HISTORICAL_BACKFILL_POLICY" >&2; exit 1 ;;
 esac
 case "$HISTORICAL_BENCHMARK_ONTOLOGY" in
-  february-go-basic|deepgoplus-packaged) ;;
+  february-go|february-go-basic|deepgoplus-packaged) ;;
   *) echo "Unknown HISTORICAL_BENCHMARK_ONTOLOGY: $HISTORICAL_BENCHMARK_ONTOLOGY" >&2; exit 1 ;;
 esac
 if [ "$HISTORICAL_TEST_SOURCE" = "official-groundtruth" ] \
@@ -601,6 +609,9 @@ echo "  Official test labels: ${OFFICIAL_TEST_ANNOTATIONS}"
 echo "  DeepGOPlus ontology: ${OFFICIAL_GO_OBO}"
 
 case "$HISTORICAL_BENCHMARK_ONTOLOGY" in
+  february-go)
+    RAW_BENCHMARK_GO_OBO="${RAW}/go/2017-02-01/go.obo"
+    ;;
   february-go-basic)
     RAW_BENCHMARK_GO_OBO="${RAW}/go/2017-02-01/go-basic.obo"
     ;;
@@ -631,8 +642,101 @@ else
   echo "  bypassed: released training and test annotation files are authoritative"
 fi
 
-echo "==> [4/8] Run benchmark builder"
 BUILDER_PYTHONPATH="${REPO_ROOT}/benchmark_builders/contemporary_cafa/src${PYTHONPATH:+:${PYTHONPATH}}"
+if [ "$CAFA3_ORGANIZER_REPLAY_MATRIX" = "1" ]; then
+  [ "$HISTORICAL_TEST_SOURCE" = "raw-goa" ] || {
+    echo "CAFA3_ORGANIZER_REPLAY_MATRIX=1 requires HISTORICAL_TEST_SOURCE=raw-goa" >&2
+    exit 1
+  }
+
+  echo "==> [4/8] Run isolated CAFA3 organiser replay matrix"
+  SUPPLEMENTARY_ARCHIVE="${REFERENCE}/cafa3_supplementary_data.tar.gz"
+  SUPPLEMENTARY_ROOT="${REFERENCE}/cafa3_supplementary"
+  stage_override_or_download "${CAFA3_SUPPLEMENTARY_ARCHIVE_INPUT:-}" \
+    "$CAFA3_SUPPLEMENTARY_URL" "$SUPPLEMENTARY_ARCHIVE"
+  verify_size_and_md5 "$SUPPLEMENTARY_ARCHIVE" \
+    "$CAFA3_SUPPLEMENTARY_SIZE" "$CAFA3_SUPPLEMENTARY_MD5"
+  extract_tar_once "$SUPPLEMENTARY_ARCHIVE" "$SUPPLEMENTARY_ROOT"
+  OFFICIAL_BENCHMARK_DIR="$(find "$SUPPLEMENTARY_ROOT" -type d -name benchmark20171115 | sort | head -1 || true)"
+  [ -n "$OFFICIAL_BENCHMARK_DIR" ] || {
+    echo "Could not locate benchmark20171115 in the official CAFA3 supplement" >&2
+    exit 1
+  }
+
+  REPLAY_ROOT="${GENERATED}/organizer_replay"
+  mkdir -p "$REPLAY_ROOT"
+  replay_conditions=(
+    "assigned-date-proxy:is-a-part-of"
+    "assigned-date-proxy:is-a"
+    "assigned-date-proxy:all"
+    "snapshot-membership:is-a-part-of"
+  )
+  for condition in "${replay_conditions[@]}"; do
+    endpoint="${condition%%:*}"
+    relationship="${condition#*:}"
+    variant="${endpoint}__${relationship}"
+    output="${REPLAY_ROOT}/${variant}"
+    command=(
+      "$PYTHON_BIN" -m cafa_benchmark_builder.organizer_replay
+      --uniprot-t0 "$TARGET_T0_SPROT_INPUT"
+      --uniprot-t1 "$TARGET_T1_SPROT_INPUT"
+      --goa-t0 "$GOA_T0_INPUT"
+      --goa-t1 "$GOA_T1_INPUT"
+      --go-obo "$RAW_BENCHMARK_GO_OBO"
+      --go-obo-t0 "${RAW}/go/2017-02-01/go.obo"
+      --go-obo-t1 "${RAW}/go/2017-11-01/go.obo"
+      --official-target-fasta "$OFFICIAL_TARGET_FASTA"
+      --official-target-mapping-dir "$OFFICIAL_TARGET_MAPPING_DIR"
+      --official-benchmark-dir "$OFFICIAL_BENCHMARK_DIR"
+      --output-dir "$output"
+      --t0-cutoff "$CAFA3_T0_DATE"
+      --t1-cutoff "$CAFA3_T1_DATE"
+      --t1-endpoint-policy "$endpoint"
+      --relationship-policy "$relationship"
+    )
+    if [ "$INCLUDE_TREMBL_TARGETS" = "1" ]; then
+      command+=(
+        --uniprot-t0 "$UNIPROT_T0_TREMBL"
+        --uniprot-t1 "$UNIPROT_T1_TREMBL"
+      )
+    fi
+    printf '%q ' "${command[@]}" > "${LOGS}/organizer_replay_${variant}_command.txt"
+    echo >> "${LOGS}/organizer_replay_${variant}_command.txt"
+    echo "  replay condition: $variant"
+    PYTHONPATH="$BUILDER_PYTHONPATH" "${command[@]}" \
+      2>&1 | tee "${LOGS}/organizer_replay_${variant}.log"
+  done
+
+  "$PYTHON_BIN" - "$REPLAY_ROOT" <<'PY'
+import hashlib
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+root = Path(sys.argv[1])
+conditions = []
+for completion in sorted(root.glob("*/REPLAY_COMPLETE.json")):
+    conditions.append({
+        "condition": completion.parent.name,
+        "completion_sha256": hashlib.sha256(completion.read_bytes()).hexdigest(),
+    })
+if len(conditions) != 4:
+    raise SystemExit(f"Expected four completed replay conditions, found {len(conditions)}")
+payload = {
+    "schema_version": 1,
+    "completed_at_utc": datetime.now(timezone.utc).isoformat(),
+    "conditions": conditions,
+}
+(root / "REPLAY_MATRIX_COMPLETE.json").write_text(
+    json.dumps(payload, indent=2, sort_keys=True) + "\n"
+)
+PY
+  echo "==> CAFA3 organiser replay matrix complete: $REPLAY_ROOT"
+  exit 0
+fi
+
+echo "==> [4/8] Run benchmark builder"
 # The public monthly GO products only bracket the exact GOA snapshot dates.
 # Preserve unmapped-term counts for the forensic comparison instead of aborting.
 BUILDER_CMD=(

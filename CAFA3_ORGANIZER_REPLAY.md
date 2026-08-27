@@ -13,9 +13,10 @@ validated separately and are not part of this experiment.
 
 ## Why this is a branch
 
-The experiment lives on `codex/cafa3-organizer-replay`, branched from framework
-`main`. The ordinary framework workflows are unchanged. The experiment adds a
-new entrypoint and does not replace `cafa-benchmark-builder`.
+The experiment lives on `codex/cafa3-organizer-replay`, based on the current
+`fixed-evidence-codes` operational framework. The ordinary framework workflows
+remain the default. The experiment adds a new entrypoint and does not replace
+`cafa-benchmark-builder`.
 
 ## Targeted alignment
 
@@ -88,3 +89,23 @@ and Jaccard for every all-species release artefact.
 The official release is the output oracle. Matching it does not prove access to
 the organisers' exact private historical execution; disagreement is retained as
 evidence rather than tuned away without a source-backed policy reason.
+
+## Grid execution
+
+Submit the isolated four-condition replay matrix from a clean checkout of this
+branch:
+
+```bash
+bash hpc_jobs/submit_cafa3_organizer_replay.sh
+```
+
+The job downloads the historical inputs once and runs:
+
+1. assigned-date endpoint with `is_a + part_of` (primary CAFA2-aligned policy);
+2. assigned-date endpoint with `is_a` only;
+3. assigned-date endpoint with all parsed GO relationships; and
+4. snapshot-membership endpoint with `is_a + part_of`.
+
+Every condition is published separately under one matrix run and carries its
+own `REPLAY_COMPLETE.json`. The matrix root is published only after all four
+conditions complete.
