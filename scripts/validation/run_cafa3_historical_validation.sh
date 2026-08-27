@@ -215,7 +215,10 @@ extract_tar_once() {
     return 0
   fi
   echo "  extracting: $tarball -> $dest"
-  tar -xzf "$tarball" -C "$dest"
+  case "$tarball" in
+    *.tar) tar -xf "$tarball" -C "$dest" ;;
+    *) tar -xzf "$tarball" -C "$dest" ;;
+  esac
   date > "$marker"
 }
 
@@ -663,6 +666,16 @@ if [ "$CAFA3_ORGANIZER_REPLAY_MATRIX" = "1" ]; then
     "$CAFA3_SUPPLEMENTARY_SIZE" "$CAFA3_SUPPLEMENTARY_MD5"
   extract_tar_once "$SUPPLEMENTARY_ARCHIVE" "$SUPPLEMENTARY_ROOT"
   OFFICIAL_BENCHMARK_DIR="$(find "$SUPPLEMENTARY_ROOT" -type d -name benchmark20171115 | sort | head -1 || true)"
+  if [ -z "$OFFICIAL_BENCHMARK_DIR" ]; then
+    OFFICIAL_BENCHMARK_ARCHIVE="$(find "$SUPPLEMENTARY_ROOT" -type f -name benchmark20171115.tar | sort | head -1 || true)"
+    [ -n "$OFFICIAL_BENCHMARK_ARCHIVE" ] || {
+      echo "Could not locate benchmark20171115.tar in the official CAFA3 supplement" >&2
+      exit 1
+    }
+    OFFICIAL_BENCHMARK_ROOT="${REFERENCE}/cafa3_benchmark20171115"
+    extract_tar_once "$OFFICIAL_BENCHMARK_ARCHIVE" "$OFFICIAL_BENCHMARK_ROOT"
+    OFFICIAL_BENCHMARK_DIR="$(find "$OFFICIAL_BENCHMARK_ROOT" -type d -name benchmark20171115 | sort | head -1 || true)"
+  fi
   [ -n "$OFFICIAL_BENCHMARK_DIR" ] || {
     echo "Could not locate benchmark20171115 in the official CAFA3 supplement" >&2
     exit 1
