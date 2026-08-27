@@ -29,6 +29,7 @@ HISTORICAL_BACKFILL_POLICY="${HISTORICAL_BACKFILL_POLICY:-exclude-pre-t0}"
 HISTORICAL_BENCHMARK_ONTOLOGY="${HISTORICAL_BENCHMARK_ONTOLOGY:-}"
 OFFICIAL_CAFA3_ARCHIVE_INPUT="${OFFICIAL_CAFA3_ARCHIVE_INPUT:-}"
 CAFA3_ORGANIZER_REPLAY_MATRIX="${CAFA3_ORGANIZER_REPLAY_MATRIX:-0}"
+CAFA3_ORGANIZER_REPLAY_CONDITION="${CAFA3_ORGANIZER_REPLAY_CONDITION:-all}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -437,6 +438,10 @@ case "$CAFA3_ORGANIZER_REPLAY_MATRIX" in
   0|1) ;;
   *) echo "CAFA3_ORGANIZER_REPLAY_MATRIX must be 0 or 1" >&2; exit 1 ;;
 esac
+case "$CAFA3_ORGANIZER_REPLAY_CONDITION" in
+  all|assigned-date-proxy:is-a-part-of|assigned-date-proxy:is-a|assigned-date-proxy:all|snapshot-membership:is-a-part-of) ;;
+  *) echo "Unsupported CAFA3_ORGANIZER_REPLAY_CONDITION: $CAFA3_ORGANIZER_REPLAY_CONDITION" >&2; exit 1 ;;
+esac
 export CAFA_BUILDER_USE_PIGZ="${CAFA_BUILDER_USE_PIGZ:-${USE_PIGZ}}"
 export CAFA_BUILDER_GOA_PROGRESS_INTERVAL="${GOA_PROGRESS_INTERVAL}"
 
@@ -665,12 +670,16 @@ if [ "$CAFA3_ORGANIZER_REPLAY_MATRIX" = "1" ]; then
 
   REPLAY_ROOT="${GENERATED}/organizer_replay"
   mkdir -p "$REPLAY_ROOT"
-  replay_conditions=(
-    "assigned-date-proxy:is-a-part-of"
-    "assigned-date-proxy:is-a"
-    "assigned-date-proxy:all"
-    "snapshot-membership:is-a-part-of"
-  )
+  if [ "$CAFA3_ORGANIZER_REPLAY_CONDITION" = "all" ]; then
+    replay_conditions=(
+      "assigned-date-proxy:is-a-part-of"
+      "assigned-date-proxy:is-a"
+      "assigned-date-proxy:all"
+      "snapshot-membership:is-a-part-of"
+    )
+  else
+    replay_conditions=("$CAFA3_ORGANIZER_REPLAY_CONDITION")
+  fi
   for condition in "${replay_conditions[@]}"; do
     endpoint="${condition%%:*}"
     relationship="${condition#*:}"
@@ -707,7 +716,7 @@ if [ "$CAFA3_ORGANIZER_REPLAY_MATRIX" = "1" ]; then
       2>&1 | tee "${LOGS}/organizer_replay_${variant}.log"
   done
 
-  "$PYTHON_BIN" - "$REPLAY_ROOT" <<'PY'
+  "$PYTHON_BIN" - "$REPLAY_ROOT" "${#replay_conditions[@]}" <<'PY'
 import hashlib
 import json
 import sys
@@ -715,14 +724,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 root = Path(sys.argv[1])
+expected_count = int(sys.argv[2])
 conditions = []
 for completion in sorted(root.glob("*/REPLAY_COMPLETE.json")):
     conditions.append({
         "condition": completion.parent.name,
         "completion_sha256": hashlib.sha256(completion.read_bytes()).hexdigest(),
     })
-if len(conditions) != 4:
-    raise SystemExit(f"Expected four completed replay conditions, found {len(conditions)}")
+if len(conditions) != expected_count:
+    raise SystemExit(
+        f"Expected {expected_count} completed replay conditions, found {len(conditions)}"
+    )
 payload = {
     "schema_version": 1,
     "completed_at_utc": datetime.now(timezone.utc).isoformat(),
