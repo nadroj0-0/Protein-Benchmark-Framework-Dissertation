@@ -101,6 +101,8 @@ class BuildConfig:
     cluster_assignments: Path | None = None
     external_cluster_assignments: Path | None = None
     external_cluster_provenance: Path | None = None
+    multilinkage_cluster_memberships: Path | None = None
+    multilinkage_cluster_memberships_sha256: str | None = None
     cluster_cache_root: Path | None = None
     require_cluster_cache: bool = False
     common_preprocessing_cache: Path | None = None
@@ -182,7 +184,10 @@ class BuildConfig:
                 f"UniRef{self.uniref_level} requires source_population "
                 f"{scaffold.source_population!r}"
             )
-        if self.coverage != 0.80:
+        if self.multilinkage_cluster_memberships is not None:
+            if self.coverage not in {0.30, 0.80}:
+                raise ValueError("Multi-linkage coverage must be exactly 0.30 or 0.80")
+        elif self.coverage != 0.80:
             raise ValueError("Coverage is methodologically locked to exactly 0.80")
         if self.cov_mode != 0:
             raise ValueError("The frozen UniRef longest-sequence overlap policy requires --cov-mode 0")
@@ -221,6 +226,7 @@ class BuildConfig:
             self.mmseqs_profile == MMSEQS_PROFILE_DANIEL
             and self.cluster_cache_root is None
             and self.external_cluster_assignments is None
+            and self.multilinkage_cluster_memberships is None
         ):
             raise ValueError(
                 "The Daniel-aligned MMseqs2 profile requires --cluster-cache-root so its "
@@ -290,6 +296,33 @@ class BuildConfig:
             ):
                 if path is None or not path.expanduser().is_file():
                     raise ValueError(f"Configured {label} file does not exist: {path}")
+        if self.multilinkage_cluster_memberships is not None:
+            source = self.multilinkage_cluster_memberships.expanduser()
+            if source.is_symlink() or not source.is_file():
+                raise ValueError(
+                    "Multi-linkage memberships must be a regular non-symlink file: "
+                    f"{source}"
+                )
+            if re.fullmatch(r"[0-9a-f]{64}", self.multilinkage_cluster_memberships_sha256 or "") is None:
+                raise ValueError("Multi-linkage memberships require one lowercase SHA-256")
+            if self.uniref_level != 50 or self.identity != 0.30:
+                raise ValueError("Multi-linkage memberships are locked to UniRef50 and 30% identity")
+            if self.mmseqs_profile != MMSEQS_PROFILE_DANIEL:
+                raise ValueError("Multi-linkage memberships require the Daniel-aligned MMseqs2 profile")
+            if any(
+                item is not None for item in (
+                    self.cluster_assignments,
+                    self.external_cluster_assignments,
+                    self.cluster_cache_root,
+                )
+            ):
+                raise ValueError(
+                    "Multi-linkage memberships cannot be combined with another cluster source"
+                )
+        elif self.multilinkage_cluster_memberships_sha256 is not None:
+            raise ValueError(
+                "--multilinkage-cluster-memberships-sha256 requires the membership file"
+            )
         if self.require_cluster_cache and self.cluster_cache_root is None:
             raise ValueError("--require-cluster-cache requires --cluster-cache-root")
         if self.common_preprocessing_cache is not None:
@@ -424,6 +457,8 @@ class BuildConfig:
             root /= profile
         if self.mmseqs_profile != MMSEQS_PROFILE_LEGACY:
             root /= f"mmseqs_{self.mmseqs_profile}"
+        if self.multilinkage_cluster_memberships is not None:
+            root /= f"multilinkage_coverage_{int(self.coverage * 100):02d}"
         return (
             root / self.identity_directory
             / self.split_policy
@@ -466,3 +501,7 @@ class BuildConfig:
     @property
     def uniref_id_field(self) -> str:
         return self.uniref_scaffold.id_field
+
+    @property
+    def uses_multilinkage(self) -> bool:
+        return self.multilinkage_cluster_memberships is not None

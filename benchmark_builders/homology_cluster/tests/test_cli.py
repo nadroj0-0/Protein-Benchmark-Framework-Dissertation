@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import redirect_stdout, redirect_stderr
+import hashlib
 import io
 from pathlib import Path
 import sys
@@ -15,6 +16,33 @@ from homology_cluster_benchmark.cli import _identities, main
 from homology_cluster_benchmark.config import SUPPORTED_IDENTITIES
 
 class CLITests(unittest.TestCase):
+    def test_multilinkage_dry_run_uses_separate_30_coverage_namespace(self):
+        with tempfile.TemporaryDirectory() as tmp, redirect_stdout(io.StringIO()) as output:
+            root = Path(tmp)
+            memberships = root / "cliques.csv"
+            memberships.write_text("1,UniRef50_U1,P1\n", encoding="utf-8")
+            digest = hashlib.sha256(memberships.read_bytes()).hexdigest()
+            status = main([
+                "build", "--identity", "30", "--output-dir", str(root / "out"),
+                "--uniref-level", "50",
+                "--uniref50-fasta-url", "https://example.invalid/uniref50.fasta.gz",
+                "--idmapping-url", "https://example.invalid/idmapping.gz",
+                "--uniprot-source-scope", "sprot-only",
+                "--uniprot-sprot-sequences-url", "https://example.invalid/uniprot.dat.gz",
+                "--goa-url", "https://example.invalid/goa.gaf.gz",
+                "--go-obo-url", "https://example.invalid/go.obo",
+                "--multilinkage-cluster-memberships", str(memberships),
+                "--multilinkage-cluster-memberships-sha256", digest,
+                "--multilinkage-coverage", "0.3",
+                "--mmseqs-profile", "daniel-aligned-defaults",
+                "--fixture-mode", "--dry-run",
+            ])
+            self.assertEqual(status, 0)
+            text = output.getvalue()
+            self.assertIn('"cluster_source": "supervisor-multilinkage-cliques"', text)
+            self.assertIn("-c 0.3", text)
+            self.assertIn("multilinkage_coverage_30", text)
+
     def test_uniref50_dry_run_selects_its_fasta_and_default_sensitivity(self):
         with tempfile.TemporaryDirectory() as tmp, redirect_stdout(io.StringIO()) as output:
             status = main([

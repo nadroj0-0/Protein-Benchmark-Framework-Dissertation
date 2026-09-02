@@ -24,6 +24,7 @@ from homology_cluster_benchmark.inputs import resolve_input
 from homology_cluster_benchmark.mapping import load_requested_proteins_from_sources
 from homology_cluster_benchmark.mmseqs import ClusterIndex
 from homology_cluster_benchmark.models import InputSpec, MappingDecision, ProteinCatalog
+from homology_cluster_benchmark.multilinkage import build_multilinkage_index
 from homology_cluster_benchmark.uniref import UniRefIndex
 
 from tests.helpers import FIXTURES, fixture_config
@@ -361,6 +362,28 @@ class UniProtScopeTests(unittest.TestCase):
         self.assertEqual(counts["sprot"]["mapped_to_uniref90"], 1)
         self.assertEqual(counts["sprot"]["mapped_to_mmseqs_cluster"], 0)
         self.assertEqual(counts["trembl"]["goa_accessions"], 0)
+
+    def test_multilinkage_direct_membership_does_not_require_uniref_mapping(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "multilinkage.csv"
+            source.write_text("1,UniRef50_REP,P1\n", encoding="utf-8")
+            clusters, _ = build_multilinkage_index(source, root / "clusters.sqlite")
+            decision = MappingDecision(
+                raw_accession="P1",
+                protein_id="P1",
+                accession_action="exact",
+                status="unmapped-absent",
+                detail="absent from idmapping",
+                canonical_sequence_available=True,
+                source_population="sprot",
+            )
+            connected = connect_proteins_to_clusters(
+                [decision], clusters, uniref_level=50, direct_uniprot_members=True
+            )
+            self.assertEqual(connected[0].status, "mapped")
+            self.assertEqual(connected[0].mmseqs_cluster_id, "1")
+            self.assertIn("prior_uniref_status=unmapped-absent", connected[0].detail)
 
 
 if __name__ == "__main__":

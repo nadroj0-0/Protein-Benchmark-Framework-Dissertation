@@ -68,6 +68,7 @@ from .inputs import resolve_input, sha256_file
 from .labels import build_labels
 from .mapping import canonicalize_goa_accessions, load_requested_proteins_from_sources
 from .models import BuildResult, MappingDecision, ResolvedInput
+from .multilinkage import MultilinkageStats, build_multilinkage_index
 from .mmseqs import (
     ClusterIndex,
     build_mmseqs_commands,
@@ -182,6 +183,15 @@ def _parameters(config: BuildConfig) -> dict[str, object]:
             str(config.external_cluster_provenance.resolve())
             if config.external_cluster_provenance else None
         ),
+        **({
+            "cluster_source": "supervisor-multilinkage-cliques",
+            "multilinkage_cluster_memberships": str(
+                config.multilinkage_cluster_memberships.resolve()
+            ),
+            "multilinkage_cluster_memberships_sha256": (
+                config.multilinkage_cluster_memberships_sha256
+            ),
+        } if config.uses_multilinkage else {}),
         "cluster_cache_enabled": config.cluster_cache_root is not None,
         "require_cluster_cache": config.require_cluster_cache,
         "scratch_safety_multiplier": config.scratch_safety_multiplier,
@@ -241,6 +251,12 @@ def _scientific_fingerprint_payload(
         "requested_slots": config.requested_slots,
         "allocated_slots": config.allocated_slots,
         "mmseqs_threads": config.threads,
+        **({
+            "cluster_source": "supervisor-multilinkage-cliques",
+            "multilinkage_cluster_memberships_sha256": (
+                config.multilinkage_cluster_memberships_sha256
+            ),
+        } if config.uses_multilinkage else {}),
     }
 
 
@@ -365,9 +381,13 @@ def _disk_preflight(
     logical_input_bytes = sum(item.size_bytes for item in inputs.values())
     uniref_bytes = inputs[config.uniref_input_name].size_bytes
     common_cache_bytes = 0
+    supplied_assignment = config.multilinkage_cluster_memberships
     external_assignment_bytes = (
         config.external_cluster_assignments.expanduser().stat().st_size
         if config.external_cluster_assignments is not None else 0
+    )
+    multilinkage_assignment_bytes = (
+        supplied_assignment.expanduser().stat().st_size if supplied_assignment else 0
     )
     if config.common_preprocessing_cache is not None:
         cache_root = common_cache_root(config.common_preprocessing_cache)
@@ -376,14 +396,14 @@ def _disk_preflight(
         )
         staged_input_bytes = (
             uniref_bytes + inputs["go_obo"].size_bytes + common_cache_bytes
-            + external_assignment_bytes
+            + external_assignment_bytes + multilinkage_assignment_bytes
         )
         goa_bytes = 0
     else:
-        staged_input_bytes = logical_input_bytes
+        staged_input_bytes = logical_input_bytes + multilinkage_assignment_bytes
         goa_bytes = inputs["goa"].size_bytes
     mmseqs_work_estimate = (
-        0 if config.external_cluster_assignments is not None
+        0 if (config.external_cluster_assignments is not None or supplied_assignment is not None)
         else int(uniref_bytes * config.mmseqs_work_multiplier)
     )
     parser_index_estimate = (
@@ -407,6 +427,7 @@ def _disk_preflight(
             uniref_bytes
             + goa_bytes
             + sum(inputs[name].size_bytes for name in config.selected_uniprot_input_names)
+            + multilinkage_assignment_bytes
         )
     estimated_publication = int(
         publication_basis * config.publication_safety_multiplier
@@ -585,16 +606,22 @@ def _write_cluster_manifests(
     canonical_membership: Path | None = None,
 ) -> tuple[int, int]:
     scaffold = config.uniref_scaffold
-    member_count_field = f"{scaffold.slug}_member_count"
+    member_field = "cluster_member_id" if config.uses_multilinkage else scaffold.id_field
+    member_count_field = (
+        "cluster_member_count"
+        if config.uses_multilinkage else f"{scaffold.slug}_member_count"
+    )
     retained_ids = set(retained)
-    annotated_uniref = {
-        item.uniref90_id for item in decisions
-        if item.mmseqs_cluster_id in retained_ids and item.uniref90_id
+    annotated_members = {
+        item.protein_id if config.uses_multilinkage else item.uniref90_id
+        for item in decisions
+        if item.mmseqs_cluster_id in retained_ids
+        and (item.protein_id if config.uses_multilinkage else item.uniref90_id)
     }
     membership_output = stage / "mmseqs_cluster_membership.tsv.gz"
     if canonical_membership is None:
-        _tsv(membership_output, ["mmseqs_cluster_id", scaffold.id_field], (
-            {"mmseqs_cluster_id": cluster, scaffold.id_field: member}
+        _tsv(membership_output, ["mmseqs_cluster_id", member_field], (
+            {"mmseqs_cluster_id": cluster, member_field: member}
             for cluster, member in cluster_index.iter_assignments()
         ))
     else:
@@ -633,22 +660,26 @@ def _write_cluster_manifests(
         writer = csv.DictWriter(
             handle,
             fieldnames=[
-                "mmseqs_cluster_id", "split", scaffold.id_field, "sequence_sha256",
+                "mmseqs_cluster_id", "split", member_field, "sequence_sha256",
                 "sequence_length", "connected_to_qualifying_uniprot",
             ],
             delimiter="\t", lineterminator="\n",
         )
         writer.writeheader()
-        for cluster_id, member_id, digest, length in (
+        retained_rows = (
+            ((cluster, member, "", "") for cluster, member in
+             cluster_index.iter_assignments_for_clusters(retained_ids))
+            if config.uses_multilinkage else
             cluster_index.iter_assignments_with_metadata_for_clusters(uniref, retained_ids)
-        ):
+        )
+        for cluster_id, member_id, digest, length in retained_rows:
             retained_members += 1
-            connected = member_id in annotated_uniref
+            connected = member_id in annotated_members
             retained_unannotated += int(not connected)
             writer.writerow({
                 "mmseqs_cluster_id": cluster_id,
                 "split": assignments[cluster_id].split,
-                scaffold.id_field: member_id,
+                member_field: member_id,
                 "sequence_sha256": digest,
                 "sequence_length": length,
                 "connected_to_qualifying_uniprot": int(connected),
@@ -830,7 +861,11 @@ def _attrition_observations(
     uniref_count: int,
 ) -> dict[str, dict[str, object]]:
     selected = sum(item.canonical_sequence_available for item in decisions)
-    mapped = sum(item.status == "mapped" for item in decisions)
+    mapped = (
+        sum(bool(item.uniref90_id) and item.exists_in_fasta is True for item in decisions)
+        if config.uses_multilinkage
+        else sum(item.status == "mapped" for item in decisions)
+    )
     eligible_rows = int(labels.row_attrition_counts.get("eligible_annotation_row", 0))
     evaluable_raw = int(labels.protein_attrition_counts.get("evaluable_pfp", 0))
     intermediate = sum(len(labels.frames[split]) for split in SPLITS)
@@ -948,8 +983,14 @@ def _write_taxonomy_summary(stage: Path, goa, labels, catalog) -> None:
 def _write_split_summary(
     stage: Path, assignments: dict, labels, config: BuildConfig
 ) -> dict[str, dict[str, float | int]]:
-    member_field = f"uniref{config.uniref_level}_members"
-    member_ratio_field = f"uniref{config.uniref_level}_member_ratio"
+    member_field = (
+        "cluster_members"
+        if config.uses_multilinkage else f"uniref{config.uniref_level}_members"
+    )
+    member_ratio_field = (
+        "cluster_member_ratio"
+        if config.uses_multilinkage else f"uniref{config.uniref_level}_member_ratio"
+    )
     totals = {
         "clusters": len(assignments),
         "members": sum(item.member_count for item in assignments.values()),
@@ -997,7 +1038,11 @@ def _write_split_balance_summary(stage: Path, assignments: dict, config: BuildCo
     payload = {
         "schema_version": 1,
         "objective": (
-            f"uniref{config.uniref_level}_member_count"
+            (
+                "cluster_member_count"
+                if config.uses_multilinkage
+                else f"uniref{config.uniref_level}_member_count"
+            )
             if config.split_policy == "sequence-balanced"
             else "cluster_count"
         ),
@@ -1066,7 +1111,6 @@ def _write_cluster_size_summary(stage: Path, assignments: dict, giant_threshold:
 def _write_benchmark_summary(stage: Path, summary: dict[str, object]) -> None:
     _json(stage / "benchmark_summary.json", summary)
     counts = summary["counts"]
-    retained_scaffold_key = f"retained_uniref{summary['uniref_level']}_entries"
     lines = [
         "# Homology-cluster benchmark summary", "",
         f"- Benchmark scope: `{summary['benchmark_scope']}`",
@@ -1075,8 +1119,14 @@ def _write_benchmark_summary(stage: Path, summary: dict[str, object]) -> None:
         f"- Coverage: **{summary['coverage']}** using MMseqs2 cov-mode 0",
         f"- Split policy: `{summary['split_policy']}`",
         f"- Retained clusters: {counts['retained_mmseqs_clusters']}",
-        f"- Retained {summary['uniref_scaffold']} entries: "
-        f"{counts[retained_scaffold_key]}",
+        *(
+            [f"- Retained cluster members: {counts['retained_cluster_members']}"]
+            if summary.get("cluster_source") == "supervisor-multilinkage-cliques"
+            else [
+                f"- Retained {summary['uniref_scaffold']} entries: "
+                f"{counts['retained_uniref' + str(summary['uniref_level']) + '_entries']}"
+            ]
+        ),
         f"- Evaluable PFP proteins: {counts['evaluable_pfp_proteins']}",
         f"- Development-defined terms (roots retained): {counts['development_defined_terms']}",
         "", "## Scientific boundary", "",
@@ -1218,6 +1268,14 @@ def _validate_publication_marker(directory: Path) -> None:
             != input_manifest.get("frozen_input_manifest", {}).get("sha256")
         ):
             raise ValueError("Publication metadata/input manifest frozen-manifest mismatch")
+    multilinkage_record = input_manifest.get(
+        "supervisor_multilinkage_cluster_memberships"
+    )
+    uses_multilinkage = multilinkage_record is not None
+    if uses_multilinkage != (
+        parameters.get("cluster_source") == "supervisor-multilinkage-cliques"
+    ):
+        raise ValueError("Publication parameters/input manifest cluster-source mismatch")
     provenance = json.loads((directory / "run_provenance.json").read_text(encoding="utf-8"))
     if publication.get("repository_commit") != provenance.get("repository", {}).get("commit"):
         raise ValueError("Publication metadata/repository commit mismatch")
@@ -1255,14 +1313,29 @@ def _validate_publication_marker(directory: Path) -> None:
         uniref_level=manifest_level,
         fixture_mode=publication["fixture_mode"],
     )
-    expected_parameter_fields = (
+    expected_parameter_fields = [
         "split_policy", "development_fraction", "training_fraction_within_development",
         "training_population", "seed", "min_count", "evidence_codes",
         "include_relationships", "root_policy", "coverage", "cov_mode", "cluster_mode",
         "alignment_mode", "seq_id_mode", "createdb_shuffle", "cluster_reassign",
         "sensitivity", "evalue", "uniprot_release", "goa_release", "ontology_release",
         "uniprot_source_scope",
-    )
+    ]
+    if uses_multilinkage:
+        expected_parameter_fields.extend((
+            "cluster_source", "multilinkage_cluster_memberships_sha256",
+        ))
+        if not isinstance(multilinkage_record, dict) or (
+            parameters["multilinkage_cluster_memberships_sha256"]
+            != multilinkage_record.get("sha256")
+        ):
+            raise ValueError("Multi-linkage parameter/input hash mismatch")
+        if (
+            parameters.get("coverage") != multilinkage_record.get("coverage")
+            or parameters.get("identity_fraction")
+            != multilinkage_record.get("identity_fraction")
+        ):
+            raise ValueError("Multi-linkage parameter/input policy mismatch")
     for key in expected_parameter_fields:
         if key not in parameters or payload.get(key) != parameters.get(key):
             raise ValueError(f"Scientific fingerprint/parameters mismatch for {key}")
@@ -1450,6 +1523,17 @@ def validate_publication(directory: Path) -> None:
 
 def build_benchmark(config: BuildConfig) -> BuildResult:
     config.validate()
+    multilinkage_source = None
+    multilinkage_sha256 = None
+    if config.multilinkage_cluster_memberships is not None:
+        multilinkage_source = config.multilinkage_cluster_memberships.expanduser().resolve()
+        multilinkage_sha256 = sha256_file(multilinkage_source)
+        if multilinkage_sha256 != config.multilinkage_cluster_memberships_sha256:
+            raise ValueError(
+                "Multi-linkage membership SHA-256 mismatch: "
+                f"expected={config.multilinkage_cluster_memberships_sha256} "
+                f"observed={multilinkage_sha256}"
+            )
     repository = Path(__file__).resolve().parents[4]
     repository_state = git_state(repository)
     if not config.fixture_mode and (
@@ -1491,11 +1575,19 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
     )
     try:
         mmseqs_runtime = resolve_mmseqs_runtime(config.mmseqs_bin)
-        if not config.fixture_mode and config.external_cluster_assignments is None:
+        if (
+            not config.fixture_mode
+            and config.external_cluster_assignments is None
+            and not config.uses_multilinkage
+        ):
             validate_exact_mmseqs_version(
                 str(config.expected_mmseqs_version), mmseqs_runtime
             )
-        elif config.fixture_mode and config.cluster_assignments is None:
+        elif (
+            config.fixture_mode
+            and config.cluster_assignments is None
+            and not config.uses_multilinkage
+        ):
             if mmseqs_runtime.resolved_executable is None:
                 raise FileNotFoundError(
                     f"MMseqs2 executable is unavailable: {config.mmseqs_bin}"
@@ -1589,6 +1681,7 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
         loaded_cluster_cache = None
         loaded_cluster_checkpoint = None
         external_cluster_payload = None
+        multilinkage_stats: MultilinkageStats | None = None
         cluster_cache_action = "disabled"
         LOGGER.info(
             "Stage completed: resolve and hash frozen inputs elapsed_seconds=%.1f",
@@ -1745,7 +1838,31 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                     loaded_cluster_checkpoint = load_cluster_checkpoint(
                         config.cluster_cache_root, cache_contract
                     )
-            if config.cluster_assignments:
+            if config.multilinkage_cluster_memberships is not None:
+                if multilinkage_source is None or multilinkage_sha256 is None:
+                    raise RuntimeError("Multi-linkage source was not authenticated")
+                source_clusters = multilinkage_source
+                external_log_dir = stage / "logs" / "mmseqs"
+                external_log_dir.mkdir(parents=True)
+                _json(external_log_dir / "MULTILINKAGE_ASSIGNMENTS_USED.json", {
+                    "lineage": "supervisor-generated-multilinkage-cliques",
+                    "mmseqs_execution": "not executed by this run",
+                    "cluster_memberships": str(source_clusters),
+                    "cluster_memberships_sha256": multilinkage_sha256,
+                    "coverage": config.coverage,
+                    "identity_fraction": config.identity,
+                    "source_assumption": (
+                        "Assumed to use the framework's frozen UniRef50 2026_02 source and "
+                        "Daniel-aligned MMseqs2 settings; not independently authenticated."
+                    ),
+                    "framework_expected_command_preview": [
+                        command.display for command in core_commands
+                    ],
+                    "runtime_mmseqs_probe": mmseqs_runtime.as_dict(
+                        config.expected_mmseqs_version
+                    ),
+                })
+            elif config.cluster_assignments:
                 source_clusters = config.cluster_assignments.expanduser().resolve()
                 if not source_clusters.is_file():
                     raise FileNotFoundError(source_clusters)
@@ -1866,13 +1983,18 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                             log_dir=work / "logs" / "mmseqs",
                         )
                         cluster_cache_action = "checkpointed"
-            cluster_index = ClusterIndex.build(
-                source_clusters,
-                uniref,
-                work / "clusters.sqlite",
-                has_header=loaded_cluster_cache is not None,
-                member_field=config.uniref_id_field,
-            )
+            if config.uses_multilinkage:
+                cluster_index, multilinkage_stats = build_multilinkage_index(
+                    source_clusters, work / "clusters.sqlite"
+                )
+            else:
+                cluster_index = ClusterIndex.build(
+                    source_clusters,
+                    uniref,
+                    work / "clusters.sqlite",
+                    has_header=loaded_cluster_cache is not None,
+                    member_field=config.uniref_id_field,
+                )
             if external_cluster_payload is not None:
                 validate_external_cluster_counts(
                     external_cluster_payload,
@@ -1947,7 +2069,8 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
             stage_started = time.monotonic()
             LOGGER.info("Stage started: cluster retention, splitting, labels, and PFP exports")
             decisions = connect_proteins_to_clusters(
-                decisions, cluster_index, config.uniref_level
+                decisions, cluster_index, config.uniref_level,
+                direct_uniprot_members=config.uses_multilinkage,
             )
             retained = retained_cluster_info(decisions, cluster_index)
             if len(retained) < 3:
@@ -2148,6 +2271,28 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                     "mmseqs_execution": "not executed by this run",
                     "independent_framework_comparison": "pending",
                 }
+            if config.uses_multilinkage:
+                if multilinkage_stats is None or multilinkage_sha256 is None:
+                    raise RuntimeError("Multi-linkage source statistics are unavailable")
+                input_manifest["supervisor_multilinkage_cluster_memberships"] = {
+                    "resolved_path": str(source_clusters),
+                    "size_bytes": source_clusters.stat().st_size,
+                    "sha256": multilinkage_sha256,
+                    "lineage": "supervisor-generated-multilinkage-cliques",
+                    "identity_fraction": config.identity,
+                    "coverage": config.coverage,
+                    "format": "cluster_id,representative_sequence_id,cluster_member_id",
+                    "counts": multilinkage_stats.as_dict(),
+                    "member_policy": (
+                        "All UniProt and UniParc members define family size and split; only "
+                        "directly annotated UniProt accessions become supervised rows."
+                    ),
+                    "source_assumption": (
+                        "Assumed to derive from frozen UniRef50 2026_02 with the same base "
+                        "MMseqs2 policy as the framework; not independently authenticated."
+                    ),
+                    "mmseqs_execution": "not executed by this run",
+                }
             _json(stage / "input_manifest.json", input_manifest)
 
             if sha256_file(policy_source) != attrition_policy_sha256:
@@ -2160,7 +2305,7 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 decisions,
                 assignments,
                 retained_members,
-                uniref.count(),
+                cluster_index.member_count() if config.uses_multilinkage else uniref.count(),
             )
             attrition_report = evaluate_attrition(
                 policy,
@@ -2187,6 +2332,51 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 for split in SPLITS
                 for row in labels.frames[split].itertuples(index=False)
             )
+            counts = {
+                f"total_uniref{config.uniref_level}_entries": uniref.count(),
+                "total_mmseqs_clusters": cluster_index.cluster_count(),
+                "qualifying_goa_accessions": len(requested_raw),
+                "retained_mmseqs_clusters": len(retained),
+                f"retained_uniref{config.uniref_level}_entries": retained_members,
+                "retained_annotated_uniprot_proteins": len({
+                    item.protein_id for item in decisions if item.mmseqs_cluster_id in retained
+                }),
+                f"retained_unannotated_uniref{config.uniref_level}_entries": (
+                    retained_unannotated
+                ),
+                "label_intermediate_proteins": label_intermediate_count,
+                "evaluable_pfp_proteins": evaluable_pfp_count,
+                "development_defined_terms": len(labels.term_universe),
+                "singleton_retained_clusters": sum(
+                    info.member_count == 1 for info in retained.values()
+                ),
+                "giant_retained_clusters": sum(
+                    info.member_count >= config.giant_cluster_threshold
+                    for info in retained.values()
+                ),
+            }
+            if config.uses_multilinkage:
+                counts.pop(f"retained_uniref{config.uniref_level}_entries")
+                counts.pop(f"retained_unannotated_uniref{config.uniref_level}_entries")
+                counts.update({
+                    "qualifying_mapped_directly_to_clique": sum(
+                        item.status == "mapped" for item in decisions
+                    ),
+                    "qualifying_not_mapped_to_clique": sum(
+                        item.status != "mapped" for item in decisions
+                    ),
+                    "retained_cluster_members": retained_members,
+                    "retained_unannotated_cluster_members": retained_unannotated,
+                })
+            else:
+                counts.update({
+                    f"qualifying_mapped_to_uniref{config.uniref_level}": sum(
+                        item.status == "mapped" for item in decisions
+                    ),
+                    "qualifying_unmapped_or_ambiguous": sum(
+                        item.status != "mapped" for item in decisions
+                    ),
+                })
             summary = {
                 "schema_version": 1,
                 "fixture_mode": config.fixture_mode,
@@ -2200,33 +2390,12 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 "identity_percent": int(config.identity * 100),
                 "identity_fraction": config.identity,
                 "coverage": config.coverage,
+                **({"cluster_source": "supervisor-multilinkage-cliques"}
+                   if config.uses_multilinkage else {}),
                 "split_policy": config.split_policy,
                 "training_population": config.training_population,
                 "split_summary": split_summary,
-                "counts": {
-                    f"total_uniref{config.uniref_level}_entries": uniref.count(),
-                    "total_mmseqs_clusters": cluster_index.cluster_count(),
-                    "qualifying_goa_accessions": len(requested_raw),
-                    f"qualifying_mapped_to_uniref{config.uniref_level}": sum(
-                        item.status == "mapped" for item in decisions
-                    ),
-                    "qualifying_unmapped_or_ambiguous": sum(item.status != "mapped" for item in decisions),
-                    "retained_mmseqs_clusters": len(retained),
-                    f"retained_uniref{config.uniref_level}_entries": retained_members,
-                    "retained_annotated_uniprot_proteins": len({
-                        item.protein_id for item in decisions if item.mmseqs_cluster_id in retained
-                    }),
-                    f"retained_unannotated_uniref{config.uniref_level}_entries": (
-                        retained_unannotated
-                    ),
-                    "label_intermediate_proteins": label_intermediate_count,
-                    "evaluable_pfp_proteins": evaluable_pfp_count,
-                    "development_defined_terms": len(labels.term_universe),
-                    "singleton_retained_clusters": sum(info.member_count == 1 for info in retained.values()),
-                    "giant_retained_clusters": sum(
-                        info.member_count >= config.giant_cluster_threshold for info in retained.values()
-                    ),
-                },
+                "counts": counts,
                 "labels_removed_outside_development_universe": dict(labels.removed_term_counts),
                 "annotation_rows_excluded_by_mapping_chain": dict(
                     labels.annotation_exclusion_counts
@@ -2243,6 +2412,15 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                     "MMseqs2 cluster mode 0 is greedy set cover, not an exhaustive equivalence relation.",
                     "At 5-15% identity, prefilter recall, E-value, database size, and MMseqs2 version strongly affect results.",
                     "Internal validation does not prove biological optimality or downstream PFP performance.",
+                    *(
+                        [
+                            "The supplied multi-linkage source's UniRef50 release and base MMseqs2 "
+                            "settings are assumed rather than independently authenticated.",
+                            "No source sequences were supplied for UPI members, so exact-sequence "
+                            "disjointness is validated only for supervised UniProt proteins.",
+                        ]
+                        if config.uses_multilinkage else []
+                    ),
                 ],
             }
             _write_benchmark_summary(stage, summary)
@@ -2415,6 +2593,11 @@ def build_benchmark(config: BuildConfig) -> BuildResult:
                 ) != external_record["provenance_sha256"]:
                     raise ValueError(
                         "External cluster provenance changed while the run was in progress"
+                    )
+            if config.uses_multilinkage:
+                if sha256_file(source_clusters) != multilinkage_sha256:
+                    raise ValueError(
+                        "Multi-linkage cluster memberships changed while the run was in progress"
                     )
             write_output_manifest(stage)
             publish(stage, final_dir)

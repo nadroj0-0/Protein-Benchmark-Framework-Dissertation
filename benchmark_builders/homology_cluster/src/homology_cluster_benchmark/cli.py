@@ -95,6 +95,21 @@ def _parser() -> argparse.ArgumentParser:
         help="Provenance JSON binding an external assignment artifact to its source and method",
     )
     build.add_argument(
+        "--multilinkage-cluster-memberships",
+        type=Path,
+        help="Daniel's three-column cluster, representative, member clique-family CSV",
+    )
+    build.add_argument(
+        "--multilinkage-cluster-memberships-sha256",
+        help="Expected SHA-256 of the multi-linkage membership CSV",
+    )
+    build.add_argument(
+        "--multilinkage-coverage",
+        type=float,
+        choices=(0.3, 0.8),
+        help="Coverage used to construct the supplied multi-linkage families",
+    )
+    build.add_argument(
         "--cluster-cache-root", type=Path,
         help=(
             "Persistent validated MMseqs2 assignment-cache root. A matching cache is reused; "
@@ -271,6 +286,12 @@ def _config(args: argparse.Namespace, identity: float) -> BuildConfig:
             f"--uniref-level {args.uniref_level} cannot be combined with "
             f"--uniref{unused_uniref_level}-fasta inputs"
         )
+    if (args.multilinkage_cluster_memberships is None) != (
+        args.multilinkage_coverage is None
+    ):
+        raise ValueError(
+            "--multilinkage-cluster-memberships and --multilinkage-coverage must be supplied together"
+        )
     return BuildConfig(
         identity=identity,
         output_dir=args.output_dir,
@@ -296,6 +317,10 @@ def _config(args: argparse.Namespace, identity: float) -> BuildConfig:
         cluster_assignments=args.cluster_assignments,
         external_cluster_assignments=args.external_cluster_assignments,
         external_cluster_provenance=args.external_cluster_provenance,
+        multilinkage_cluster_memberships=args.multilinkage_cluster_memberships,
+        multilinkage_cluster_memberships_sha256=(
+            args.multilinkage_cluster_memberships_sha256
+        ),
         cluster_cache_root=args.cluster_cache_root,
         require_cluster_cache=args.require_cluster_cache,
         frozen_input_manifest=args.frozen_input_manifest,
@@ -313,6 +338,7 @@ def _config(args: argparse.Namespace, identity: float) -> BuildConfig:
         min_count=args.min_count,
         development_fraction=args.development_fraction,
         training_fraction_within_development=args.training_fraction_within_development,
+        coverage=args.multilinkage_coverage or 0.80,
         mmseqs_profile=args.mmseqs_profile,
         createdb_shuffle=profile_policy["createdb_shuffle"],
         cluster_reassign=profile_policy["cluster_reassign"],
@@ -365,12 +391,21 @@ def _preview(config: BuildConfig) -> dict[str, object]:
         "allocated_slots": config.allocated_slots,
         "mmseqs_threads": config.threads,
         "mmseqs_profile": config.mmseqs_profile,
+        **({
+            "cluster_source": "supervisor-multilinkage-cliques",
+            "multilinkage_cluster_memberships": str(
+                config.multilinkage_cluster_memberships
+            ),
+            "multilinkage_cluster_memberships_sha256": (
+                config.multilinkage_cluster_memberships_sha256
+            ),
+        } if config.uses_multilinkage else {}),
         "final_output": str(
             config.output_dir / config.publication_relative_path
         ),
         "mmseqs_commands": [command.display for command in commands],
         "downloads_enabled": config.allow_downloads,
-        "note": "Preview only; no path, release, hash, executable, or biological validation was performed.",
+        "note": "Preview only; input content, release, executable, and biological validation were not performed.",
     }
 
 

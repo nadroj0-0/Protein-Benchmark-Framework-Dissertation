@@ -12,24 +12,45 @@ from .uniref_scaffold import uniref_scaffold
 def connect_proteins_to_clusters(
     decisions: list[MappingDecision], cluster_index: ClusterIndex,
     uniref_level: int = 90,
+    direct_uniprot_members: bool = False,
 ) -> list[MappingDecision]:
     scaffold = uniref_scaffold(uniref_level)
+    member_ids = {
+        decision.protein_id if direct_uniprot_members else decision.uniref90_id
+        for decision in decisions
+        if (
+            decision.canonical_sequence_available
+            if direct_uniprot_members else decision.status == "mapped"
+        )
+        and (decision.protein_id if direct_uniprot_members else decision.uniref90_id)
+    }
     cluster_by_member = cluster_index.clusters_for({
-        decision.uniref90_id for decision in decisions
-        if decision.status == "mapped" and decision.uniref90_id
+        str(member_id) for member_id in member_ids
     })
     connected: list[MappingDecision] = []
     for decision in decisions:
         cluster_id = ""
         status = decision.status
         detail = decision.detail
-        if decision.status == "mapped" and decision.uniref90_id:
-            cluster_id = cluster_by_member.get(decision.uniref90_id, "")
-            if not cluster_id:
+        member_id = decision.protein_id if direct_uniprot_members else decision.uniref90_id
+        eligible = (
+            decision.canonical_sequence_available
+            if direct_uniprot_members else decision.status == "mapped"
+        )
+        if eligible and member_id:
+            cluster_id = cluster_by_member.get(member_id, "")
+            if cluster_id and direct_uniprot_members:
+                status = "mapped"
+                detail = (
+                    "resolved directly from supplied multi-linkage membership; "
+                    f"prior_uniref_status={decision.status}"
+                )
+            elif not cluster_id:
                 status = "missing-mmseqs-assignment"
                 detail = (
-                    f"mapped {scaffold.display_name} identifier has no MMseqs2 "
-                    "cluster assignment"
+                    "annotated UniProt accession has no supplied multi-linkage clique assignment"
+                    if direct_uniprot_members
+                    else f"mapped {scaffold.display_name} identifier has no MMseqs2 cluster assignment"
                 )
         connected.append(replace(
             decision, mmseqs_cluster_id=cluster_id, status=status, detail=detail,

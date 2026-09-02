@@ -44,7 +44,11 @@ def _cluster_manifest_errors(
     config: BuildConfig,
 ) -> list[str]:
     scaffold = config.uniref_scaffold
-    member_count_field = f"{scaffold.slug}_member_count"
+    member_field = "cluster_member_id" if config.uses_multilinkage else scaffold.id_field
+    member_count_field = (
+        "cluster_member_count"
+        if config.uses_multilinkage else f"{scaffold.slug}_member_count"
+    )
     errors: list[str] = []
     with (output_dir / "cluster_split_assignments.tsv").open(
         "r", encoding="utf-8", newline=""
@@ -77,11 +81,10 @@ def _cluster_manifest_errors(
     with open_text(output_dir / "retained_cluster_members.tsv.gz") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
         expected_rows = (
-            (cluster_id, member_id, digest, length)
-            for cluster_id, member_id, digest, length
-            in cluster_index.iter_assignments_with_metadata_for_clusters(
-                uniref, assignments
-            )
+            ((cluster_id, member_id, "", "") for cluster_id, member_id in
+             cluster_index.iter_assignments_for_clusters(assignments))
+            if config.uses_multilinkage else
+            cluster_index.iter_assignments_with_metadata_for_clusters(uniref, assignments)
         )
         missing = object()
         for row_number, pair in enumerate(
@@ -97,7 +100,7 @@ def _cluster_manifest_errors(
             expected_values = {
                 "mmseqs_cluster_id": cluster_id,
                 "split": expected_assignment.split,
-                scaffold.id_field: member_id,
+                member_field: member_id,
                 "sequence_sha256": digest,
                 "sequence_length": str(length),
             }
@@ -118,7 +121,7 @@ def _cluster_manifest_errors(
                 break
             assert isinstance(row, dict)
             cluster_id, member_id = expected_row
-            if row != {"mmseqs_cluster_id": cluster_id, scaffold.id_field: member_id}:
+            if row != {"mmseqs_cluster_id": cluster_id, member_field: member_id}:
                 errors.append(f"canonical-membership-content:{row_number}:{member_id}")
                 if len(errors) >= 50:
                     break
@@ -259,11 +262,18 @@ def validate_outputs(
         uniprot_source_scope=config.uniprot_source_scope,
         clustering_population=f"frozen {scaffold.display_name} FASTA",
     )
-    _check(
-        report, "mmseqs_assignment_completeness", uniref_count == mmseqs_member_count,
-        f"Every frozen {scaffold.display_name} entry must receive exactly one MMseqs2 assignment",
-        **{f"{scaffold.slug}_entries": uniref_count}, assigned_members=mmseqs_member_count,
-    )
+    if config.uses_multilinkage:
+        _check(
+            report, "multilinkage_assignment_population", mmseqs_member_count > 0,
+            "The supplied multi-linkage source contains a nonempty, one-clique-per-member population",
+            assigned_members=mmseqs_member_count,
+        )
+    else:
+        _check(
+            report, "mmseqs_assignment_completeness", uniref_count == mmseqs_member_count,
+            f"Every frozen {scaffold.display_name} entry must receive exactly one MMseqs2 assignment",
+            **{f"{scaffold.slug}_entries": uniref_count}, assigned_members=mmseqs_member_count,
+        )
     manifest_errors = _cluster_manifest_errors(
         output_dir, assignments, cluster_index, uniref, config
     )
@@ -341,18 +351,25 @@ def validate_outputs(
         "including proteins later lacking an evaluable PFP term",
         conflicts=annotated_sequence_conflicts,
     )
-    _check(
-        report, f"retained_{scaffold.slug}_exact_sequence_disjointness",
-        not uniref_sequence_conflicts,
-        f"No exact frozen {scaffold.display_name} scaffold sequence may cross train/validation/test",
-        conflicts=uniref_sequence_conflicts,
-    )
-    _check(
-        report, "global_retained_exact_sequence_disjointness", not global_sequence_conflicts,
-        f"No exact sequence crosses splits across the combined retained {scaffold.display_name} scaffold and "
-        "mapped qualifying UniProtKB population",
-        conflicts=global_sequence_conflicts,
-    )
+    if config.uses_multilinkage:
+        report.add_warning(
+            "multilinkage_member_sequence_scope",
+            "The supplied clique file has identifiers but no source sequence bytes; exact-sequence "
+            "disjointness is checked for supervised UniProt proteins only.",
+        )
+    else:
+        _check(
+            report, f"retained_{scaffold.slug}_exact_sequence_disjointness",
+            not uniref_sequence_conflicts,
+            f"No exact frozen {scaffold.display_name} scaffold sequence may cross train/validation/test",
+            conflicts=uniref_sequence_conflicts,
+        )
+        _check(
+            report, "global_retained_exact_sequence_disjointness", not global_sequence_conflicts,
+            f"No exact sequence crosses splits across the combined retained {scaffold.display_name} scaffold and "
+            "mapped qualifying UniProtKB population",
+            conflicts=global_sequence_conflicts,
+        )
 
     universe = set(labels.term_universe)
     outside = {split: [] for split in ("validation", "test")}
@@ -380,7 +397,7 @@ def validate_outputs(
     command_text = cluster_command.argv if cluster_command else ()
     required_fragments = {
         "--min-seq-id": f"{config.identity:.2f}",
-        "-c": "0.8",
+        "-c": f"{config.coverage:.1f}",
         "--cov-mode": "0",
         "--cluster-mode": "0",
         "--alignment-mode": "3",

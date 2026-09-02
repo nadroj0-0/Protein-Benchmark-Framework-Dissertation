@@ -446,6 +446,25 @@ class ClusterIndex:
             ):
                 yield str(cluster), str(member)
 
+    def iter_assignments_for_clusters(
+        self, cluster_ids: Iterable[str]
+    ) -> Iterator[tuple[str, str]]:
+        ordered_cluster_ids = sorted(cluster_ids)
+        if not ordered_cluster_ids:
+            return
+        with sqlite3.connect(self.database) as connection:
+            connection.execute("CREATE TEMP TABLE retained (cluster_id TEXT PRIMARY KEY)")
+            connection.executemany(
+                "INSERT INTO retained VALUES (?)",
+                ((cluster_id,) for cluster_id in ordered_cluster_ids),
+            )
+            for cluster, member in connection.execute(
+                "SELECT a.cluster_id, a.member_id FROM retained r "
+                "JOIN assignments a ON a.cluster_id=r.cluster_id "
+                "ORDER BY a.cluster_id, a.member_id"
+            ):
+                yield str(cluster), str(member)
+
     def iter_assignments_with_metadata(
         self, uniref: UniRefIndex
     ) -> Iterator[tuple[str, str, str, int]]:

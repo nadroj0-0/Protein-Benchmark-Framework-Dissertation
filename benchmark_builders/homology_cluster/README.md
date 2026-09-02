@@ -32,8 +32,8 @@ The locked experiment is:
 - coverage `0.8` with `--cov-mode 0`;
 - MMseqs2 cluster mode 0, alignment mode 3, literal identity mode 0, cluster reassign enabled,
   sensitivity `7.5`, and E-value `1e-4`;
-- Daniel's exact supplied qualifying evidence-code set:
-  `EXP, IDA, IPI, IMP, IGI, IEP, HTP, HDA, HMP, HGI, HEP, TAS, NAS, IGC, RCA, ND, IC`;
+- the corrected qualifying evidence-code set:
+  `EXP, IDA, IPI, IMP, IGI, IEP, HTP, HDA, HMP, HGI, HEP, IGC`;
 - removal of exact pipe-delimited `NOT` annotations;
 - one global 80:20 development/test whole-cluster split, followed by a 90:10
   training/validation whole-cluster split within development;
@@ -102,6 +102,20 @@ External assignments cannot be inserted into a framework-generated cluster cache
 must use a separate publication namespace and remain provisional until compared with an
 independent framework run. `hpc_jobs/active/hpc_homology_supervisor_daniel_30.sh` implements this
 route for Daniel Buchan's 30% UniRef50 artifact.
+
+### Multi-linkage clique families
+
+Daniel's post-processed clique files use three comma-separated columns: clique ID, UniRef50
+representative ID, and member ID. Members may be UniProt accessions or UniParc `UPI` identifiers,
+rows need not be grouped by clique, and exact duplicate assignments are tolerated. A member in two
+cliques or one clique paired with two representatives is rejected.
+
+Use `--multilinkage-cluster-memberships`, its exact SHA-256, and
+`--multilinkage-coverage {0.3,0.8}` with the UniRef50 30% identity Daniel-aligned profile. Every
+member contributes to clique size and whole-clique splitting. Only UniProt accessions carrying
+their own qualifying GO annotation become PFP rows; labels are never transferred from another
+member. The input hash, counts, and the explicit assumption that the supplied families used the
+framework's frozen UniRef50 2026_02 base are recorded in the publication.
 
 ### Identity selection
 

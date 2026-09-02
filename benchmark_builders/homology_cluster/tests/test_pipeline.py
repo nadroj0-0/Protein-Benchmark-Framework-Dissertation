@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from homology_cluster_benchmark.cli import _cross_threshold_reports
-from homology_cluster_benchmark.config import SUPPORTED_IDENTITIES
+from homology_cluster_benchmark.config import MMSEQS_PROFILE_DANIEL, SUPPORTED_IDENTITIES
 from homology_cluster_benchmark.models import InputSpec
 from homology_cluster_benchmark.pipeline import build_benchmark, validate_publication
 from homology_cluster_benchmark.inputs import sha256_file
@@ -123,6 +123,70 @@ def _rewrite_fixture_repository_commit(run_dir: Path, commit: str) -> None:
 
 
 class PipelineTests(unittest.TestCase):
+    def test_multilinkage_fixture_uses_full_cliques_but_only_direct_uniprot_labels(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "multilinkage.csv.gz"
+            with gzip.open(source, "wt", encoding="utf-8", newline="") as handle:
+                for index in range(1, 6):
+                    for suffix in ("BP", "CC", "MF"):
+                        handle.write(
+                            f"{index},UniRef50_U{index},P{index}{suffix}\n"
+                        )
+                    handle.write(
+                        f"{index},UniRef50_U{index},UPI_TEST_{index}\n"
+                    )
+                handle.write("1,UniRef50_U1,P1BP\n")
+            digest = sha256_file(source)
+            config = uniref50_fixture_config(
+                root / "outputs",
+                root / "temp",
+                cluster_assignments=None,
+                multilinkage_cluster_memberships=source,
+                multilinkage_cluster_memberships_sha256=digest,
+                coverage=0.8,
+                mmseqs_profile=MMSEQS_PROFILE_DANIEL,
+                createdb_shuffle=None,
+                cluster_reassign=0,
+                evalue=None,
+            )
+            result = build_benchmark(config)
+            validate_publication(result.output_dir)
+            self.assertIn("multilinkage_coverage_80", result.output_dir.parts)
+
+            membership = pd.read_csv(
+                result.output_dir / "mmseqs_cluster_membership.tsv.gz", sep="\t"
+            )
+            self.assertEqual(
+                membership.columns.tolist(),
+                ["mmseqs_cluster_id", "cluster_member_id"],
+            )
+            self.assertEqual(len(membership), 20)
+            self.assertTrue(
+                set(f"UPI_TEST_{index}" for index in range(1, 6))
+                <= set(membership["cluster_member_id"])
+            )
+            for name in REQUIRED_CSVS:
+                proteins = set(pd.read_csv(result.output_dir / name)["proteins"])
+                self.assertFalse(any(protein.startswith("UPI") for protein in proteins))
+
+            manifest = json.loads((result.output_dir / "input_manifest.json").read_text())
+            source_record = manifest["supervisor_multilinkage_cluster_memberships"]
+            self.assertEqual(source_record["sha256"], digest)
+            self.assertEqual(source_record["counts"]["raw_rows"], 21)
+            self.assertEqual(source_record["counts"]["duplicate_rows"], 1)
+            summary = json.loads((result.output_dir / "benchmark_summary.json").read_text())
+            self.assertEqual(summary["cluster_source"], "supervisor-multilinkage-cliques")
+            self.assertEqual(summary["counts"]["retained_cluster_members"], 20)
+            self.assertEqual(summary["counts"]["qualifying_mapped_directly_to_clique"], 15)
+            self.assertNotIn("retained_uniref50_entries", summary["counts"])
+            validation = json.loads((result.output_dir / "validation_report.json").read_text())
+            self.assertTrue(validation["valid"])
+            self.assertIn(
+                "multilinkage_member_sequence_scope",
+                {warning["name"] for warning in validation["warnings"]},
+            )
+
     def test_uniref50_fixture_builds_and_validates_without_colliding_with_legacy_output(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -135,6 +199,19 @@ class PipelineTests(unittest.TestCase):
             parameters = json.loads((result.output_dir / "parameters.json").read_text())
             self.assertEqual(parameters["uniref_level"], 50)
             self.assertEqual(parameters["sensitivity"], 4.0)
+            self.assertNotIn("cluster_source", parameters)
+            self.assertNotIn("multilinkage_cluster_memberships_sha256", parameters)
+            publication = json.loads(
+                (result.output_dir / "publication_metadata.json").read_text()
+            )
+            fingerprint_payload = publication["scientific_fingerprint_payload"]
+            self.assertNotIn("cluster_source", fingerprint_payload)
+            self.assertNotIn(
+                "multilinkage_cluster_memberships_sha256", fingerprint_payload
+            )
+            summary = json.loads((result.output_dir / "benchmark_summary.json").read_text())
+            self.assertNotIn("cluster_source", summary)
+            self.assertIn("retained_uniref50_entries", summary["counts"])
 
     def test_end_to_end_fixture_publishes_complete_contract(self):
         with tempfile.TemporaryDirectory() as tmp:

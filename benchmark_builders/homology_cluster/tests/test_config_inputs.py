@@ -107,6 +107,39 @@ class ConfigAndInputTests(unittest.TestCase):
                     require_pinned_inputs=False
                 )
 
+    def test_multilinkage_source_is_hash_bound_and_isolated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "multilinkage.csv.gz"
+            source.write_bytes(b"1,UniRef50_U1,P1\n")
+            base = uniref50_fixture_config(root / "out", root / "temp")
+            config = replace(
+                base,
+                cluster_assignments=None,
+                multilinkage_cluster_memberships=source,
+                multilinkage_cluster_memberships_sha256=hashlib.sha256(
+                    source.read_bytes()
+                ).hexdigest(),
+                coverage=0.3,
+                mmseqs_profile=MMSEQS_PROFILE_DANIEL,
+                createdb_shuffle=None,
+                cluster_reassign=0,
+                evalue=None,
+            )
+            config.validate(require_pinned_inputs=False)
+            self.assertTrue(config.uses_multilinkage)
+            self.assertIn("multilinkage_coverage_30", config.publication_relative_path.parts)
+            with self.assertRaisesRegex(ValueError, "lowercase SHA-256"):
+                replace(config, multilinkage_cluster_memberships_sha256="BAD").validate(
+                    require_pinned_inputs=False
+                )
+            with self.assertRaisesRegex(ValueError, "cannot be combined"):
+                replace(config, cluster_assignments=base.cluster_assignments).validate(
+                    require_pinned_inputs=False
+                )
+            with self.assertRaisesRegex(ValueError, "UniRef50 and 30% identity"):
+                replace(config, identity=0.25).validate(require_pinned_inputs=False)
+
     def test_binding_80_20_fraction_and_frozen_releases_are_locked(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
