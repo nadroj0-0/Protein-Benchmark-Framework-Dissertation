@@ -56,6 +56,9 @@ HOMOLOGY_CLUSTER_CACHE_ROOT="${HOMOLOGY_CLUSTER_CACHE_ROOT:-}"
 REQUIRE_HOMOLOGY_CLUSTER_CACHE="${REQUIRE_HOMOLOGY_CLUSTER_CACHE:-0}"
 EXTERNAL_CLUSTER_ASSIGNMENTS="${EXTERNAL_CLUSTER_ASSIGNMENTS:-}"
 EXTERNAL_CLUSTER_PROVENANCE="${EXTERNAL_CLUSTER_PROVENANCE:-}"
+MULTILINKAGE_CLUSTER_MEMBERSHIPS="${MULTILINKAGE_CLUSTER_MEMBERSHIPS:-}"
+MULTILINKAGE_CLUSTER_MEMBERSHIPS_SHA256="${MULTILINKAGE_CLUSTER_MEMBERSHIPS_SHA256:-}"
+MULTILINKAGE_COVERAGE="${MULTILINKAGE_COVERAGE:-}"
 LOG_FILE="${LOG_FILE:-}"
 ACTIVE_CHILD_PID=""
 SIGNAL_STATUS=0
@@ -143,7 +146,10 @@ for catalog_input in "$UNIREF_FASTA" "$IDMAPPING" "$UNIPROT_SPROT_SEQUENCES" \
     "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" "$HOMOLOGY_CLUSTER_CACHE_ROOT"; do
     [[ -z "$catalog_input" ]] || add_mmfp_singularity_bind "$(dirname "$catalog_input")"
 done
-for external_input in "$EXTERNAL_CLUSTER_ASSIGNMENTS" "$EXTERNAL_CLUSTER_PROVENANCE"; do
+for external_input in \
+    "$EXTERNAL_CLUSTER_ASSIGNMENTS" "$EXTERNAL_CLUSTER_PROVENANCE" \
+    "$MULTILINKAGE_CLUSTER_MEMBERSHIPS"
+do
     [[ -z "$external_input" ]] || add_mmfp_singularity_bind "$(dirname "$external_input")"
 done
 
@@ -252,6 +258,24 @@ if [[ "$DRY_RUN" != "1" ]]; then
             exit 1
         }
     fi
+    if [[ -n "$MULTILINKAGE_CLUSTER_MEMBERSHIPS" \
+          || -n "$MULTILINKAGE_CLUSTER_MEMBERSHIPS_SHA256" \
+          || -n "$MULTILINKAGE_COVERAGE" ]]; then
+        [[ -f "$MULTILINKAGE_CLUSTER_MEMBERSHIPS" \
+           && "$MULTILINKAGE_CLUSTER_MEMBERSHIPS_SHA256" =~ ^[0-9a-f]{64}$ \
+           && ( "$MULTILINKAGE_COVERAGE" == "0.3" \
+                || "$MULTILINKAGE_COVERAGE" == "0.8" ) ]] || {
+            echo "Multi-linkage mode requires a membership file, lowercase SHA-256, and coverage 0.3 or 0.8" >&2
+            exit 1
+        }
+        [[ -z "$EXTERNAL_CLUSTER_ASSIGNMENTS" \
+           && -z "$EXTERNAL_CLUSTER_PROVENANCE" \
+           && -z "$HOMOLOGY_CLUSTER_CACHE_ROOT" \
+           && -z "${CLUSTER_ASSIGNMENTS:-}" ]] || {
+            echo "Multi-linkage memberships cannot be combined with another cluster source" >&2
+            exit 1
+        }
+    fi
     if [[ "$FIXTURE_MODE" != "1" ]]; then
         [[ -f "$FROZEN_INPUT_MANIFEST" ]] || {
             echo "Production run requires FROZEN_INPUT_MANIFEST" >&2
@@ -340,6 +364,13 @@ if [[ -n "$EXTERNAL_CLUSTER_ASSIGNMENTS" ]]; then
     COMMAND+=(
         --external-cluster-assignments "$EXTERNAL_CLUSTER_ASSIGNMENTS"
         --external-cluster-provenance "$EXTERNAL_CLUSTER_PROVENANCE"
+    )
+fi
+if [[ -n "$MULTILINKAGE_CLUSTER_MEMBERSHIPS" ]]; then
+    COMMAND+=(
+        --multilinkage-cluster-memberships "$MULTILINKAGE_CLUSTER_MEMBERSHIPS"
+        --multilinkage-cluster-memberships-sha256 "$MULTILINKAGE_CLUSTER_MEMBERSHIPS_SHA256"
+        --multilinkage-coverage "$MULTILINKAGE_COVERAGE"
     )
 fi
 if [[ "$REQUIRE_HOMOLOGY_CLUSTER_CACHE" == "1" ]]; then

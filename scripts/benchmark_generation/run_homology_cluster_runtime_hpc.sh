@@ -59,6 +59,30 @@ if [[ -n "$EXTERNAL_CLUSTER_ASSIGNMENTS" || -n "$EXTERNAL_CLUSTER_PROVENANCE" ]]
     # frozen UniRef input, MMseqs profile, file hash, member count and cluster count.
     EXTERNAL_CLUSTER_MODE=1
 fi
+MULTILINKAGE_CLUSTER_MEMBERSHIPS="${MULTILINKAGE_CLUSTER_MEMBERSHIPS:-}"
+MULTILINKAGE_CLUSTER_MEMBERSHIPS_SHA256="${MULTILINKAGE_CLUSTER_MEMBERSHIPS_SHA256:-}"
+MULTILINKAGE_COVERAGE="${MULTILINKAGE_COVERAGE:-}"
+MULTILINKAGE_MODE=0
+if [[ -n "$MULTILINKAGE_CLUSTER_MEMBERSHIPS" \
+      || -n "$MULTILINKAGE_CLUSTER_MEMBERSHIPS_SHA256" \
+      || -n "$MULTILINKAGE_COVERAGE" ]]; then
+    [[ -f "$MULTILINKAGE_CLUSTER_MEMBERSHIPS" \
+       && "$MULTILINKAGE_CLUSTER_MEMBERSHIPS_SHA256" =~ ^[0-9a-f]{64}$ \
+       && ( "$MULTILINKAGE_COVERAGE" == "0.3" \
+            || "$MULTILINKAGE_COVERAGE" == "0.8" ) ]] || {
+        echo "Multi-linkage mode requires a membership file, lowercase SHA-256, and coverage 0.3 or 0.8" >&2
+        exit 2
+    }
+    [[ "$EXTERNAL_CLUSTER_MODE" == "0" ]] || {
+        echo "Multi-linkage and external-cluster modes are mutually exclusive" >&2
+        exit 2
+    }
+    [[ "$UNIREF_LEVEL" == "50" && "$IDENTITY" == "30" ]] || {
+        echo "Multi-linkage mode is locked to UniRef50 and 30% identity" >&2
+        exit 2
+    }
+    MULTILINKAGE_MODE=1
+fi
 UNIREF_ROLE="uniref${UNIREF_LEVEL}_fasta"
 UNIREF_FILENAME="uniref${UNIREF_LEVEL}.fasta.gz"
 UNIREF_PATH_VARIABLE="UNIREF${UNIREF_LEVEL}_FASTA"
@@ -147,6 +171,9 @@ REVISION_TAG="${FRAMEWORK_REVISION:0:12}"
 FINAL_ROOT="$RESULTS_ROOT/runtime_${RUNTIME_KIND}/source_${UNIPROT_SOURCE_SCOPE}/framework_${REVISION_TAG}/run_${RUN_ID}/job_${JOB_KEY}/task_${TASK_ID}_identity_${IDENTITY}"
 if [[ "$UNIREF_LEVEL" != "90" ]]; then
     FINAL_ROOT="$RESULTS_ROOT/runtime_${RUNTIME_KIND}/source_${UNIPROT_SOURCE_SCOPE}/uniref${UNIREF_LEVEL}_sensitivity_${MMSEQS_SENSITIVITY/./p}/framework_${REVISION_TAG}/run_${RUN_ID}/job_${JOB_KEY}/task_${TASK_ID}_identity_${IDENTITY}"
+fi
+if [[ "$MULTILINKAGE_MODE" == "1" ]]; then
+    FINAL_ROOT="$RESULTS_ROOT/runtime_${RUNTIME_KIND}/source_${UNIPROT_SOURCE_SCOPE}/uniref50_sensitivity_${MMSEQS_SENSITIVITY/./p}/multilinkage_coverage_${MULTILINKAGE_COVERAGE/./p}/framework_${REVISION_TAG}/run_${RUN_ID}/job_${JOB_KEY}/task_${TASK_ID}_identity_${IDENTITY}"
 fi
 PARTIAL_ROOT="${FINAL_ROOT}.partial-${JOB_KEY}-${TASK_ID}"
 LOG_FILE="$ARTIFACTS/logs/runtime.log"
@@ -611,12 +638,15 @@ if [[ -n "$HOMOLOGY_CLUSTER_CACHE_ROOT" ]]; then
     echo "Using persistent homology cluster cache: $HOMOLOGY_CLUSTER_CACHE_ROOT"
 elif [[ "$EXTERNAL_CLUSTER_MODE" == "1" ]]; then
     echo "Using provenance-paired external cluster assignments; framework cluster cache is intentionally disabled"
+elif [[ "$MULTILINKAGE_MODE" == "1" ]]; then
+    echo "Using hash-bound multi-linkage clique memberships; framework cluster cache is intentionally disabled"
 else
     echo "No persistent homology cluster cache is configured; clustering output will not be reusable"
 fi
 if [[ "${MMSEQS_PROFILE:-legacy-calibrated}" == "daniel-aligned-defaults" \
       && -z "$HOMOLOGY_CLUSTER_CACHE_ROOT" \
-      && "$EXTERNAL_CLUSTER_MODE" != "1" ]]; then
+      && "$EXTERNAL_CLUSTER_MODE" != "1" \
+      && "$MULTILINKAGE_MODE" != "1" ]]; then
     echo "MMSEQS_PROFILE=daniel-aligned-defaults requires a persistent cluster-cache root" >&2
     echo "The validated cluster assignments must survive scratch cleanup" >&2
     exit 1
@@ -760,6 +790,30 @@ if [[ -n "$EXTERNAL_CLUSTER_ASSIGNMENTS" ]]; then
         "$(sha256sum "$INPUT_ROOT/external_cluster_assignments.tsv.gz" | awk '{print $1}')" \
         >> "$ARTIFACTS/logs/runtime_input_staging.tsv"
     checkpoint_disk_usage external-cluster-artifact-staged
+fi
+if [[ "$MULTILINKAGE_MODE" == "1" ]]; then
+    echo "Staging multi-linkage clique memberships into job-owned scratch"
+    cp -p "$MULTILINKAGE_CLUSTER_MEMBERSHIPS" \
+        "$INPUT_ROOT/multilinkage_cluster_memberships.csv.gz"
+    [[ -s "$INPUT_ROOT/multilinkage_cluster_memberships.csv.gz" ]] || {
+        echo "Staged multi-linkage clique memberships are empty" >&2
+        exit 1
+    }
+    observed_multilinkage_sha256="$(
+        sha256sum "$INPUT_ROOT/multilinkage_cluster_memberships.csv.gz" | awk '{print $1}'
+    )"
+    [[ "$observed_multilinkage_sha256" == "$MULTILINKAGE_CLUSTER_MEMBERSHIPS_SHA256" ]] || {
+        echo "Multi-linkage membership SHA-256 mismatch after staging" >&2
+        exit 1
+    }
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+        multilinkage_cluster_memberships \
+        "$INPUT_ROOT/multilinkage_cluster_memberships.csv.gz" \
+        "supervisor://multi-linkage-cliques" provided-path-staged-to-scratch \
+        "$(stat -c '%s' "$INPUT_ROOT/multilinkage_cluster_memberships.csv.gz")" \
+        "$observed_multilinkage_sha256" \
+        >> "$ARTIFACTS/logs/runtime_input_staging.tsv"
+    checkpoint_disk_usage multilinkage-cluster-memberships-staged
 fi
 
 if [[ "$needs_uniprot_download" == "1" ]]; then
@@ -949,6 +1003,13 @@ if [[ -n "$EXTERNAL_CLUSTER_ASSIGNMENTS" ]]; then
         EXTERNAL_CLUSTER_PROVENANCE="$INPUT_ROOT/external_cluster_provenance.json"
     )
 fi
+if [[ "$MULTILINKAGE_MODE" == "1" ]]; then
+    builder_environment+=(
+        MULTILINKAGE_CLUSTER_MEMBERSHIPS="$INPUT_ROOT/multilinkage_cluster_memberships.csv.gz"
+        MULTILINKAGE_CLUSTER_MEMBERSHIPS_SHA256="$MULTILINKAGE_CLUSTER_MEMBERSHIPS_SHA256"
+        MULTILINKAGE_COVERAGE="$MULTILINKAGE_COVERAGE"
+    )
+fi
 if [[ -n "$HOMOLOGY_COMMON_PREPROCESSING_CACHE" ]]; then
     builder_environment+=(
         HOMOLOGY_COMMON_PREPROCESSING_CACHE="$STAGED_COMMON_CACHE"
@@ -1026,6 +1087,8 @@ pilot_required_for_array=false
 publication_directory=$RUN_DIR
 cluster_cache_root=${HOMOLOGY_CLUSTER_CACHE_ROOT:-disabled}
 mmseqs_profile=${MMSEQS_PROFILE:-legacy-calibrated}
+multilinkage_mode=$MULTILINKAGE_MODE
+multilinkage_coverage=${MULTILINKAGE_COVERAGE:-disabled}
 EOF
 
 echo "Homology runtime task completed and passed automatic review"
