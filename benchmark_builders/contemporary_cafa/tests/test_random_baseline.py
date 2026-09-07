@@ -174,6 +174,38 @@ class RandomBaselineTest(unittest.TestCase):
             self.assertEqual(relabelled.loc[0, "sequences"], "MAAAAA")
             self.assertEqual(stats["sequence_disambiguated_source_proteins"], 1)
 
+    def test_t1_relabelling_retains_frozen_sequence_for_retired_accession(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            uniprot = root / "uniprot.dat"
+            uniprot.write_text("", encoding="utf-8")
+            goa = root / "goa.gaf"
+            goa.write_text(
+                "!gaf-version: 2.2\n"
+                "UniProtKB\tPOLD01\tP1\t\tGO:0009987\tPMID:1\tIDA\t\tP\t"
+                "Retired protein\t\tprotein\ttaxon:9606\t20260101\tUniProt\t\t\n",
+                encoding="utf-8",
+            )
+            source = pd.DataFrame({
+                "proteins": ["POLD01"],
+                "sequences": ["MAAAAA"],
+                "annotations": [{"GO:0008150"}],
+            })
+            benchmark_go = Ontology(FIXTURES / "go-mini.obo", with_rels=True)
+
+            relabelled, stats = _relabel_at_snapshot(
+                source,
+                (uniprot,),
+                goa,
+                benchmark_go,
+                benchmark_go,
+                SUPERVISOR_EXP_CODES,
+            )
+
+            self.assertEqual(relabelled.loc[0, "proteins"], "POLD01")
+            self.assertEqual(relabelled.loc[0, "sequences"], "MAAAAA")
+            self.assertEqual(stats["source_sequence_fallback_proteins"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

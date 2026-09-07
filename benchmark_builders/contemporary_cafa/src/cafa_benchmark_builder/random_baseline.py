@@ -141,13 +141,9 @@ def _relabel_at_snapshot(
                 alias_candidates[alias].add(record.protein_id)
 
     missing_sequences = sorted(source_ids - set(source_candidates))
-    if missing_sequences:
-        raise ValueError(
-            f"{len(missing_sequences)} source proteins have no t1 sequence mapping; first: "
-            + ", ".join(missing_sequences[:10])
-        )
 
-    source_to_primary = {}
+    # Keep the paired source population fixed when an accession has left UniProt.
+    source_to_primary = {source_id: source_id for source_id in missing_sequences}
     sequence_disambiguated = 0
     for source_id, candidates in source_candidates.items():
         if len(candidates) == 1:
@@ -178,6 +174,7 @@ def _relabel_at_snapshot(
         for alias, primaries in alias_candidates.items()
         if len(primaries) == 1
     }
+    alias_to_primary.update({source_id: source_id for source_id in missing_sequences})
     annotations = load_normalized_annotation_map(
         goa_path,
         alias_to_primary=alias_to_primary,
@@ -198,7 +195,11 @@ def _relabel_at_snapshot(
             continue
         rows.append({
             "proteins": source_id,
-            "sequences": records[primary].sequence,
+            "sequences": (
+                records[primary].sequence
+                if primary in records
+                else source_sequences[source_id]
+            ),
             "annotations": tuple(sorted(propagated)),
         })
     if missing_labels:
@@ -207,8 +208,10 @@ def _relabel_at_snapshot(
             + ", ".join(missing_labels[:10])
         )
     return pd.DataFrame(rows), {
-        "mapped_source_proteins": len(source_to_primary),
+        "source_population_proteins": len(source_to_primary),
+        "mapped_source_proteins": len(source_to_primary) - len(missing_sequences),
         "sequence_disambiguated_source_proteins": sequence_disambiguated,
+        "source_sequence_fallback_proteins": len(missing_sequences),
         "qualifying_t1_proteins": len(rows),
         "goa_counters": dict(sorted(annotations.counters.items())),
         "goa_evidence_counts": dict(sorted(annotations.evidence_counts.items())),
