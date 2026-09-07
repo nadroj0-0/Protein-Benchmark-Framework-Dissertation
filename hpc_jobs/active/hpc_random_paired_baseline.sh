@@ -109,6 +109,7 @@ cd "$FRAMEWORK_DIR"
 # shellcheck disable=SC1091
 source scripts/reproduction_common.sh
 load_framework_paths "$FRAMEWORK_DIR"
+add_mmfp_singularity_bind /SAN/bioinf/bmpfp
 activate_or_create_mmfp_env
 export PYTHONPATH="$FRAMEWORK_DIR/benchmark_builders/contemporary_cafa/src${PYTHONPATH:+:$PYTHONPATH}"
 export CAFA_BUILDER_GOA_PROGRESS_INTERVAL="${CAFA_BUILDER_GOA_PROGRESS_INTERVAL:-1000000}"
