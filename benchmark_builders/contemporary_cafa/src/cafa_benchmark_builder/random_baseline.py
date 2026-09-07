@@ -192,11 +192,6 @@ def _relabel_at_snapshot(
             "sequences": source_sequences[source_id],
             "annotations": tuple(sorted(propagated)),
         })
-    if missing_labels:
-        raise ValueError(
-            f"{len(missing_labels)} source proteins have no qualifying t1 labels; first: "
-            + ", ".join(missing_labels[:10])
-        )
     return pd.DataFrame(rows), {
         "source_population_proteins": len(source_to_primary),
         "mapped_source_proteins": len(source_to_primary) - len(missing_sequences),
@@ -209,6 +204,8 @@ def _relabel_at_snapshot(
             count for count in primary_source_counts.values() if count > 1
         ),
         "qualifying_t1_proteins": len(rows),
+        "nonqualifying_t1_proteins_excluded": len(missing_labels),
+        "nonqualifying_t1_protein_sample": missing_labels[:10],
         "goa_counters": dict(sorted(annotations.counters.items())),
         "goa_evidence_counts": dict(sorted(annotations.evidence_counts.items())),
     }
@@ -338,7 +335,18 @@ def build_random_baseline(
             source, uniprot_paths, goa_path, source_go, go, evidence_codes
         )
 
-    frames = _random_split(source, source_counts, seed)
+    requested_counts = dict(source_counts)
+    if mode == "t1-snapshot":
+        requested_counts["training"] = (
+            len(source) - source_counts["validation"] - source_counts["test"]
+        )
+        if requested_counts["training"] <= 0:
+            raise ValueError(
+                "The qualifying t1 population is too small to preserve the paired "
+                "validation and test counts"
+            )
+
+    frames = _random_split(source, requested_counts, seed)
 
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     stage = output_dir.parent / f".{output_dir.name}.part-{uuid.uuid4().hex}"
@@ -347,9 +355,13 @@ def build_random_baseline(
         csv_stats, csv_union_counts = _write_outputs(stage, frames, terms, go)
         actual_counts = {split: len(frame) for split, frame in frames.items()}
         checks = {
-            "source_population_preserved": sum(actual_counts.values()) == len(source),
-            "source_split_sizes_preserved": actual_counts == source_counts,
-            "source_population_remains_model_visible": csv_union_counts == actual_counts,
+            "selected_population_preserved": sum(actual_counts.values()) == len(source),
+            "requested_split_sizes_met": actual_counts == requested_counts,
+            "paired_validation_size_preserved": (
+                actual_counts["validation"] == source_counts["validation"]
+            ),
+            "paired_test_size_preserved": actual_counts["test"] == source_counts["test"],
+            "selected_population_remains_model_visible": csv_union_counts == actual_counts,
             "global_protein_disjoint": all(
                 set(frames[left].proteins).isdisjoint(frames[right].proteins)
                 for left, right in (("training", "validation"), ("training", "test"), ("validation", "test"))
@@ -375,8 +387,15 @@ def build_random_baseline(
             "term_universe_policy": "frozen-from-source-paired-control",
             "source_benchmark_dir": str(source_dir.resolve()),
             "source_split_counts": source_counts,
+            "requested_output_split_counts": requested_counts,
             "output_split_counts": actual_counts,
             "output_csv_union_counts": csv_union_counts,
+            "population_policy": (
+                "t1-qualifying-only; preserve source validation and test counts; "
+                "exclude nonqualifying proteins from training capacity"
+                if mode == "t1-snapshot"
+                else "preserve accepted source population and split counts"
+            ),
             "source_files": source_inputs,
             "go_obo": {"path": str(go_obo.resolve()), "sha256": _sha256(go_obo)},
             "snapshot": snapshot_stats,

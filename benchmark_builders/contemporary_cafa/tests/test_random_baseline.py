@@ -128,6 +128,54 @@ class RandomBaselineTest(unittest.TestCase):
         self.assertNotIn("TAS", stats["goa_evidence_counts"])
         self.assertNotIn("IC", stats["goa_evidence_counts"])
 
+    def test_t1_relabelling_excludes_proteins_without_qualifying_truth(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            uniprot = root / "uniprot.dat"
+            uniprot.write_text(
+                "ID   FIRST_HUMAN Reviewed; 6 AA.\n"
+                "AC   P00001;\n"
+                "OX   NCBI_TaxID=9606;\n"
+                "SQ   SEQUENCE 6 AA;\n"
+                "     MAAAAA\n"
+                "//\n"
+                "ID   SECOND_HUMAN Reviewed; 6 AA.\n"
+                "AC   P00002;\n"
+                "OX   NCBI_TaxID=9606;\n"
+                "SQ   SEQUENCE 6 AA;\n"
+                "     MAAAAT\n"
+                "//\n",
+                encoding="utf-8",
+            )
+            goa = root / "goa.gaf"
+            goa.write_text(
+                "!gaf-version: 2.2\n"
+                "UniProtKB\tP00001\tP1\t\tGO:0009987\tPMID:1\tIDA\t\tP\t"
+                "Protein one\t\tprotein\ttaxon:9606\t20260101\tUniProt\t\t\n",
+                encoding="utf-8",
+            )
+            source = pd.DataFrame({
+                "proteins": ["P00001", "P00002"],
+                "sequences": ["MAAAAA", "MAAAAT"],
+                "annotations": [{"GO:0008150"}, {"GO:0008150"}],
+            })
+            benchmark_go = Ontology(FIXTURES / "go-mini.obo", with_rels=True)
+
+            relabelled, stats = _relabel_at_snapshot(
+                source,
+                (uniprot,),
+                goa,
+                benchmark_go,
+                benchmark_go,
+                SUPERVISOR_EXP_CODES,
+            )
+
+            self.assertEqual(relabelled.proteins.tolist(), ["P00001"])
+            self.assertEqual(stats["source_population_proteins"], 2)
+            self.assertEqual(stats["qualifying_t1_proteins"], 1)
+            self.assertEqual(stats["nonqualifying_t1_proteins_excluded"], 1)
+            self.assertEqual(stats["nonqualifying_t1_protein_sample"], ["P00002"])
+
     def test_t1_relabelling_resolves_split_alias_by_exact_sequence(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
