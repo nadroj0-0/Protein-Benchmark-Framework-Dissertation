@@ -7,7 +7,7 @@ import json
 import os
 import shutil
 import uuid
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -162,13 +162,7 @@ def _relabel_at_snapshot(
         source_to_primary[source_id] = next(iter(exact))
         sequence_disambiguated += 1
 
-    primary_to_source: dict[str, str] = {}
-    for source_id, primary in source_to_primary.items():
-        previous = primary_to_source.setdefault(primary, source_id)
-        if previous != source_id:
-            raise ValueError(
-                f"Source proteins {previous} and {source_id} collapse to the same t1 accession {primary}"
-            )
+    primary_source_counts = Counter(source_to_primary.values())
     alias_to_primary = {
         alias: next(iter(primaries))
         for alias, primaries in alias_candidates.items()
@@ -195,11 +189,7 @@ def _relabel_at_snapshot(
             continue
         rows.append({
             "proteins": source_id,
-            "sequences": (
-                records[primary].sequence
-                if primary in records
-                else source_sequences[source_id]
-            ),
+            "sequences": source_sequences[source_id],
             "annotations": tuple(sorted(propagated)),
         })
     if missing_labels:
@@ -212,6 +202,12 @@ def _relabel_at_snapshot(
         "mapped_source_proteins": len(source_to_primary) - len(missing_sequences),
         "sequence_disambiguated_source_proteins": sequence_disambiguated,
         "source_sequence_fallback_proteins": len(missing_sequences),
+        "merged_t1_primary_groups": sum(
+            count > 1 for count in primary_source_counts.values()
+        ),
+        "source_proteins_in_merged_t1_primary_groups": sum(
+            count for count in primary_source_counts.values() if count > 1
+        ),
         "qualifying_t1_proteins": len(rows),
         "goa_counters": dict(sorted(annotations.counters.items())),
         "goa_evidence_counts": dict(sorted(annotations.evidence_counts.items())),
@@ -371,6 +367,7 @@ def build_random_baseline(
             "benchmark_id": benchmark_id,
             "benchmark_design": "random-exact-sequence-grouped",
             "label_source": "inherited-prepared-labels" if mode == "prepared" else "t1-snapshot-membership",
+            "sequence_source_policy": "frozen-from-source-paired-control",
             "mode": mode,
             "seed": seed,
             "evidence_codes": sorted(evidence_codes),
