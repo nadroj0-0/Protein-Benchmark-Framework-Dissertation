@@ -14,6 +14,7 @@ dependencies = [
 
 [project.scripts]
 cafa-benchmark-builder = "cafa_benchmark_builder.cli:main"
+pfp-random-baseline = "cafa_benchmark_builder.random_baseline:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
