@@ -128,6 +128,52 @@ class RandomBaselineTest(unittest.TestCase):
         self.assertNotIn("TAS", stats["goa_evidence_counts"])
         self.assertNotIn("IC", stats["goa_evidence_counts"])
 
+    def test_t1_relabelling_resolves_split_alias_by_exact_sequence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            uniprot = root / "uniprot.dat"
+            uniprot.write_text(
+                "ID   FIRST_HUMAN Reviewed; 6 AA.\n"
+                "AC   PNEW01; POLD01;\n"
+                "OX   NCBI_TaxID=9606;\n"
+                "SQ   SEQUENCE 6 AA;\n"
+                "     MAAAAA\n"
+                "//\n"
+                "ID   SECOND_HUMAN Reviewed; 7 AA.\n"
+                "AC   PNEW02; POLD01;\n"
+                "OX   NCBI_TaxID=9606;\n"
+                "SQ   SEQUENCE 7 AA;\n"
+                "     MMAAAAA\n"
+                "//\n",
+                encoding="utf-8",
+            )
+            goa = root / "goa.gaf"
+            goa.write_text(
+                "!gaf-version: 2.2\n"
+                "UniProtKB\tPNEW01\tP1\t\tGO:0009987\tPMID:1\tIDA\t\tP\t"
+                "Protein one\t\tprotein\ttaxon:9606\t20260101\tUniProt\t\t\n",
+                encoding="utf-8",
+            )
+            source = pd.DataFrame({
+                "proteins": ["POLD01"],
+                "sequences": ["MAAAAA"],
+                "annotations": [{"GO:0008150"}],
+            })
+            benchmark_go = Ontology(FIXTURES / "go-mini.obo", with_rels=True)
+
+            relabelled, stats = _relabel_at_snapshot(
+                source,
+                (uniprot,),
+                goa,
+                benchmark_go,
+                benchmark_go,
+                SUPERVISOR_EXP_CODES,
+            )
+
+            self.assertEqual(relabelled.loc[0, "proteins"], "POLD01")
+            self.assertEqual(relabelled.loc[0, "sequences"], "MAAAAA")
+            self.assertEqual(stats["sequence_disambiguated_source_proteins"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

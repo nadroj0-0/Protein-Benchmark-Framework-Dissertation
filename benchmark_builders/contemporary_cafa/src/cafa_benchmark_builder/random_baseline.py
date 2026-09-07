@@ -120,8 +120,9 @@ def _relabel_at_snapshot(
     evidence_codes: frozenset[str],
 ) -> tuple[pd.DataFrame, dict[str, object]]:
     source_ids = set(source.proteins.astype(str))
+    source_sequences = dict(zip(source.proteins.astype(str), source.sequences.astype(str)))
     records = {}
-    source_to_primary = {}
+    source_candidates: dict[str, set[str]] = defaultdict(set)
     alias_candidates: dict[str, set[str]] = defaultdict(set)
 
     for path in uniprot_paths:
@@ -135,18 +136,35 @@ def _relabel_at_snapshot(
                 raise ValueError(f"Conflicting t1 sequences for {record.protein_id}")
             records[record.protein_id] = record
             for source_id in matched:
-                previous = source_to_primary.setdefault(source_id, record.protein_id)
-                if previous != record.protein_id:
-                    raise ValueError(f"Ambiguous t1 mapping for source protein {source_id}")
+                source_candidates[source_id].add(record.protein_id)
             for alias in identifiers:
                 alias_candidates[alias].add(record.protein_id)
 
-    missing_sequences = sorted(source_ids - set(source_to_primary))
+    missing_sequences = sorted(source_ids - set(source_candidates))
     if missing_sequences:
         raise ValueError(
             f"{len(missing_sequences)} source proteins have no t1 sequence mapping; first: "
             + ", ".join(missing_sequences[:10])
         )
+
+    source_to_primary = {}
+    sequence_disambiguated = 0
+    for source_id, candidates in source_candidates.items():
+        if len(candidates) == 1:
+            source_to_primary[source_id] = next(iter(candidates))
+            continue
+        exact = {
+            candidate
+            for candidate in candidates
+            if records[candidate].sequence == source_sequences[source_id]
+        }
+        if len(exact) != 1:
+            raise ValueError(
+                f"Ambiguous t1 mapping for source protein {source_id}: "
+                + ", ".join(sorted(candidates))
+            )
+        source_to_primary[source_id] = next(iter(exact))
+        sequence_disambiguated += 1
 
     primary_to_source: dict[str, str] = {}
     for source_id, primary in source_to_primary.items():
@@ -190,6 +208,7 @@ def _relabel_at_snapshot(
         )
     return pd.DataFrame(rows), {
         "mapped_source_proteins": len(source_to_primary),
+        "sequence_disambiguated_source_proteins": sequence_disambiguated,
         "qualifying_t1_proteins": len(rows),
         "goa_counters": dict(sorted(annotations.counters.items())),
         "goa_evidence_counts": dict(sorted(annotations.evidence_counts.items())),
