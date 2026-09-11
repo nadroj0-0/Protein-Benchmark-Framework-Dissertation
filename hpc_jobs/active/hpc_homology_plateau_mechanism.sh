@@ -95,7 +95,7 @@ if [[ -z "$FRAMEWORK_COMMIT" ]]; then
   FRAMEWORK_COMMIT="$(git_in_dir "$SUBMISSION_DIR" rev-parse HEAD)"
 fi
 [[ "$FRAMEWORK_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]] || die "FRAMEWORK_COMMIT must be complete"
-mkdir -p "$WORK" "$SCRATCH_OUTPUT"
+mkdir -p "$WORK"
 export MPLCONFIGDIR="$WORK/matplotlib"
 mkdir -p "$MPLCONFIGDIR"
 
