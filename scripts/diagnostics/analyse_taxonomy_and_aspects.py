@@ -391,6 +391,7 @@ def main() -> int:
     parser.add_argument("--homology-root", type=Path, required=True)
     parser.add_argument("--random-root", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--skip-plots", action="store_true")
     args = parser.parse_args()
     output = args.output_dir.resolve()
     if output.exists():
@@ -507,14 +508,16 @@ def main() -> int:
         "original_taxid", "resolved_taxid", "action", "scientific_name", "rank", "domain",
         "lineage_taxids", "lineage_names",
     ]))
-    plot_domain(domains, output)
-    plot_patterns(patterns, output)
-    plot_top_species(species, output)
+    if not args.skip_plots:
+        plot_domain(domains, output)
+        plot_patterns(patterns, output)
+        plot_top_species(species, output)
     summary = {
         "schema_name": "taxonomy-and-aspect-analysis", "schema_version": 1,
         "started_at": started, "completed_at": utc_now(),
         "benchmarks": sorted(memberships), "taxa_used": len(used_taxa),
         "unresolved_taxa": len([row for row in resolutions.values() if row["domain"] == "Unresolved"]),
+        "figures_generated": not args.skip_plots,
         "accepted_target_taxa": sorted(EXPECTED_TAXA, key=int),
         "interpretation_boundary": "Composition is descriptive and does not establish that taxonomy causes PFP performance differences.",
     }

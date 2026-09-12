@@ -889,6 +889,7 @@ def main() -> int:
     parser.add_argument("--go-obo", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--bootstrap-replicates", type=int, default=2000)
+    parser.add_argument("--skip-plots", action="store_true")
     args = parser.parse_args()
     threshold_dirs = dict(args.threshold_dir)
     if set(threshold_dirs) != set(THRESHOLD_ORDER) or len(args.threshold_dir) != len(THRESHOLD_ORDER):
@@ -907,13 +908,15 @@ def main() -> int:
         args.standard_predictions, args.random_predictions, go_graph, output,
         args.bootstrap_replicates,
     )
-    plot_outputs(output)
+    if not args.skip_plots:
+        plot_outputs(output)
     combined = {
         "schema_name": "homology-plateau-mechanism", "schema_version": 1,
         "started_at": started, "completed_at": utc_now(),
         "thresholds": threshold_rows,
         "identity_10_and_5_duplicate": cluster_report["report"]["identity_10_and_5_duplicate"],
         "test_overlap": exposure_report["report"]["test_overlap"],
+        "figures_generated": not args.skip_plots,
         "interpretation_boundary": "Results are diagnostics of accepted operational MMseqs2 clusters and fixed model checkpoints, not proof of evolutionary ancestry or causality.",
     }
     atomic_write_json(output / "homology_plateau_mechanism.json", combined)

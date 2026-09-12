@@ -109,6 +109,7 @@ git_in_dir "$FRAMEWORK_DIR" checkout --detach "$FRAMEWORK_COMMIT"
   --nklk-root "$NKLK_ROOT" \
   --homology-root "$HOMOLOGY_ROOT" \
   --random-root "$RANDOM_BENCHMARK" \
+  --skip-plots \
   --output-dir "$SCRATCH_OUTPUT"
 
 [[ -f "$SCRATCH_OUTPUT/RUN_COMPLETE.json" ]] || die "Analysis completion marker is missing"

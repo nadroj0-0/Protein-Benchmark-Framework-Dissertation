@@ -120,6 +120,7 @@ git_in_dir "$FRAMEWORK_DIR" checkout --detach "$FRAMEWORK_COMMIT"
   --standard-predictions "$STANDARD_PREDICTIONS" \
   --go-obo "$GO_OBO" \
   --bootstrap-replicates 2000 \
+  --skip-plots \
   --output-dir "$SCRATCH_OUTPUT"
 
 [[ -f "$SCRATCH_OUTPUT/RUN_COMPLETE.json" ]] || die "Analysis completion marker is missing"
