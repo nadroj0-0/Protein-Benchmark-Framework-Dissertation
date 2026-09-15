@@ -188,6 +188,7 @@ submit_job calibration ml30_cal "$PREDICTION_CAPTURE_JOB" "$CALIBRATION_DIR" \
   -v "FRAMEWORK_COMMIT=$FRAMEWORK_COMMIT" \
   hpc_jobs/active/hpc_contemporary_followup_analysis.sh \
   --analysis calibration --capture-pair-dir "$PREDICTION_CAPTURE_DIR" \
+  --source-run "$MODEL_RUN_DIR" --obo "$HOMOLOGY_OBO" \
   --source-label "$SOURCE_LABEL" --output-dir "$CALIBRATION_DIR"
 CALIBRATION_JOB="$SUBMITTED_JOB_ID"
 
